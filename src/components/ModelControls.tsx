@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Sliders, FileCode } from 'lucide-react';
+import { Download, Sliders, FileCode, BrainCircuit } from 'lucide-react';
 import { ModelParams } from '../types';
 
 interface ModelControlsProps {
@@ -40,6 +40,20 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             {params.type}
           </span>
         </div>
+
+        {/* AI Design Rationale Panel */}
+        {params.rationale && (
+          <div className="mb-5 bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3.5 relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 to-fuchsia-500 rounded-l-xl opacity-70"></div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <BrainCircuit className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-300">AI Design Rationale</span>
+            </div>
+            <p className="text-xs text-indigo-200/70 leading-relaxed italic pr-2">
+              "{params.rationale}"
+            </p>
+          </div>
+        )}
 
         {/* Parametric Sliders Header */}
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-300 mb-4">

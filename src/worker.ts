@@ -32,6 +32,7 @@ JSON Schema:
   "type": "sd_holder" | "cable_clip" | "keychain" | "wall_hook" | "phone_stand" | "hex_tray" | "csg",
   "title": "A short descriptive name (2-5 words)",
   "description": "A 1-sentence summary of the design and print advice",
+  "rationale": "Chain of thought: Explain step-by-step how you will break down the object into primitive shapes and compose it.",
   "width": number in mm (range 15-200),
   "depth": number in mm (range 15-200),
   "height": number in mm (range 3-150),
@@ -81,7 +82,7 @@ You are an expert CAD engineer. You build models by combining 3D primitives (Con
    - To make a hole in the "top center", subtract a vertical cylinder at 'x': 0, 'z': 0, and 'y' shifted to the top face (e.g. 'y': height/2). 
    - To make a hole in the front face, subtract a horizontal cylinder (rotationX=1.5708) at 'z': depth/2.
    - Make subtracting hole cylinders longer than the wall they are piercing to guarantee a clean cut!
-6. Operations Order: Start with an "add" base shape, then "subtract" inner cavities to hollow it out, then "subtract" external holes, then "add" exterior mounts/flanges.
+6. Complex Objects & Multi-Part Assembly: You are not limited to just boxes! You can build cars, boats (Benchy), buildings, or robots by assembling multiple primitives. Use 'add' to combine hulls, cabins, noses, and wheels. Example: A boat has a hull (box), a bow (pyramid), a cabin (smaller box), and a smokestack (cylinder). Think creatively!
 7. Twist Modifier: You can apply a global "twist" (in degrees) to the final model. Use this for generating spirals, frozen yogurt twirls, screw threads, or organic shapes. Example: "twist": 720. If twisting a cylinder, MUST set "segments" to 5, 6, or 8 so the twist is visible (a perfectly round cylinder looks the same when twisted)!`;
 
       const apiMessages = [{ role: 'system', content: systemPrompt }];

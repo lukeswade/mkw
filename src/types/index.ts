@@ -31,6 +31,7 @@ export interface ModelParams {
   type: ModelType;
   title: string;
   description: string;
+  rationale?: string; // AI's internal thought process for the design
   width: number; // in mm
   depth: number; // in mm
   height: number; // in mm
