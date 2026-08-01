@@ -1,0 +1,12 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output
+dist
+.vitesse
+.wrangler
+
+# System files
+.DS_Store
+*.log

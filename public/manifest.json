@@ -1,0 +1,23 @@
+{
+  "short_name": "MKW 3D",
+  "name": "MKW AI 3D Printing Studio",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "id": "/",
+  "start_url": "/",
+  "background_color": "#090d16",
+  "theme_color": "#4f46e5",
+  "display": "standalone",
+  "orientation": "any",
+  "description": "Turn your 3D printing ideas into downloadable .STL and .3MF files with Cloudflare AI."
+}
