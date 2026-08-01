@@ -97,10 +97,11 @@ function createHollowBox(w: number, d: number, h: number, wall: number, radius: 
   const floorGeo = new THREE.ExtrudeGeometry(outerShape, {
     depth: wall,
     bevelEnabled: true,
-    bevelSegments: 3,
+    bevelSegments: 6,
     steps: 1,
     bevelSize: 0.5,
     bevelThickness: 0.5,
+    curveSegments: 32,
   });
   floorGeo.rotateX(Math.PI / 2);
 
@@ -110,6 +111,7 @@ function createHollowBox(w: number, d: number, h: number, wall: number, radius: 
     depth: h - wall,
     bevelEnabled: false,
     steps: 1,
+    curveSegments: 32,
   });
   wallGeo.rotateX(Math.PI / 2);
   wallGeo.translate(0, wall, 0);
@@ -152,14 +154,14 @@ function createCableClip(w: number, d: number, h: number, holeDia: number, wall:
   holePath.absarc(0, outerRadius, innerRadius, 0, Math.PI * 2, true);
   clipShape.holes.push(holePath);
 
-  const mainGeo = new THREE.ExtrudeGeometry(clipShape, { depth: d, bevelEnabled: true, bevelSize: 0.8, bevelThickness: 0.8 });
+  const mainGeo = new THREE.ExtrudeGeometry(clipShape, { depth: d, bevelEnabled: true, bevelSize: 0.8, bevelThickness: 0.8, bevelSegments: 6, curveSegments: 32 });
 
   // Base mounting tab
   const tabGeo = new THREE.BoxGeometry(w, wall * 2, d);
   tabGeo.translate(0, wall, d / 2);
 
   // Screw hole cutout simulation
-  const screwHole = new THREE.CylinderGeometry(holeDia / 2, holeDia / 2, wall * 3, 16);
+  const screwHole = new THREE.CylinderGeometry(holeDia / 2, holeDia / 2, wall * 3, 32);
   screwHole.translate(w / 3, wall, d / 2);
 
   return mergeBufferGeometries([mainGeo, tabGeo]);
@@ -193,6 +195,8 @@ function createKeychainTag(w: number, d: number, h: number): THREE.BufferGeometr
     bevelEnabled: true,
     bevelSize: 0.6,
     bevelThickness: 0.6,
+    bevelSegments: 6,
+    curveSegments: 32,
   });
   tagGeo.rotateX(Math.PI / 2);
 
@@ -221,7 +225,7 @@ function createKeychainTag(w: number, d: number, h: number): THREE.BufferGeometr
   innerRimPath.quadraticCurveTo(-hw + rimWall, -hd + rimWall, -hw + r + rimWall, -hd + rimWall);
   rimShape.holes.push(innerRimPath);
 
-  const rimGeo = new THREE.ExtrudeGeometry(rimShape, { depth: 1.2, bevelEnabled: false });
+  const rimGeo = new THREE.ExtrudeGeometry(rimShape, { depth: 1.2, bevelEnabled: false, curveSegments: 32 });
   rimGeo.rotateX(Math.PI / 2);
   rimGeo.translate(0, h, 0);
 
@@ -233,11 +237,11 @@ function createWallHook(w: number, d: number, h: number, wall: number): THREE.Bu
   const backplate = new THREE.BoxGeometry(w, h, wall * 1.5);
   backplate.translate(0, h / 2, wall * 0.75);
 
-  const hookArch = new THREE.TorusGeometry(d / 2, wall, 12, 24, Math.PI * 0.85);
+  const hookArch = new THREE.TorusGeometry(d / 2, wall, 32, 64, Math.PI * 0.85);
   hookArch.rotateY(Math.PI / 2);
   hookArch.translate(0, wall * 2, d / 2 + wall);
 
-  const tip = new THREE.SphereGeometry(wall * 1.2, 16, 16);
+  const tip = new THREE.SphereGeometry(wall * 1.2, 32, 32);
   tip.translate(0, d / 2 + wall * 2, d * 0.8);
 
   return mergeBufferGeometries([backplate, hookArch, tip]);
@@ -258,7 +262,7 @@ function createPhoneStand(w: number, d: number, h: number, wall: number): THREE.
   shape.lineTo(0, wall * 2);
   shape.closePath();
 
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: w, bevelEnabled: true, bevelSize: 0.5, bevelThickness: 0.5 });
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: w, bevelEnabled: true, bevelSize: 0.5, bevelThickness: 0.5, bevelSegments: 6, curveSegments: 32 });
   geo.rotateY(-Math.PI / 2);
   geo.translate(w / 2, 0, 0);
 

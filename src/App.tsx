@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Header } from './components/Header';
 import { PromptSection } from './components/PromptSection';
 import { ThreeCanvas } from './components/ThreeCanvas';
@@ -18,6 +18,14 @@ export const App: React.FC = () => {
   const [material, setMaterial] = useState<MaterialType>('PLA');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-dismiss error
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // Generate 3D BufferGeometry on parameter change
   const currentGeometry = useMemo(() => {
@@ -108,14 +116,17 @@ export const App: React.FC = () => {
         />
 
         {/* Error Alert */}
-        {error && (
-          <div className="max-w-7xl mx-auto px-4 lg:px-8 mt-4">
-            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+        <div className={`max-w-7xl mx-auto px-4 lg:px-8 mt-4 transition-all duration-300 ${error ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none absolute'}`}>
+          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-2 shadow-lg shadow-rose-500/10">
+            <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{error}</span>
             </div>
+            <button onClick={() => setError(null)} className="p-1 hover:bg-rose-500/20 rounded-md transition-colors text-rose-400">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
           </div>
-        )}
+        </div>
 
         {/* Main 3D Studio Content */}
         <main className="max-w-7xl mx-auto px-4 lg:px-8 py-6">
@@ -131,6 +142,7 @@ export const App: React.FC = () => {
                 widthMm={modelParams.width}
                 depthMm={modelParams.depth}
                 heightMm={modelParams.height}
+                isGenerating={isGenerating}
               />
             </div>
 
