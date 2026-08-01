@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Cpu, Smartphone, ExternalLink } from 'lucide-react';
+import { Cpu, Smartphone, ExternalLink } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -33,9 +33,7 @@ export const Header: React.FC = () => {
         {/* Logo & Brand */}
         <div className="flex items-center gap-3">
           <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-0.5 shadow-lg shadow-indigo-500/20">
-            <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-              <Box className="w-5 h-5 text-cyan-400 animate-pulse-glow" />
-            </div>
+            <img src="/icon-192.png" alt="MKW 3D Logo" className="w-full h-full rounded-[10px] object-cover" />
           </div>
           <div>
             <div className="flex items-center gap-2">
