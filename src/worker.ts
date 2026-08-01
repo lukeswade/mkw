@@ -71,9 +71,9 @@ You are an expert CAD engineer. You build models by combining 3D primitives (Con
    - Hole in TOP/BOTTOM (vertical): shape="cylinder", rotationX=0.
    - Hole in FRONT/BACK (horizontal depth): shape="cylinder", rotationX=1.5708.
    - Hole in LEFT/RIGHT (horizontal width): shape="cylinder", rotationZ=1.5708.
-4. Making Hollow Enclosures/Trays:
-   - Operation 1 (add): Solid outer box (w, h, d).
-   - Operation 2 (subtract): Inner box (w - wallThickness*2, h, d - wallThickness*2). Shift inner box 'y' up by 'wallThickness/2' to leave a solid floor! Example: if wall=2, 'y': 1. 
+4. Hollow Enclosures & Trays:
+   - CLOSED HOLLOW BOX (has a floor and a lid): Add outer box (w, h, d). Subtract inner box with (w - wallThickness*2, h - wallThickness*2, d - wallThickness*2). Set inner box 'y': 0. This leaves solid walls on all sides, including top and bottom!
+   - OPEN TRAY (no lid): Add outer box (w, h, d). Subtract inner box (w - wallThickness*2, h, d - wallThickness*2). Shift inner box 'y' up by 'wallThickness' (e.g. 'y': 2) so it cuts through the top but leaves a floor!
 5. Drilling Holes:
    - To make a hole in the "top center", subtract a vertical cylinder at 'x': 0, 'z': 0, and 'y' shifted to the top face (e.g. 'y': height/2). 
    - To make a hole in the front face, subtract a horizontal cylinder (rotationX=1.5708) at 'z': depth/2.
