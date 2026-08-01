@@ -23,6 +23,7 @@ export interface CSGOperation {
   rotationX?: number;
   rotationY?: number;
   rotationZ?: number;
+  twist?: number;
 }
 
 export interface ModelParams {
@@ -44,6 +45,7 @@ export interface ModelParams {
     angle?: number;
     pattern?: string;
   };
+  twist?: number; // Global twist applied to the final shape (degrees)
   operations?: CSGOperation[];
 }
 

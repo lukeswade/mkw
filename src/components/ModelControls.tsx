@@ -70,7 +70,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
           {/* Depth (Y) */}
           <div>
             <div className="flex justify-between text-xs text-slate-300 font-mono mb-1">
-              <span>Depth (Y)</span>
+              <span>Depth (Z)</span>
               <span className="text-cyan-400 font-bold">{params.depth} mm</span>
             </div>
             <input
@@ -87,7 +87,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
           {/* Height (Z) */}
           <div>
             <div className="flex justify-between text-xs text-slate-300 font-mono mb-1">
-              <span>Height (Z)</span>
+              <span>Height (Y)</span>
               <span className="text-cyan-400 font-bold">{params.height} mm</span>
             </div>
             <input

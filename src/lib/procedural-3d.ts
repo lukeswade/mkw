@@ -65,6 +65,11 @@ export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeomet
       break;
   }
 
+  // Apply Twist Modifier if specified!
+  if (params.twist && params.twist !== 0) {
+    applyTwist(geometry, params.twist);
+  }
+
   // Ensure origin is centered on print bed Z=0
   geometry.computeBoundingBox();
   if (geometry.boundingBox) {
@@ -73,6 +78,51 @@ export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeomet
   }
 
   return geometry;
+}
+
+/**
+ * Global Twist Modifier!
+ * Modifies the final BufferGeometry by rotating vertices along the Y axis 
+ * proportional to their height. This allows for spirals, twirls, threads, etc.
+ */
+function applyTwist(geometry: THREE.BufferGeometry, twistDegrees: number) {
+  geometry.computeBoundingBox();
+  if (!geometry.boundingBox) return;
+  
+  const minY = geometry.boundingBox.min.y;
+  const maxY = geometry.boundingBox.max.y;
+  const height = maxY - minY;
+  if (height === 0) return;
+  
+  const twistRadians = twistDegrees * (Math.PI / 180);
+  const positionAttribute = geometry.attributes.position;
+  const vertex = new THREE.Vector3();
+
+  // If geometry isn't non-indexed, you'd usually want to convert it to non-indexed 
+  // for flat shading, but CSG geometries are usually fine, and basic shapes 
+  // can twist fine if vertices are shared correctly.
+  
+  for (let i = 0; i < positionAttribute.count; i++) {
+    vertex.fromBufferAttribute(positionAttribute, i);
+    
+    const yFraction = (vertex.y - minY) / height; 
+    const angle = yFraction * twistRadians;
+    
+    const cosAngle = Math.cos(angle);
+    const sinAngle = Math.sin(angle);
+    
+    const x = vertex.x;
+    const z = vertex.z;
+    
+    // Rotate around Y axis
+    vertex.x = x * cosAngle - z * sinAngle;
+    vertex.z = x * sinAngle + z * cosAngle;
+    
+    positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+  }
+  
+  // Recompute normals since the surface has curled
+  geometry.computeVertexNormals();
 }
 
 // 1. Hollow Box / Storage Container

@@ -103,34 +103,37 @@ export const PromptSection: React.FC<PromptSectionProps> = ({
           </div>
         </form>
 
-        {/* Presets & Ideas Header */}
-        <div className="flex items-center justify-center gap-2 mb-3">
-          <Lightbulb className="w-4 h-4 text-amber-400" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Or pick a 3D Print Idea Preset
-          </span>
-        </div>
-
-        {/* Presets Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 max-w-4xl mx-auto">
-          {PRESET_IDEAS.map((preset) => (
-            <button
-              key={preset.id}
-              onClick={() => {
-                setPrompt(preset.prompt);
-                onSelectPreset(preset.params, preset.prompt);
-              }}
-              className="flex flex-col items-center justify-center p-3 rounded-xl glass-panel hover:border-indigo-500/50 hover:bg-slate-900/90 transition-all text-left group"
-            >
-              <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 group-hover:border-indigo-500/40 mb-2 transition-colors">
-                {getIcon(preset.icon)}
-              </div>
-              <span className="text-xs font-medium text-slate-200 text-center line-clamp-1 group-hover:text-indigo-300">
-                {preset.title}
+        {/* Presets Grid - Hide if conversation has started */}
+        {conversation.length === 0 && (
+          <>
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <Lightbulb className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Or pick a 3D Print Idea Preset
               </span>
-            </button>
-          ))}
-        </div>
+            </div>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 max-w-4xl mx-auto">
+              {PRESET_IDEAS.map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => {
+                    setPrompt(preset.prompt);
+                    onSelectPreset(preset.params, preset.prompt);
+                  }}
+                  className="flex flex-col items-center justify-center p-3 rounded-xl glass-panel hover:border-indigo-500/50 hover:bg-slate-900/90 transition-all text-left group"
+                >
+                  <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 group-hover:border-indigo-500/40 mb-2 transition-colors">
+                    {getIcon(preset.icon)}
+                  </div>
+                  <span className="text-xs font-medium text-slate-200 text-center line-clamp-1 group-hover:text-indigo-300">
+                    {preset.title}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
       </div>
     </section>

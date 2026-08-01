@@ -39,6 +39,7 @@ JSON Schema:
   "holeDiameter": number in mm (range 0-12),
   "roundedRadius": number in mm (range 0-10),
   "textLabel": "optional text string",
+  "twist": "optional number of degrees to twist the entire model (e.g. 360)",
   "operations": [
     {
       "op": "add" | "subtract" | "intersect",
@@ -79,7 +80,8 @@ You are an expert CAD engineer. You build models by combining 3D primitives (Con
    - To make a hole in the "top center", subtract a vertical cylinder at 'x': 0, 'z': 0, and 'y' shifted to the top face (e.g. 'y': height/2). 
    - To make a hole in the front face, subtract a horizontal cylinder (rotationX=1.5708) at 'z': depth/2.
    - Make subtracting hole cylinders longer than the wall they are piercing to guarantee a clean cut!
-6. Operations Order: Start with an "add" base shape, then "subtract" inner cavities to hollow it out, then "subtract" external holes, then "add" exterior mounts/flanges.`;
+6. Operations Order: Start with an "add" base shape, then "subtract" inner cavities to hollow it out, then "subtract" external holes, then "add" exterior mounts/flanges.
+7. Twist Modifier: You can apply a global "twist" (in degrees) to the final model. Use this for generating spirals, frozen yogurt twirls, screw threads, or organic shapes. Example: "twist": 720.`;
 
       const apiMessages = [{ role: 'system', content: systemPrompt }];
       if (messages.length > 0) {
