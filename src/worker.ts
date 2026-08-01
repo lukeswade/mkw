@@ -37,7 +37,9 @@ JSON Schema:
   "wallThickness": number in mm (range 1.5-6),
   "holeDiameter": number in mm (range 0-12),
   "roundedRadius": number in mm (range 0-10),
-  "textLabel": "optional text string for tags/keychains"
+  "textLabel": "optional text string for tags/keychains",
+  "baseShape": "box" | "cylinder" | "sphere" | "cone" | "torus" | "pyramid",
+  "isHollow": boolean
 }
 
 Select the closest matching "type":
@@ -48,7 +50,9 @@ Select the closest matching "type":
 - "phone_stand" for phone, tablet, or desk device stands
 - "hex_tray" for hex trays, screw catch-alls, honeycomb organizers
 - "box" for boxes, trays, desk bins, hollow containers
-- "custom" for any other solid or parametric 3D object`;
+- "custom" for any other solid or parametric 3D object.
+
+CRITICAL: If "type" is "custom", you MUST select an appropriate "baseShape" (e.g. cylinder for cups/tubes, sphere for balls, torus for rings, box for bricks) and set "isHollow" (true for cups/tubes/vases, false for solid objects).`;
 
       const aiResponse = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct', {
         messages: [
@@ -176,6 +180,51 @@ function parsePromptFallback(prompt: string) {
       wallThickness: 3,
       holeDiameter: 0,
       roundedRadius: 0,
+    };
+  }
+
+  // Primitive Shape Fallbacks
+  if (lower.includes('cylinder') || lower.includes('tube') || lower.includes('cup') || lower.includes('vase')) {
+    return {
+      type: 'custom',
+      baseShape: 'cylinder',
+      isHollow: lower.includes('tube') || lower.includes('cup') || lower.includes('vase'),
+      title: 'Custom Cylindrical Object',
+      description: 'A cylindrical geometry generated based on your prompt.',
+      width: 60, depth: 60, height: 80, wallThickness: 2, holeDiameter: 0, roundedRadius: 0,
+    };
+  }
+
+  if (lower.includes('sphere') || lower.includes('ball') || lower.includes('orb')) {
+    return {
+      type: 'custom',
+      baseShape: 'sphere',
+      isHollow: false,
+      title: 'Solid Sphere',
+      description: 'A solid spherical object.',
+      width: 50, depth: 50, height: 50, wallThickness: 2, holeDiameter: 0, roundedRadius: 0,
+    };
+  }
+
+  if (lower.includes('ring') || lower.includes('torus') || lower.includes('donut')) {
+    return {
+      type: 'custom',
+      baseShape: 'torus',
+      isHollow: false,
+      title: 'Torus Ring',
+      description: 'A toroidal ring structure.',
+      width: 60, depth: 60, height: 10, wallThickness: 10, holeDiameter: 0, roundedRadius: 0,
+    };
+  }
+
+  if (lower.includes('cone') || lower.includes('pyramid') || lower.includes('spike')) {
+    return {
+      type: 'custom',
+      baseShape: lower.includes('pyramid') ? 'pyramid' : 'cone',
+      isHollow: false,
+      title: 'Conical Object',
+      description: 'A conical or pyramidal structure.',
+      width: 50, depth: 50, height: 70, wallThickness: 2, holeDiameter: 0, roundedRadius: 0,
     };
   }
 

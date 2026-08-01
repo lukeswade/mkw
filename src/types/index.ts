@@ -20,6 +20,8 @@ export interface ModelParams {
   roundedRadius: number; // in mm
   textLabel?: string;
   subType?: string;
+  baseShape?: 'box' | 'cylinder' | 'sphere' | 'cone' | 'torus' | 'pyramid';
+  isHollow?: boolean;
   customDetails?: {
     slotsCount?: number;
     angle?: number;

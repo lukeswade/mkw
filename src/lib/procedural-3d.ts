@@ -10,6 +10,8 @@ export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeomet
     wallThickness = 2.5,
     holeDiameter = 4.5,
     roundedRadius = 4,
+    baseShape,
+    isHollow,
   } = params;
 
   let geometry: THREE.BufferGeometry;
@@ -45,7 +47,7 @@ export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeomet
 
     case 'custom':
     default:
-      geometry = createCustomParametricShape(width, depth, height, wallThickness, roundedRadius);
+      geometry = createCustomParametricShape(width, depth, height, wallThickness, roundedRadius, baseShape, isHollow);
       break;
   }
 
@@ -308,8 +310,57 @@ function createHexagonTray(w: number, d: number, h: number, wall: number): THREE
 }
 
 // 8. Custom Parametric Fallback Shape
-function createCustomParametricShape(w: number, d: number, h: number, wall: number, radius: number): THREE.BufferGeometry {
-  return createHollowBox(w, d, h, wall, radius);
+function createCustomParametricShape(w: number, d: number, h: number, wall: number, radius: number, baseShape?: string, isHollow?: boolean): THREE.BufferGeometry {
+  if (baseShape === 'cylinder') {
+    if (isHollow) {
+      const shape = new THREE.Shape();
+      const hw = Math.max(w / 2, 1);
+      shape.absarc(0, 0, hw, 0, Math.PI * 2, false);
+      const holePath = new THREE.Path();
+      holePath.absarc(0, 0, Math.max(0.1, hw - wall), 0, Math.PI * 2, true);
+      shape.holes.push(holePath);
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false, curveSegments: 32 });
+      geo.rotateX(Math.PI / 2);
+      geo.translate(0, h, 0);
+      return geo;
+    } else {
+      const geo = new THREE.CylinderGeometry(w / 2, w / 2, h, 32);
+      geo.translate(0, h / 2, 0);
+      return geo;
+    }
+  }
+  if (baseShape === 'sphere') {
+    const geo = new THREE.SphereGeometry(w / 2, 32, 32);
+    geo.translate(0, w / 2, 0);
+    return geo;
+  }
+  if (baseShape === 'cone') {
+    const geo = new THREE.ConeGeometry(w / 2, h, 32);
+    geo.translate(0, h / 2, 0);
+    return geo;
+  }
+  if (baseShape === 'torus') {
+    const geo = new THREE.TorusGeometry(w / 2, wall, 32, 64);
+    geo.rotateX(Math.PI / 2);
+    geo.translate(0, wall, 0);
+    return geo;
+  }
+  if (baseShape === 'pyramid') {
+    const geo = new THREE.CylinderGeometry(0, w / 2, h, 4);
+    geo.rotateY(Math.PI / 4);
+    geo.translate(0, h / 2, 0);
+    return geo;
+  }
+
+  // Default box fallback
+  if (isHollow === false) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    geo.translate(0, h / 2, 0);
+    return geo;
+  } else {
+    // Default to a hollow box if not specified otherwise
+    return createHollowBox(w, d, h, wall, radius);
+  }
 }
 
 // Utility to combine multiple buffer geometries safely
