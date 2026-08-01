@@ -5,14 +5,16 @@ import { ModelParams } from '../types';
 
 interface PromptSectionProps {
   onGenerate: (prompt: string) => void;
-  onSelectPreset: (params: ModelParams) => void;
+  onSelectPreset: (params: ModelParams, presetPrompt: string) => void;
   isGenerating: boolean;
+  conversation: {role: string, content: string}[];
 }
 
 export const PromptSection: React.FC<PromptSectionProps> = ({
   onGenerate,
   onSelectPreset,
   isGenerating,
+  conversation,
 }) => {
   const [prompt, setPrompt] = useState('');
 
@@ -20,6 +22,7 @@ export const PromptSection: React.FC<PromptSectionProps> = ({
     e.preventDefault();
     if (prompt.trim() && !isGenerating) {
       onGenerate(prompt.trim());
+      setPrompt('');
     }
   };
 
@@ -54,6 +57,17 @@ export const PromptSection: React.FC<PromptSectionProps> = ({
         <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto mb-6">
           Describe what you want to print. AI generates parametric 3D geometry with live WebGL preview & slicer estimates.
         </p>
+
+        {/* Chat History */}
+        {conversation.length > 0 && (
+          <div className="max-w-2xl mx-auto mb-4 flex flex-col gap-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+            {conversation.filter(m => m.role === 'user').map((msg, i) => (
+              <div key={i} className="self-end bg-indigo-500/20 border border-indigo-500/30 text-indigo-100 text-sm px-4 py-2.5 rounded-2xl rounded-tr-sm shadow-sm inline-block max-w-[85%] text-left">
+                {msg.content}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Input Box */}
         <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto mb-6">
@@ -104,7 +118,7 @@ export const PromptSection: React.FC<PromptSectionProps> = ({
               key={preset.id}
               onClick={() => {
                 setPrompt(preset.prompt);
-                onSelectPreset(preset.params);
+                onSelectPreset(preset.params, preset.prompt);
               }}
               className="flex flex-col items-center justify-center p-3 rounded-xl glass-panel hover:border-indigo-500/50 hover:bg-slate-900/90 transition-all text-left group"
             >

@@ -18,6 +18,7 @@ export const App: React.FC = () => {
   const [material, setMaterial] = useState<MaterialType>('PLA');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversation, setConversation] = useState<{role: string, content: string}[]>([]);
 
   // Auto-dismiss error
   useEffect(() => {
@@ -37,22 +38,25 @@ export const App: React.FC = () => {
     return calculatePrintAnalytics(currentGeometry, material);
   }, [currentGeometry, material]);
 
-  // Handle AI Prompt Submit
   const handleGenerate = async (promptText: string) => {
     setIsGenerating(true);
     setError(null);
+
+    const updatedConversation = [...conversation, { role: 'user', content: promptText }];
+    setConversation(updatedConversation);
 
     try {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: promptText }),
+        body: JSON.stringify({ prompt: promptText, messages: updatedConversation }),
       });
 
       const data = await response.json();
 
       if (data.success && data.params) {
         setModelParams(data.params);
+        setConversation([...updatedConversation, { role: 'assistant', content: JSON.stringify(data.params) }]);
       } else {
         throw new Error(data.error || 'Failed to generate 3D model.');
       }
@@ -110,8 +114,12 @@ export const App: React.FC = () => {
 
         {/* Hero & Prompt Section */}
         <PromptSection
+          conversation={conversation}
           onGenerate={handleGenerate}
-          onSelectPreset={(presetParams) => setModelParams(presetParams)}
+          onSelectPreset={(presetParams, presetPrompt) => {
+            setConversation([{ role: 'user', content: presetPrompt }, { role: 'assistant', content: JSON.stringify(presetParams) }]);
+            setModelParams(presetParams);
+          }}
           isGenerating={isGenerating}
         />
 

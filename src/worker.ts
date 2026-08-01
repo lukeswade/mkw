@@ -13,9 +13,10 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.post('/api/generate', async (c) => {
   try {
     const body = await c.req.json();
+    const messages = body?.messages || [];
     const userPrompt = body?.prompt || '';
 
-    if (!userPrompt.trim()) {
+    if (!userPrompt.trim() && messages.length === 0) {
       return c.json({ error: 'Prompt cannot be empty' }, 400);
     }
 
@@ -80,11 +81,15 @@ You are an expert CAD engineer. You build models by combining 3D primitives (Con
    - Make subtracting hole cylinders longer than the wall they are piercing to guarantee a clean cut!
 6. Operations Order: Start with an "add" base shape, then "subtract" inner cavities to hollow it out, then "subtract" external holes, then "add" exterior mounts/flanges.`;
 
+      const apiMessages = [{ role: 'system', content: systemPrompt }];
+      if (messages.length > 0) {
+        apiMessages.push(...messages);
+      } else {
+        apiMessages.push({ role: 'user', content: userPrompt });
+      }
+
       const aiResponse = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
+        messages: apiMessages,
         temperature: 0.2,
         max_tokens: 500,
       });
