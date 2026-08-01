@@ -48,15 +48,6 @@ export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeomet
 
     case 'csg':
       geometry = buildCSGGeometry(params.operations || []);
-      geometry.computeBoundingBox();
-      if (geometry.boundingBox) {
-        const sizeX = geometry.boundingBox.max.x - geometry.boundingBox.min.x;
-        const sizeY = geometry.boundingBox.max.y - geometry.boundingBox.min.y;
-        const sizeZ = geometry.boundingBox.max.z - geometry.boundingBox.min.z;
-        if (sizeX > 0 && sizeY > 0 && sizeZ > 0) {
-          geometry.scale(width / sizeX, height / sizeY, depth / sizeZ);
-        }
-      }
       break;
 
     case 'custom':

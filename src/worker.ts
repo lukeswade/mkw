@@ -86,26 +86,32 @@ Select the closest matching "type". If it is a generic object, box, case, enclos
 
 CRITICAL CSG MODELING RULES (If type is "csg"):
 You are an expert CAD engineer. You build models by combining 3D primitives (Constructive Solid Geometry).
-1. Coordinate System (Three.js): Center is (0,0,0). 
+1. Coordinate System (Three.js): Center of every primitive is at its (x, y, z) position.
    - X-axis = Width (left/right)
-   - Y-axis = Height (up/down). A box of height H goes from Y = -H/2 to +H/2.
+   - Y-axis = Height (up/down). A shape of height H centered at y=0 extends from Y = -H/2 to +H/2.
    - Z-axis = Depth (front/back).
-2. Primitives:
+2. Stacking & Alignment Math:
+   - To stack shape B (height H2) directly ON TOP of shape A (height H1, position y1):
+     Set shape B's y = y1 + (H1/2) + (H2/2).
+   - To place shape B directly UNDER shape A:
+     Set shape B's y = y1 - (H1/2) - (H2/2).
+   - ALWAYS make overlapping surfaces overlap by 1-2mm so CSG union works properly without leaving gaps!
+3. Primitives & Orientation:
    - "box": requires 'width' (X), 'height' (Y), 'depth' (Z).
    - "cylinder": requires 'radius' and 'height' (Y). Default orientation stands vertically (along Y axis).
-3. Orienting Cylinders for Holes:
+   - "cone": requires 'radius' and 'height' (Y). Default orientation has the point facing UP (+Y). To point down (-Y), set "rotationX": 3.14159.
+   - "sphere": requires 'radius'.
+4. Hole & Cutout Rules:
    - Hole in TOP/BOTTOM (vertical): shape="cylinder", rotationX=0.
    - Hole in FRONT/BACK (horizontal depth): shape="cylinder", rotationX=1.5708.
    - Hole in LEFT/RIGHT (horizontal width): shape="cylinder", rotationZ=1.5708.
-4. Hollow Enclosures & Trays:
-   - CLOSED HOLLOW BOX (has a floor and a lid): Add outer box (w, h, d). Subtract inner box with (w - wallThickness*2, h - wallThickness*2, d - wallThickness*2). Set inner box 'y': 0. This leaves solid walls on all sides, including top and bottom!
-   - OPEN TRAY (no lid): Add outer box (w, h, d). Subtract inner box (w - wallThickness*2, h, d - wallThickness*2). Shift inner box 'y' up by 'wallThickness' (e.g. 'y': 2) so it cuts through the top but leaves a floor!
-5. Drilling Holes:
-   - To make a hole in the "top center", subtract a vertical cylinder at 'x': 0, 'z': 0, and 'y' shifted to the top face (e.g. 'y': height/2). 
-   - To make a hole in the front face, subtract a horizontal cylinder (rotationX=1.5708) at 'z': depth/2.
    - Make subtracting hole cylinders longer than the wall they are piercing to guarantee a clean cut!
-6. Complex Objects & Multi-Part Assembly: You are not limited to just boxes! You can build cars, boats (Benchy), buildings, or robots by assembling multiple primitives. Use 'add' to combine hulls, cabins, noses, and wheels. Example: A boat has a hull (box), a bow (pyramid), a cabin (smaller box), and a smokestack (cylinder). Think creatively!
-7. Twist Modifier: You can apply a global "twist" (in degrees) to the final model. Use this for generating spirals, frozen yogurt twirls, screw threads, or organic shapes. Example: "twist": 720. If twisting a cylinder, MUST set "segments" to 5, 6, or 8 so the twist is visible (a perfectly round cylinder looks the same when twisted)!`;
+5. Multi-Part Examples:
+   - Spinning Top:
+     a) Top handle: cylinder (radius: 3, height: 20, y: 30)
+     b) Main body: cylinder or sphere (radius: 20, height: 15, y: 12.5)
+     c) Bottom tip: cone (radius: 20, height: 20, y: -5, rotationX: 3.14159) -- points down, seamlessly connected!
+6. Twist Modifier: You can apply a global "twist" (in degrees) to the final model. Use this for generating spirals, twirls, or screw threads. Example: "twist": 360. If twisting a cylinder, MUST set "segments" to 5, 6, or 8 so the twist is visible!`;
 
       const apiMessages = [{ role: 'system', content: systemPrompt }];
       if (messages.length > 0) {
