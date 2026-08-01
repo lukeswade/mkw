@@ -28,7 +28,7 @@ Output strictly raw JSON with NO markdown formatting, NO backticks, NO extra tex
 
 JSON Schema:
 {
-  "type": "box" | "sd_holder" | "cable_clip" | "keychain" | "wall_hook" | "phone_stand" | "hex_tray" | "custom" | "csg",
+  "type": "sd_holder" | "cable_clip" | "keychain" | "wall_hook" | "phone_stand" | "hex_tray" | "csg",
   "title": "A short descriptive name (2-5 words)",
   "description": "A 1-sentence summary of the design and print advice",
   "width": number in mm (range 15-200),
@@ -38,8 +38,6 @@ JSON Schema:
   "holeDiameter": number in mm (range 0-12),
   "roundedRadius": number in mm (range 0-10),
   "textLabel": "optional text string",
-  "baseShape": "box" | "cylinder" | "sphere" | "cone" | "torus" | "pyramid",
-  "isHollow": boolean,
   "operations": [
     {
       "op": "add" | "subtract" | "intersect",
@@ -58,11 +56,9 @@ Select the closest matching "type":
 - "wall_hook" for coat hooks, headphone wall mounts, tool hangers
 - "phone_stand" for phone, tablet, or desk device stands
 - "hex_tray" for hex trays, screw catch-alls, honeycomb organizers
-- "box" for boxes, trays, desk bins, hollow containers
-- "custom" for any other solid or parametric 3D object.
-- "csg" for complex shapes that must be built by combining (adding or subtracting) primitives (e.g. a tube is a cylinder minus a smaller cylinder).
+- "csg" for ALL OTHER REQUESTS. This includes boxes, tubes, enclosures, custom shapes, anything with a hole, or any combination of parts.
 
-CRITICAL: If "type" is "csg", you MUST provide an array of "operations" to build the object. The first operation should generally be "add", and subsequent operations can "subtract" holes or "add" appendages. Coordinate origin (x=0, y=0, z=0) is the center of the print bed.`;
+CRITICAL: If "type" is "csg", you MUST provide an array of "operations" to build the object. The first operation should generally be "add", and subsequent operations can "subtract" (to create holes/cutouts or make it hollow) or "add" (to attach parts). Coordinate origin (x=0, y=0, z=0) is the center of the print bed. If making a hollow box, add a box, then subtract a slightly smaller box from the inside.`;
 
       const aiResponse = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
         messages: [
