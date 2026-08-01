@@ -137,6 +137,25 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             </div>
           )}
 
+          {/* Twist (Degrees) */}
+          {params.twist !== undefined && (
+            <div>
+              <div className="flex justify-between text-xs text-slate-300 font-mono mb-1">
+                <span>Twist (Degrees)</span>
+                <span className="text-pink-400 font-bold">{params.twist}°</span>
+              </div>
+              <input
+                type="range"
+                min="-720"
+                max="720"
+                step="15"
+                value={params.twist}
+                onChange={(e) => updateField('twist', parseInt(e.target.value))}
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-pink-500"
+              />
+            </div>
+          )}
+
           {/* Text Label Input (for Keychains) */}
           {params.type === 'keychain' && (
             <div>

@@ -24,6 +24,7 @@ export interface CSGOperation {
   rotationY?: number;
   rotationZ?: number;
   twist?: number;
+  segments?: number;
 }
 
 export interface ModelParams {

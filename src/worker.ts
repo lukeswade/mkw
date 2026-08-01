@@ -45,6 +45,7 @@ JSON Schema:
       "op": "add" | "subtract" | "intersect",
       "shape": "box" | "cylinder" | "sphere" | "cone" | "torus" | "pyramid",
       "width": number, "depth": number, "height": number, "radius": number, "wallThickness": number,
+      "segments": number, // Optional (e.g. 5, 6, 8) to make prisms/stars for twisting
       "x": number, "y": number, "z": number,
       "rotationX": number, "rotationY": number, "rotationZ": number
     }
@@ -81,7 +82,7 @@ You are an expert CAD engineer. You build models by combining 3D primitives (Con
    - To make a hole in the front face, subtract a horizontal cylinder (rotationX=1.5708) at 'z': depth/2.
    - Make subtracting hole cylinders longer than the wall they are piercing to guarantee a clean cut!
 6. Operations Order: Start with an "add" base shape, then "subtract" inner cavities to hollow it out, then "subtract" external holes, then "add" exterior mounts/flanges.
-7. Twist Modifier: You can apply a global "twist" (in degrees) to the final model. Use this for generating spirals, frozen yogurt twirls, screw threads, or organic shapes. Example: "twist": 720.`;
+7. Twist Modifier: You can apply a global "twist" (in degrees) to the final model. Use this for generating spirals, frozen yogurt twirls, screw threads, or organic shapes. Example: "twist": 720. If twisting a cylinder, MUST set "segments" to 5, 6, or 8 so the twist is visible (a perfectly round cylinder looks the same when twisted)!`;
 
       const apiMessages = [{ role: 'system', content: systemPrompt }];
       if (messages.length > 0) {
