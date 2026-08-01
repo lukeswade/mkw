@@ -9,6 +9,8 @@ import { PRESET_IDEAS } from './lib/preset-ideas';
 import { buildProceduralGeometry, calculatePrintAnalytics } from './lib/procedural-3d';
 import { exportBinarySTL, downloadFile } from './lib/stl-exporter';
 import { export3MF } from './lib/3mf-exporter';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import * as THREE from 'three';
 import { ModelParams, MaterialType } from './types';
 import { AlertCircle } from 'lucide-react';
 
@@ -29,9 +31,43 @@ export const App: React.FC = () => {
     }
   }, [error]);
 
-  // Generate 3D BufferGeometry on parameter change
-  const currentGeometry = useMemo(() => {
-    return buildProceduralGeometry(modelParams);
+  const [currentGeometry, setCurrentGeometry] = useState<THREE.BufferGeometry>(() => buildProceduralGeometry(PRESET_IDEAS[0].params));
+
+  // Generate or load 3D BufferGeometry on parameter change
+  useEffect(() => {
+    if (modelParams.type === 'external' && modelParams.externalUrl) {
+      setIsGenerating(true);
+      const loader = new STLLoader();
+      loader.load(
+        modelParams.externalUrl,
+        (geometry) => {
+          geometry.computeBoundingBox();
+          if (geometry.boundingBox) {
+            const sizeX = geometry.boundingBox.max.x - geometry.boundingBox.min.x;
+            const sizeY = geometry.boundingBox.max.y - geometry.boundingBox.min.y;
+            const sizeZ = geometry.boundingBox.max.z - geometry.boundingBox.min.z;
+            if (sizeX > 0 && sizeY > 0 && sizeZ > 0) {
+              geometry.scale(modelParams.width / sizeX, modelParams.height / sizeY, modelParams.depth / sizeZ);
+            }
+            
+            // Recompute bounding box after scale
+            geometry.computeBoundingBox();
+            const minY = geometry.boundingBox!.min.y;
+            geometry.translate(0, -minY, 0); // Center on bed
+          }
+          setCurrentGeometry(geometry);
+          setIsGenerating(false);
+        },
+        undefined,
+        (err) => {
+          console.error("Error loading external STL:", err);
+          setError("Failed to load official 3D model.");
+          setIsGenerating(false);
+        }
+      );
+    } else {
+      setCurrentGeometry(buildProceduralGeometry(modelParams));
+    }
   }, [modelParams]);
 
   // Calculate slicer analytics

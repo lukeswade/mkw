@@ -7,6 +7,7 @@ export type ModelType =
   | 'phone_stand' 
   | 'hex_tray' 
   | 'custom'
+  | 'external'
   | 'csg';
 
 export interface CSGOperation {
@@ -48,6 +49,7 @@ export interface ModelParams {
     pattern?: string;
   };
   twist?: number; // Global twist applied to the final shape (degrees)
+  externalUrl?: string; // URL for loading an external STL model (like Benchy)
   operations?: CSGOperation[];
 }
 

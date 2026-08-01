@@ -20,6 +20,28 @@ app.post('/api/generate', async (c) => {
       return c.json({ error: 'Prompt cannot be empty' }, 400);
     }
 
+    // Intercept famous standard models (like 3DBenchy)
+    const allText = (userPrompt + ' ' + messages.map((m: any) => m.content).join(' ')).toLowerCase();
+    if (allText.includes('benchy')) {
+      return c.json({
+        success: true,
+        source: 'famous-models-library',
+        params: {
+          type: 'external',
+          externalUrl: '/models/3DBenchy.stl',
+          title: '3DBenchy (Official)',
+          description: 'The jolly 3D printing torture-test by CreativeTools.se.',
+          rationale: 'The 3DBenchy is a highly complex mesh designed specifically to benchmark 3D printers. Generating this procedurally with CSG would ruin its precise overhangs and bridges, so I have loaded the pristine official STL from the Famous Models Library.',
+          width: 60,
+          depth: 31,
+          height: 48,
+          wallThickness: 0,
+          holeDiameter: 0,
+          roundedRadius: 0
+        }
+      });
+    }
+
     // Check if Cloudflare Workers AI binding is available
     if (c.env && c.env.AI) {
       const systemPrompt = `You are an expert 3D CAD parametric modeling engineer and 3D printing specialist.
