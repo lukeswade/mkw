@@ -49,16 +49,36 @@ JSON Schema:
   ]
 }
 
-Select the closest matching "type":
-- "sd_holder" for SD/MicroSD card trays or organizers
-- "cable_clip" for cable management, wire holders, clips
-- "keychain" for keychain tags, nameplates, zipper pulls
-- "wall_hook" for coat hooks, headphone wall mounts, tool hangers
-- "phone_stand" for phone, tablet, or desk device stands
-- "hex_tray" for hex trays, screw catch-alls, honeycomb organizers
-- "csg" for ALL OTHER REQUESTS. This includes boxes, tubes, enclosures, custom shapes, anything with a hole, or any combination of parts.
+Select the closest matching "type". If it is a generic object, box, case, enclosure, or anything requiring holes/combinations, YOU MUST USE "csg".
+- "sd_holder": SD/MicroSD card organizers
+- "cable_clip": cable management, wire holders
+- "keychain": keychain tags
+- "wall_hook": coat hooks, hangers
+- "phone_stand": phone stands
+- "hex_tray": honeycomb organizers
+- "csg": ALL OTHER REQUESTS (enclosures, cases, pipes, boxes with holes, custom shapes, etc).
 
-CRITICAL: If "type" is "csg", you MUST provide an array of "operations" to build the object. The first operation should generally be "add", and subsequent operations can "subtract" (to create holes/cutouts or make it hollow) or "add" (to attach parts). Coordinate origin (x=0, y=0, z=0) is the center of the print bed. If making a hollow box, add a box, then subtract a slightly smaller box from the inside.`;
+CRITICAL CSG MODELING RULES (If type is "csg"):
+You are an expert CAD engineer. You build models by combining 3D primitives (Constructive Solid Geometry).
+1. Coordinate System (Three.js): Center is (0,0,0). 
+   - X-axis = Width (left/right)
+   - Y-axis = Height (up/down). A box of height H goes from Y = -H/2 to +H/2.
+   - Z-axis = Depth (front/back).
+2. Primitives:
+   - "box": requires 'width' (X), 'height' (Y), 'depth' (Z).
+   - "cylinder": requires 'radius' and 'height' (Y). Default orientation stands vertically (along Y axis).
+3. Orienting Cylinders for Holes:
+   - Hole in TOP/BOTTOM (vertical): shape="cylinder", rotationX=0.
+   - Hole in FRONT/BACK (horizontal depth): shape="cylinder", rotationX=1.5708.
+   - Hole in LEFT/RIGHT (horizontal width): shape="cylinder", rotationZ=1.5708.
+4. Making Hollow Enclosures/Trays:
+   - Operation 1 (add): Solid outer box (w, h, d).
+   - Operation 2 (subtract): Inner box (w - wallThickness*2, h, d - wallThickness*2). Shift inner box 'y' up by 'wallThickness/2' to leave a solid floor! Example: if wall=2, 'y': 1. 
+5. Drilling Holes:
+   - To make a hole in the "top center", subtract a vertical cylinder at 'x': 0, 'z': 0, and 'y' shifted to the top face (e.g. 'y': height/2). 
+   - To make a hole in the front face, subtract a horizontal cylinder (rotationX=1.5708) at 'z': depth/2.
+   - Make subtracting hole cylinders longer than the wall they are piercing to guarantee a clean cut!
+6. Operations Order: Start with an "add" base shape, then "subtract" inner cavities to hollow it out, then "subtract" external holes, then "add" exterior mounts/flanges.`;
 
       const aiResponse = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
         messages: [
