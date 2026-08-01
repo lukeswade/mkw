@@ -64,7 +64,7 @@ Select the closest matching "type":
 
 CRITICAL: If "type" is "csg", you MUST provide an array of "operations" to build the object. The first operation should generally be "add", and subsequent operations can "subtract" holes or "add" appendages. Coordinate origin (x=0, y=0, z=0) is the center of the print bed.`;
 
-      const aiResponse = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct', {
+      const aiResponse = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -77,16 +77,19 @@ CRITICAL: If "type" is "csg", you MUST provide an array of "operations" to build
       if (typeof aiResponse === 'string') {
         rawText = aiResponse;
       } else if (aiResponse?.response) {
-        rawText = aiResponse.response;
+        rawText = typeof aiResponse.response === 'string' ? aiResponse.response : JSON.stringify(aiResponse.response);
       } else {
-        rawText = JSON.stringify(aiResponse);
+        throw new Error("UNEXPECTED_AI_RESPONSE: " + JSON.stringify(aiResponse));
       }
+      rawText = String(rawText);
 
       // Clean up markdown wrapping if present
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         return c.json({ success: true, params: parsed, source: 'cloudflare-ai' });
+      } else {
+        throw new Error("AI did not return JSON: " + rawText);
       }
     }
 
@@ -98,7 +101,7 @@ CRITICAL: If "type" is "csg", you MUST provide an array of "operations" to build
     console.error('AI Generation Error:', error);
     const body = await c.req.json().catch(() => ({ prompt: '' }));
     const fallbackParams = parsePromptFallback(body?.prompt || '');
-    return c.json({ success: true, params: fallbackParams, source: 'fallback-error' });
+    return c.json({ success: true, params: fallbackParams, source: 'fallback-error', error: error.message || String(error) });
   }
 });
 
