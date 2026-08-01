@@ -6,7 +6,24 @@ export type ModelType =
   | 'wall_hook' 
   | 'phone_stand' 
   | 'hex_tray' 
-  | 'custom';
+  | 'custom'
+  | 'csg';
+
+export interface CSGOperation {
+  op: 'add' | 'subtract' | 'intersect';
+  shape: 'box' | 'cylinder' | 'sphere' | 'cone' | 'torus' | 'pyramid';
+  width?: number;
+  depth?: number;
+  height?: number;
+  radius?: number;
+  wallThickness?: number;
+  x: number;
+  y: number;
+  z: number;
+  rotationX?: number;
+  rotationY?: number;
+  rotationZ?: number;
+}
 
 export interface ModelParams {
   type: ModelType;
@@ -27,6 +44,7 @@ export interface ModelParams {
     angle?: number;
     pattern?: string;
   };
+  operations?: CSGOperation[];
 }
 
 export interface PrintAnalytics {

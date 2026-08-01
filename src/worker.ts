@@ -28,7 +28,7 @@ Output strictly raw JSON with NO markdown formatting, NO backticks, NO extra tex
 
 JSON Schema:
 {
-  "type": "box" | "sd_holder" | "cable_clip" | "keychain" | "wall_hook" | "phone_stand" | "hex_tray" | "custom",
+  "type": "box" | "sd_holder" | "cable_clip" | "keychain" | "wall_hook" | "phone_stand" | "hex_tray" | "custom" | "csg",
   "title": "A short descriptive name (2-5 words)",
   "description": "A 1-sentence summary of the design and print advice",
   "width": number in mm (range 15-200),
@@ -37,9 +37,18 @@ JSON Schema:
   "wallThickness": number in mm (range 1.5-6),
   "holeDiameter": number in mm (range 0-12),
   "roundedRadius": number in mm (range 0-10),
-  "textLabel": "optional text string for tags/keychains",
+  "textLabel": "optional text string",
   "baseShape": "box" | "cylinder" | "sphere" | "cone" | "torus" | "pyramid",
-  "isHollow": boolean
+  "isHollow": boolean,
+  "operations": [
+    {
+      "op": "add" | "subtract" | "intersect",
+      "shape": "box" | "cylinder" | "sphere" | "cone" | "torus" | "pyramid",
+      "width": number, "depth": number, "height": number, "radius": number, "wallThickness": number,
+      "x": number, "y": number, "z": number,
+      "rotationX": number, "rotationY": number, "rotationZ": number
+    }
+  ]
 }
 
 Select the closest matching "type":
@@ -51,8 +60,9 @@ Select the closest matching "type":
 - "hex_tray" for hex trays, screw catch-alls, honeycomb organizers
 - "box" for boxes, trays, desk bins, hollow containers
 - "custom" for any other solid or parametric 3D object.
+- "csg" for complex shapes that must be built by combining (adding or subtracting) primitives (e.g. a tube is a cylinder minus a smaller cylinder).
 
-CRITICAL: If "type" is "custom", you MUST select an appropriate "baseShape" (e.g. cylinder for cups/tubes, sphere for balls, torus for rings, box for bricks) and set "isHollow" (true for cups/tubes/vases, false for solid objects).`;
+CRITICAL: If "type" is "csg", you MUST provide an array of "operations" to build the object. The first operation should generally be "add", and subsequent operations can "subtract" holes or "add" appendages. Coordinate origin (x=0, y=0, z=0) is the center of the print bed.`;
 
       const aiResponse = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct', {
         messages: [
@@ -184,13 +194,26 @@ function parsePromptFallback(prompt: string) {
   }
 
   // Primitive Shape Fallbacks
-  if (lower.includes('cylinder') || lower.includes('tube') || lower.includes('cup') || lower.includes('vase')) {
+  if (lower.includes('tube') || lower.includes('cup') || lower.includes('vase') || lower.includes('pipe') || lower.includes('mug')) {
+    return {
+      type: 'csg',
+      title: 'Custom Hollow Tube/Cup',
+      description: 'A cylindrical geometry with a hollowed out center built using CSG.',
+      width: 60, depth: 60, height: 80, wallThickness: 3, holeDiameter: 0, roundedRadius: 0,
+      operations: [
+        { op: 'add', shape: 'cylinder', radius: 30, height: 80, x: 0, y: 40, z: 0 },
+        { op: 'subtract', shape: 'cylinder', radius: 27, height: 80, x: 0, y: 43, z: 0 }
+      ]
+    };
+  }
+
+  if (lower.includes('cylinder') || lower.includes('rod') || lower.includes('peg')) {
     return {
       type: 'custom',
       baseShape: 'cylinder',
-      isHollow: lower.includes('tube') || lower.includes('cup') || lower.includes('vase'),
-      title: 'Custom Cylindrical Object',
-      description: 'A cylindrical geometry generated based on your prompt.',
+      isHollow: false,
+      title: 'Solid Cylinder',
+      description: 'A solid cylindrical object.',
       width: 60, depth: 60, height: 80, wallThickness: 2, holeDiameter: 0, roundedRadius: 0,
     };
   }

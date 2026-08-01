@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { ModelParams, PrintAnalytics, MaterialType } from '../types';
+import { Evaluator, Brush, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg';
+import { ModelParams, PrintAnalytics, MaterialType, CSGOperation } from '../types';
 
 export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeometry {
   const {
@@ -43,6 +44,10 @@ export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeomet
 
     case 'hex_tray':
       geometry = createHexagonTray(width, depth, height, wallThickness);
+      break;
+
+    case 'csg':
+      geometry = buildCSGGeometry(params.operations || []);
       break;
 
     case 'custom':
@@ -361,6 +366,55 @@ function createCustomParametricShape(w: number, d: number, h: number, wall: numb
     // Default to a hollow box if not specified otherwise
     return createHollowBox(w, d, h, wall, radius);
   }
+}
+
+// 9. True Constructive Solid Geometry Evaluator
+function buildCSGGeometry(operations: CSGOperation[]): THREE.BufferGeometry {
+  if (!operations || operations.length === 0) {
+    return new THREE.BoxGeometry(20, 20, 20);
+  }
+
+  const evaluator = new Evaluator();
+  evaluator.useGroups = false;
+  let resultBrush: Brush | null = null;
+
+  for (const op of operations) {
+    let geo: THREE.BufferGeometry;
+    const w = op.width || 20;
+    const d = op.depth || 20;
+    const h = op.height || 20;
+    const r = op.radius || Math.max(w, d) / 2;
+    const wall = op.wallThickness || 2;
+
+    if (op.shape === 'cylinder') geo = new THREE.CylinderGeometry(r, r, h, 32);
+    else if (op.shape === 'sphere') geo = new THREE.SphereGeometry(r, 32, 32);
+    else if (op.shape === 'cone') geo = new THREE.ConeGeometry(r, h, 32);
+    else if (op.shape === 'torus') geo = new THREE.TorusGeometry(r, wall, 32, 64);
+    else if (op.shape === 'pyramid') geo = new THREE.CylinderGeometry(0, r, h, 4, 1, false, Math.PI / 4); // rotate y to make it a pyramid
+    else geo = new THREE.BoxGeometry(w, h, d);
+
+    const material = new THREE.MeshStandardMaterial();
+    const brush = new Brush(geo, material);
+    brush.position.set(op.x, op.y, op.z);
+    
+    if (op.rotationX) brush.rotation.x = op.rotationX;
+    if (op.rotationY) brush.rotation.y = op.rotationY;
+    if (op.rotationZ) brush.rotation.z = op.rotationZ;
+
+    brush.updateMatrixWorld();
+
+    if (!resultBrush) {
+      resultBrush = brush;
+    } else {
+      let operationType = ADDITION;
+      if (op.op === 'subtract') operationType = SUBTRACTION;
+      else if (op.op === 'intersect') operationType = INTERSECTION;
+
+      resultBrush = evaluator.evaluate(resultBrush, brush, operationType);
+    }
+  }
+
+  return resultBrush ? resultBrush.geometry : new THREE.BoxGeometry(20, 20, 20);
 }
 
 // Utility to combine multiple buffer geometries safely
