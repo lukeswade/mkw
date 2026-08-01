@@ -10,5 +10,11 @@
   },
   "ai": {
     "binding": "AI"
-  }
+  },
+  "routes": [
+    {
+      "pattern": "mattkwade.com",
+      "custom_domain": true
+    }
+  ]
 }
