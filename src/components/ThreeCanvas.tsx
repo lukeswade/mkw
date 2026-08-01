@@ -12,6 +12,7 @@ interface ThreeCanvasProps {
   depthMm: number;
   heightMm: number;
   isGenerating?: boolean;
+  xrayMode?: boolean;
 }
 
 export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
@@ -22,6 +23,7 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
   depthMm,
   heightMm,
   isGenerating = false,
+  xrayMode = false,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [wireframe, setWireframe] = useState(false);
@@ -114,8 +116,8 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       color: matProps.color,
       roughness: matProps.roughness,
       metalness: matProps.metalness,
-      transparent: matProps.opacity < 1,
-      opacity: matProps.opacity,
+      transparent: xrayMode || matProps.opacity < 1,
+      opacity: xrayMode ? 0.3 : matProps.opacity,
       wireframe: wireframe,
     });
 
@@ -162,7 +164,7 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       }
       renderer.dispose();
     };
-  }, [geometry, material, wireframe]); // Re-run effect when geometry, material, or wireframe change
+  }, [geometry, material, wireframe, xrayMode]); // Re-run effect when geometry, material, wireframe, or xrayMode change
 
   // Update wireframe & material properties on prop change without full re-render if possible
   useEffect(() => {
@@ -173,9 +175,11 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       mat.roughness = matProps.roughness;
       mat.metalness = matProps.metalness;
       mat.wireframe = wireframe;
+      mat.transparent = xrayMode || matProps.opacity < 1;
+      mat.opacity = xrayMode ? 0.3 : matProps.opacity;
       mat.needsUpdate = true;
     }
-  }, [material, wireframe]);
+  }, [material, wireframe, xrayMode]);
   
   // Keep camera looking at center when height changes
   useEffect(() => {
@@ -193,8 +197,15 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     }
   };
 
+  // Cinematic sweep when a new model finishes generating
+  useEffect(() => {
+    if (!isGenerating) {
+      resetCamera();
+    }
+  }, [isGenerating]);
+
   return (
-    <div className="relative w-full h-[400px] sm:h-[480px] lg:h-[540px] rounded-2xl glass-panel overflow-hidden group">
+    <div className="w-full h-full overflow-hidden group">
       
       {/* Three.js Canvas Container */}
       <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />

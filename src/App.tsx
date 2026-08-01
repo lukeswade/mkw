@@ -19,6 +19,7 @@ export const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<{role: string, content: string}[]>([]);
+  const [xrayMode, setXrayMode] = useState(false);
 
   // Auto-dismiss error
   useEffect(() => {
@@ -106,26 +107,46 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-between">
-      <div>
-        
-        {/* Header */}
-        <Header />
-
-        {/* Hero & Prompt Section */}
-        <PromptSection
-          conversation={conversation}
-          onGenerate={handleGenerate}
-          onSelectPreset={(presetParams, presetPrompt) => {
-            setConversation([{ role: 'user', content: presetPrompt }, { role: 'assistant', content: JSON.stringify(presetParams) }]);
-            setModelParams(presetParams);
-          }}
+    <div className="h-screen w-screen overflow-hidden flex flex-col relative bg-slate-950">
+      
+      {/* 3D Viewport - Background Fullscreen */}
+      <div className="absolute inset-0 z-0 pointer-events-auto">
+        <ThreeCanvas
+          geometry={currentGeometry}
+          material={material}
+          onMaterialChange={setMaterial}
+          widthMm={modelParams.width}
+          depthMm={modelParams.depth}
+          heightMm={modelParams.height}
           isGenerating={isGenerating}
+          xrayMode={xrayMode}
         />
+      </div>
+
+      {/* Floating UI Container */}
+      <div className="relative z-10 h-full flex flex-col pointer-events-none overflow-y-auto">
+        
+        {/* Header - Top Left */}
+        <div className="pointer-events-auto shrink-0 w-full">
+          <Header />
+        </div>
+
+        {/* Prompt Section - Top Center floating */}
+        <div className="pointer-events-auto shrink-0 w-full mt-4">
+          <PromptSection
+            conversation={conversation}
+            onGenerate={handleGenerate}
+            onSelectPreset={(presetParams, presetPrompt) => {
+              setConversation([{ role: 'user', content: presetPrompt }, { role: 'assistant', content: JSON.stringify(presetParams) }]);
+              setModelParams(presetParams);
+            }}
+            isGenerating={isGenerating}
+          />
+        </div>
 
         {/* Error Alert */}
-        <div className={`max-w-7xl mx-auto px-4 lg:px-8 mt-4 transition-all duration-300 ${error ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none absolute'}`}>
-          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-2 shadow-lg shadow-rose-500/10">
+        <div className={`pointer-events-auto max-w-7xl mx-auto px-4 lg:px-8 mt-2 transition-all duration-300 w-full ${error ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none hidden'}`}>
+          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-2 shadow-lg shadow-rose-500/10 backdrop-blur-md">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{error}</span>
@@ -136,44 +157,46 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Main 3D Studio Content */}
-        <main className="max-w-7xl mx-auto px-4 lg:px-8 py-6">
+        {/* Main Floating Content (Controls + Stats) */}
+        <div className="flex-1 w-full max-w-7xl mx-auto px-4 lg:px-8 py-6 flex flex-col justify-end pointer-events-none gap-6 pb-20">
           
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
-            
-            {/* 3D Viewport Column (7 cols on desktop) */}
-            <div className="lg:col-span-7">
-              <ThreeCanvas
-                geometry={currentGeometry}
-                material={material}
-                onMaterialChange={setMaterial}
-                widthMm={modelParams.width}
-                depthMm={modelParams.depth}
-                heightMm={modelParams.height}
-                isGenerating={isGenerating}
-              />
-            </div>
-
-            {/* Parametric Controls & Export Column (5 cols on desktop) */}
-            <div className="lg:col-span-5">
-              <ModelControls
-                params={modelParams}
-                onChangeParams={setModelParams}
-                onDownloadSTL={handleDownloadSTL}
-                onDownload3MF={handleDownload3MF}
-              />
-            </div>
-
+          {/* Controls & Export Floating Panel */}
+          <div className="w-full lg:w-[400px] pointer-events-auto self-end mt-auto">
+            <ModelControls
+              params={modelParams}
+              onChangeParams={setModelParams}
+              onDownloadSTL={handleDownloadSTL}
+              onDownload3MF={handleDownload3MF}
+            />
           </div>
 
-          {/* Slicer Print Analytics */}
-          <PrintStats analytics={printAnalytics} material={material} />
+          {/* Slicer Print Analytics Floating Panel */}
+          <div className="w-full pointer-events-auto">
+            <PrintStats analytics={printAnalytics} material={material} />
+          </div>
+        </div>
 
-        </main>
       </div>
 
-      {/* Footer (featuring filtracker.com link) */}
-      <Footer />
+      {/* Footer - Bottom */}
+      <div className="absolute bottom-0 w-full z-20 pointer-events-auto">
+        <Footer />
+      </div>
+
+      {/* Floating X-Ray Toggle */}
+      <div className="absolute top-24 right-4 lg:right-8 z-20 pointer-events-auto">
+        <button
+          onClick={() => setXrayMode(!xrayMode)}
+          className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow-lg backdrop-blur-md border ${
+            xrayMode 
+              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-cyan-500/20' 
+              : 'bg-slate-900/60 text-slate-300 border-slate-700/50 hover:bg-slate-800/80 hover:text-white'
+          }`}
+        >
+          {xrayMode ? '👁 X-Ray Mode: ON' : '👀 X-Ray Mode: OFF'}
+        </button>
+      </div>
+
     </div>
   );
 };
