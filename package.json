@@ -17,8 +17,7 @@
     "react-dom": "^18.3.1",
     "three": "^0.185.1",
     "three-bvh-csg": "^0.0.18",
-    "three-mesh-bvh": "^0.9.13",
-    "three-stdlib": "^2.36.1"
+    "three-mesh-bvh": "^0.9.13"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241112.0",

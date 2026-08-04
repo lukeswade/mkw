@@ -1,18 +1,35 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Header } from './components/Header';
 import { PromptSection } from './components/PromptSection';
-import { ThreeCanvas } from './components/ThreeCanvas';
 import { ModelControls } from './components/ModelControls';
 import { PrintStats } from './components/PrintStats';
 import { Footer } from './components/Footer';
 import { PRESET_IDEAS } from './lib/preset-ideas';
-import { buildProceduralGeometry, calculatePrintAnalytics } from './lib/procedural-3d';
-import { exportBinarySTL, downloadFile } from './lib/stl-exporter';
-import { export3MF } from './lib/3mf-exporter';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
-import * as THREE from 'three';
-import { ModelParams, MaterialType } from './types';
-import { AlertCircle } from 'lucide-react';
+import { downloadFile } from './lib/download';
+// Type-only: erased at build, so it costs nothing in the bundle.
+import type * as THREE from 'three';
+import { ModelParams, MaterialType, PrintAnalytics } from './types';
+import { AlertCircle, Loader2 } from 'lucide-react';
+
+// three.js + the CSG evaluator are ~176KB gzipped and jszip another ~30KB.
+// Loading them on demand lets the header, prompt box and hero paint first;
+// the viewport fades in a moment later.
+const ThreeCanvas = lazy(() =>
+  import('./components/ThreeCanvas').then((m) => ({ default: m.ThreeCanvas }))
+);
+
+// One shared promise so the engine is fetched and evaluated exactly once,
+// however many callers ask for it.
+let enginePromise: Promise<typeof import('./lib/three-engine')> | null = null;
+const loadEngine = () => (enginePromise ??= import('./lib/three-engine'));
+
+/** Shown while three.js is still downloading, so the shell paints immediately. */
+const ViewportLoading: React.FC = () => (
+  <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+    <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+    <p className="text-sm text-slate-400 animate-pulse">Loading 3D viewport…</p>
+  </div>
+);
 
 export const App: React.FC = () => {
   // Default initial model: SD Card Organizer Tray preset
@@ -31,48 +48,58 @@ export const App: React.FC = () => {
     }
   }, [error]);
 
-  const [currentGeometry, setCurrentGeometry] = useState<THREE.BufferGeometry>(() => buildProceduralGeometry(PRESET_IDEAS[0].params));
+  const [currentGeometry, setCurrentGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const [printAnalytics, setPrintAnalytics] = useState<PrintAnalytics | null>(null);
 
-  // Generate or load 3D BufferGeometry on parameter change
+  // Generate or load 3D BufferGeometry on parameter change. The engine is
+  // dynamically imported, so the very first run also fetches three.js.
   useEffect(() => {
-    if (modelParams.type === 'external' && modelParams.externalUrl) {
-      setIsGenerating(true);
-      const loader = new STLLoader();
-      loader.load(
-        modelParams.externalUrl,
-        (geometry) => {
-          geometry.computeBoundingBox();
-          if (geometry.boundingBox) {
-            const sizeX = geometry.boundingBox.max.x - geometry.boundingBox.min.x;
-            const sizeY = geometry.boundingBox.max.y - geometry.boundingBox.min.y;
-            const sizeZ = geometry.boundingBox.max.z - geometry.boundingBox.min.z;
-            if (sizeX > 0 && sizeY > 0 && sizeZ > 0) {
-              geometry.scale(modelParams.width / sizeX, modelParams.height / sizeY, modelParams.depth / sizeZ);
-            }
-            
-            // Recompute bounding box after scale
-            geometry.computeBoundingBox();
-            const minY = geometry.boundingBox!.min.y;
-            geometry.translate(0, -minY, 0); // Center on bed
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const engine = await loadEngine();
+        if (cancelled) return;
+
+        if (modelParams.type === 'external' && modelParams.externalUrl) {
+          setIsGenerating(true);
+          try {
+            const geometry = await engine.loadExternalStl(modelParams.externalUrl, modelParams);
+            if (!cancelled) setCurrentGeometry(geometry);
+          } catch (err) {
+            console.error('Error loading external STL:', err);
+            if (!cancelled) setError('Failed to load official 3D model.');
+          } finally {
+            if (!cancelled) setIsGenerating(false);
           }
-          setCurrentGeometry(geometry);
-          setIsGenerating(false);
-        },
-        undefined,
-        (err) => {
-          console.error("Error loading external STL:", err);
-          setError("Failed to load official 3D model.");
-          setIsGenerating(false);
+        } else {
+          setCurrentGeometry(engine.buildProceduralGeometry(modelParams));
         }
-      );
-    } else {
-      setCurrentGeometry(buildProceduralGeometry(modelParams));
-    }
+      } catch (err) {
+        console.error('Failed to load the 3D engine:', err);
+        if (!cancelled) setError('Could not load the 3D engine. Please reload.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [modelParams]);
 
-  // Calculate slicer analytics
-  const printAnalytics = useMemo(() => {
-    return calculatePrintAnalytics(currentGeometry, material);
+  // Calculate slicer analytics once geometry exists.
+  useEffect(() => {
+    if (!currentGeometry) return;
+    let cancelled = false;
+
+    loadEngine()
+      .then((engine) => {
+        if (!cancelled) setPrintAnalytics(engine.calculatePrintAnalytics(currentGeometry, material));
+      })
+      .catch(() => {/* the geometry effect above already surfaced this */});
+
+    return () => {
+      cancelled = true;
+    };
   }, [currentGeometry, material]);
 
   const handleGenerate = async (promptText: string) => {
@@ -117,13 +144,16 @@ export const App: React.FC = () => {
     }
   };
 
+  const filenameFor = (ext: 'stl' | '3mf') =>
+    `${(modelParams.title || '3d_model').toLowerCase().replace(/[^a-z0-9]/g, '_')}.${ext}`;
+
   // Download STL
-  const handleDownloadSTL = () => {
+  const handleDownloadSTL = async () => {
+    if (!currentGeometry) return;
     try {
+      const { exportBinarySTL } = await import('./lib/stl-exporter');
       const buffer = exportBinarySTL(currentGeometry);
-      const blob = new Blob([buffer], { type: 'model/stl' });
-      const filename = `${(modelParams.title || '3d_model').toLowerCase().replace(/[^a-z0-9]/g, '_')}.stl`;
-      downloadFile(blob, filename);
+      downloadFile(new Blob([buffer], { type: 'model/stl' }), filenameFor('stl'));
     } catch (err) {
       console.error('Error exporting STL:', err);
       setError('Failed to generate STL file.');
@@ -132,10 +162,11 @@ export const App: React.FC = () => {
 
   // Download 3MF
   const handleDownload3MF = async () => {
+    if (!currentGeometry) return;
     try {
+      const { export3MF } = await import('./lib/3mf-exporter');
       const blob = await export3MF(currentGeometry, modelParams.title);
-      const filename = `${(modelParams.title || '3d_model').toLowerCase().replace(/[^a-z0-9]/g, '_')}.3mf`;
-      downloadFile(blob, filename);
+      downloadFile(blob, filenameFor('3mf'));
     } catch (err) {
       console.error('Error exporting 3MF:', err);
       setError('Failed to generate 3MF package.');
@@ -147,16 +178,22 @@ export const App: React.FC = () => {
       
       {/* 3D Viewport - Background Fullscreen */}
       <div className="absolute inset-0 z-0 pointer-events-auto">
-        <ThreeCanvas
-          geometry={currentGeometry}
-          material={material}
-          onMaterialChange={setMaterial}
-          widthMm={modelParams.width}
-          depthMm={modelParams.depth}
-          heightMm={modelParams.height}
-          isGenerating={isGenerating}
-          xrayMode={xrayMode}
-        />
+        {currentGeometry ? (
+          <Suspense fallback={<ViewportLoading />}>
+            <ThreeCanvas
+              geometry={currentGeometry}
+              material={material}
+              onMaterialChange={setMaterial}
+              widthMm={modelParams.width}
+              depthMm={modelParams.depth}
+              heightMm={modelParams.height}
+              isGenerating={isGenerating}
+              xrayMode={xrayMode}
+            />
+          </Suspense>
+        ) : (
+          <ViewportLoading />
+        )}
       </div>
 
       {/* Floating UI Container */}
@@ -203,9 +240,11 @@ export const App: React.FC = () => {
           </div>
 
           {/* Slicer Print Analytics Floating Panel */}
-          <div className="w-full pointer-events-auto">
-            <PrintStats analytics={printAnalytics} material={material} />
-          </div>
+          {printAnalytics && (
+            <div className="w-full pointer-events-auto">
+              <PrintStats analytics={printAnalytics} material={material} />
+            </div>
+          )}
         </div>
 
       </div>
