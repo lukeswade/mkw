@@ -9,7 +9,7 @@ interface PrintStatsProps {
 
 export const PrintStats: React.FC<PrintStatsProps> = ({ analytics, material }) => {
   return (
-    <div className="glass-panel rounded-2xl p-5 lg:p-6 mb-6">
+    <div className="glass-panel glass-panel-hover rounded-2xl p-5 lg:p-6 mb-6">
       
       {/* Header */}
       <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">

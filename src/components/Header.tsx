@@ -71,6 +71,17 @@ export const Header: React.FC = () => {
             </button>
           )}
 
+          {/* FilTracker Bridge Link */}
+          <a
+            href="https://filtracker.com"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors bg-emerald-950/40 px-3 py-1.5 rounded-lg border border-emerald-500/30 hover:border-emerald-500/60 shadow-lg shadow-emerald-500/10"
+          >
+            <span>FilTracker.com</span>
+            <ExternalLink className="w-3 h-3 opacity-80" />
+          </a>
+
           {/* Domain Tag */}
           <a
             href="https://mattkwade.com"

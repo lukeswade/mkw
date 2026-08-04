@@ -8,6 +8,8 @@ export type ModelType =
   | 'hex_tray' 
   | 'custom'
   | 'external'
+  | 'swatch'
+  | 'spool_tag'
   | 'csg';
 
 export interface CSGOperation {
@@ -18,9 +20,9 @@ export interface CSGOperation {
   height?: number;
   radius?: number;
   wallThickness?: number;
-  x: number;
-  y: number;
-  z: number;
+  x: number | string;
+  y: number | string;
+  z: number | string;
   rotationX?: number;
   rotationY?: number;
   rotationZ?: number;

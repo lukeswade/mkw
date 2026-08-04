@@ -82,20 +82,28 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     // Pause auto-rotation when user interacts
     controls.addEventListener('start', () => { controls.autoRotate = false; });
 
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    // Lights - Premium Setup
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
     scene.add(ambientLight);
 
-    const dirLight1 = new THREE.DirectionalLight(0xffffff, 2.5);
+    // Warm Key Light
+    const dirLight1 = new THREE.DirectionalLight(0xfff0dd, 3.5);
     dirLight1.position.set(100, 150, 100);
     dirLight1.castShadow = true;
-    dirLight1.shadow.mapSize.width = 1024;
-    dirLight1.shadow.mapSize.height = 1024;
+    dirLight1.shadow.mapSize.width = 2048;
+    dirLight1.shadow.mapSize.height = 2048;
+    dirLight1.shadow.bias = -0.0001;
     scene.add(dirLight1);
 
-    const dirLight2 = new THREE.DirectionalLight(0x22d3ee, 1.5);
+    // Cool Fill Light
+    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 2.0);
     dirLight2.position.set(-100, 80, -100);
     scene.add(dirLight2);
+    
+    // Rim Light for pop
+    const rimLight = new THREE.DirectionalLight(0x818cf8, 2.5);
+    rimLight.position.set(0, 50, -150);
+    scene.add(rimLight);
 
     // Print Bed Grid (220mm x 220mm)
     const gridHelper = new THREE.GridHelper(220, 22, 0x6366f1, 0x1e293b);

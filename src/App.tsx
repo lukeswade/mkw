@@ -172,10 +172,6 @@ export const App: React.FC = () => {
           <PromptSection
             conversation={conversation}
             onGenerate={handleGenerate}
-            onSelectPreset={(presetParams, presetPrompt) => {
-              setConversation([{ role: 'user', content: presetPrompt }, { role: 'assistant', content: JSON.stringify(presetParams) }]);
-              setModelParams(presetParams);
-            }}
             isGenerating={isGenerating}
           />
         </div>

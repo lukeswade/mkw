@@ -1,18 +1,14 @@
 import React, { useState } from 'react';
-import { Sparkles, Wand2, ArrowRight, Lightbulb, Box, Grid, Anchor, Paperclip, Key, Smartphone, Hexagon } from 'lucide-react';
-import { PRESET_IDEAS } from '../lib/preset-ideas';
-import { ModelParams } from '../types';
+import { Sparkles, Wand2, ArrowRight } from 'lucide-react';
 
 interface PromptSectionProps {
   onGenerate: (prompt: string) => void;
-  onSelectPreset: (params: ModelParams, presetPrompt: string) => void;
   isGenerating: boolean;
   conversation: {role: string, content: string}[];
 }
 
 export const PromptSection: React.FC<PromptSectionProps> = ({
   onGenerate,
-  onSelectPreset,
   isGenerating,
   conversation,
 }) => {
@@ -26,33 +22,33 @@ export const PromptSection: React.FC<PromptSectionProps> = ({
     }
   };
 
-  const getIcon = (iconName: string) => {
-    switch (iconName) {
-      case 'Grid': return <Grid className="w-4 h-4 text-cyan-400" />;
-      case 'Anchor': return <Anchor className="w-4 h-4 text-indigo-400" />;
-      case 'Paperclip': return <Paperclip className="w-4 h-4 text-emerald-400" />;
-      case 'Key': return <Key className="w-4 h-4 text-amber-400" />;
-      case 'Smartphone': return <Smartphone className="w-4 h-4 text-purple-400" />;
-      case 'Hexagon': return <Hexagon className="w-4 h-4 text-pink-400" />;
-      default: return <Box className="w-4 h-4 text-cyan-400" />;
-    }
-  };
+
 
   return (
     <section className="relative pt-6 pb-4">
       {/* Background ambient lighting */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-indigo-600/10 blur-[80px] pointer-events-none rounded-full" />
 
-      <div className="max-w-4xl mx-auto text-center px-4">
+      <div className="max-w-4xl mx-auto text-center px-4 relative z-10">
         
+        {/* Prominent App Logo */}
+        <div className="mb-6 flex justify-center">
+          <div className="relative group animate-float">
+            <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 rounded-[28px] blur-xl opacity-40 group-hover:opacity-60 transition-opacity duration-500"></div>
+            <div className="relative w-24 h-24 sm:w-32 sm:h-32 p-1 rounded-[28px] bg-gradient-to-br from-indigo-500/50 to-cyan-500/50 backdrop-blur-sm border border-white/10 shadow-2xl">
+              <img src="/icon-512.png" alt="MKW 3D App Icon" className="w-full h-full object-cover rounded-[24px]" />
+            </div>
+          </div>
+        </div>
+
         {/* Title */}
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-xs font-medium text-indigo-300 mb-4">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-xs font-medium text-indigo-300 mb-4 shadow-lg">
           <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
           <span>Powered by Cloudflare Workers AI</span>
         </div>
 
-        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white mb-3">
-          Turn 3D Ideas into Printable <span className="bg-gradient-to-r from-indigo-400 via-cyan-400 to-emerald-400 bg-clip-text text-transparent">STL & 3MF Files</span>
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white mb-4 drop-shadow-sm">
+          Turn Ideas into <span className="bg-gradient-to-r from-indigo-400 via-cyan-400 to-emerald-400 bg-clip-text text-transparent drop-shadow-lg">Printable 3D</span>
         </h1>
         <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto mb-6">
           Describe what you want to print. AI generates parametric 3D geometry with live WebGL preview & slicer estimates.
@@ -103,37 +99,62 @@ export const PromptSection: React.FC<PromptSectionProps> = ({
           </div>
         </form>
 
-        {/* Presets Grid - Hide if conversation has started */}
-        {conversation.length === 0 && (
-          <>
-            <div className="flex items-center justify-center gap-2 mb-3">
-              <Lightbulb className="w-4 h-4 text-amber-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Or pick a 3D Print Idea Preset
-              </span>
+        {/* Quick Maker Utility Chips */}
+        <div className="flex flex-wrap items-center justify-center gap-2 max-w-2xl mx-auto mb-6">
+          <button
+            type="button"
+            onClick={() => onGenerate('A calibration filament swatch card with stepped thickness windows')}
+            disabled={isGenerating}
+            className="text-xs px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-all shadow-sm"
+          >
+            🧪 Filament Swatch
+          </button>
+          <button
+            type="button"
+            onClick={() => onGenerate('A spool rim tag clip for labeling filament spools')}
+            disabled={isGenerating}
+            className="text-xs px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-all shadow-sm"
+          >
+            🏷️ Spool Tag Clip
+          </button>
+          <button
+            type="button"
+            onClick={() => onGenerate('A 20mm 3D printing calibration cube')}
+            disabled={isGenerating}
+            className="text-xs px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-all shadow-sm"
+          >
+            🎲 Calibration Cube
+          </button>
+          <button
+            type="button"
+            onClick={() => onGenerate('SD and MicroSD card desk organizer tray')}
+            disabled={isGenerating}
+            className="text-xs px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-all shadow-sm"
+          >
+            💾 SD Card Tray
+          </button>
+        </div>
+
+        {/* FilTracker Integration Banner */}
+        <div className="max-w-2xl mx-auto p-3.5 rounded-xl bg-gradient-to-r from-emerald-950/60 via-slate-900 to-indigo-950/60 border border-emerald-500/30 flex items-center justify-between gap-3 text-left shadow-lg">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">FilTracker Bridge</span>
+              <span className="text-[10px] px-2 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Free Inventory Tool</span>
             </div>
-            
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 max-w-4xl mx-auto">
-              {PRESET_IDEAS.map((preset) => (
-                <button
-                  key={preset.id}
-                  onClick={() => {
-                    setPrompt(preset.prompt);
-                    onSelectPreset(preset.params, preset.prompt);
-                  }}
-                  className="flex flex-col items-center justify-center p-3 rounded-xl glass-panel hover:border-indigo-500/50 hover:bg-slate-900/90 transition-all text-left group"
-                >
-                  <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 group-hover:border-indigo-500/40 mb-2 transition-colors">
-                    {getIcon(preset.icon)}
-                  </div>
-                  <span className="text-xs font-medium text-slate-200 text-center line-clamp-1 group-hover:text-indigo-300">
-                    {preset.title}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+            <p className="text-xs text-slate-300 mt-0.5">
+              Managing 3D printing spools? Track your filament inventory, spool weights & print costs at <strong className="text-emerald-400 font-semibold">FilTracker.com</strong>
+            </p>
+          </div>
+          <a
+            href="https://filtracker.com"
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md transition-all whitespace-nowrap"
+          >
+            Open FilTracker ↗
+          </a>
+        </div>
 
       </div>
     </section>

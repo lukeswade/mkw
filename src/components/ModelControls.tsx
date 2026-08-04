@@ -23,7 +23,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
   };
 
   return (
-    <div className="glass-panel rounded-2xl p-5 lg:p-6 flex flex-col justify-between h-full">
+    <div className="glass-panel glass-panel-hover rounded-2xl p-5 lg:p-6 flex flex-col justify-between h-full">
       <div>
         
         {/* Model Title & Details */}

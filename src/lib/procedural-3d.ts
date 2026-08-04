@@ -46,6 +46,14 @@ export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeomet
       geometry = createHexagonTray(width, depth, height, wallThickness);
       break;
 
+    case 'swatch':
+      geometry = createFilamentSwatch(width, depth, height);
+      break;
+
+    case 'spool_tag':
+      geometry = createSpoolTag(width, depth, height);
+      break;
+
     case 'csg':
       geometry = buildCSGGeometry(params.operations || []);
       break;
@@ -418,6 +426,173 @@ function createCustomParametricShape(w: number, d: number, h: number, wall: numb
   }
 }
 
+// 8b. Filament Calibration Swatch (FilTracker Component)
+export function createFilamentSwatch(w: number = 85, d: number = 54, h: number = 2): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  const r = 4;
+  const hw = w / 2;
+  const hd = d / 2;
+
+  // Outer rounded card
+  shape.moveTo(-hw + r, -hd);
+  shape.lineTo(hw - r, -hd);
+  shape.quadraticCurveTo(hw, -hd, hw, -hd + r);
+  shape.lineTo(hw, hd - r);
+  shape.quadraticCurveTo(hw, hd, hw - r, hd);
+  shape.lineTo(-hw + r, hd);
+  shape.quadraticCurveTo(-hw, hd, -hw, hd - r);
+  shape.lineTo(-hw, -hd + r);
+  shape.quadraticCurveTo(-hw, -hd, -hw + r, -hd);
+
+  // Top-left keyring hole (5mm)
+  const hole = new THREE.Path();
+  const holeRadius = 2.5;
+  const holeX = -hw + 10;
+  const holeY = hd - 10;
+  hole.absarc(holeX, holeY, holeRadius, 0, Math.PI * 2, true);
+  shape.holes.push(hole);
+
+  const extrudeSettings = {
+    depth: h,
+    bevelEnabled: true,
+    bevelSegments: 2,
+    steps: 1,
+    bevelSize: 0.5,
+    bevelThickness: 0.5,
+  };
+
+  const cardGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  cardGeo.rotateX(-Math.PI / 2);
+
+  // Add 3 stepped thickness transparency windows (0.8mm, 1.4mm, 2.0mm)
+  const evaluator = new Evaluator();
+  evaluator.useGroups = false;
+
+  const cardBrush = new Brush(cardGeo, new THREE.MeshStandardMaterial());
+
+  // Step 1: 0.8mm window cutout
+  const win1Geo = new THREE.BoxGeometry(15, 10, 10);
+  const win1Brush = new Brush(win1Geo, new THREE.MeshStandardMaterial());
+  win1Brush.position.set(-hw + 30, 0.4, 0);
+  win1Brush.updateMatrixWorld();
+
+  const step1 = evaluator.evaluate(cardBrush, win1Brush, SUBTRACTION);
+
+  // Step 2: 1.4mm window cutout
+  const win2Geo = new THREE.BoxGeometry(15, 10, 10);
+  const win2Brush = new Brush(win2Geo, new THREE.MeshStandardMaterial());
+  win2Brush.position.set(-hw + 50, 0.7, 0);
+  win2Brush.updateMatrixWorld();
+
+  const finalBrush = evaluator.evaluate(step1, win2Brush, SUBTRACTION);
+
+  return finalBrush.geometry;
+}
+
+// 8c. Spool Rim Tag Clip (FilTracker Component)
+export function createSpoolTag(w: number = 70, d: number = 25, h: number = 3): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  const hw = w / 2;
+  const hd = d / 2;
+  const r = 3;
+
+  shape.moveTo(-hw + r, -hd);
+  shape.lineTo(hw - r, -hd);
+  shape.quadraticCurveTo(hw, -hd, hw, -hd + r);
+  shape.lineTo(hw, hd - r);
+  shape.quadraticCurveTo(hw, hd, hw - r, hd);
+  shape.lineTo(-hw + r, hd);
+  shape.quadraticCurveTo(-hw, hd, -hw, hd - r);
+  shape.lineTo(-hw, -hd + r);
+  shape.quadraticCurveTo(-hw, -hd, -hw + r, -hd);
+
+  // Center clip slot (to snap onto spool rim)
+  const slot = new THREE.Path();
+  slot.moveTo(-hw + 15, -hd + 6);
+  slot.lineTo(hw - 15, -hd + 6);
+  slot.lineTo(hw - 15, -hd + 10);
+  slot.lineTo(-hw + 15, -hd + 10);
+  slot.closePath();
+  shape.holes.push(slot);
+
+  const extrudeSettings = {
+    depth: h,
+    bevelEnabled: true,
+    bevelSegments: 2,
+    steps: 1,
+    bevelSize: 0.4,
+    bevelThickness: 0.4,
+  };
+
+  const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+interface ComputedOpBounds {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  h: number;
+  d: number;
+}
+
+function resolveCSGCoordinate(
+  val: number | string | undefined,
+  axis: 'x' | 'y' | 'z',
+  currentDim: { w: number; h: number; d: number },
+  history: ComputedOpBounds[]
+): number {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === 'number') return val;
+  
+  const strVal = String(val).trim().toLowerCase();
+  
+  // Try parsing numeric string
+  const num = parseFloat(strVal);
+  if (!isNaN(num) && strVal === String(num)) {
+    return num;
+  }
+
+  // Parse pattern like "top_of(0)" or "center_of(1)"
+  const match = strVal.match(/^([a-z_]+)\((\d+)\)$/);
+  if (match) {
+    const anchor = match[1];
+    const refIndex = parseInt(match[2], 10);
+
+    if (refIndex >= 0 && refIndex < history.length) {
+      const ref = history[refIndex];
+
+      switch (anchor) {
+        case 'top_of':
+          // Stack on top with 1mm overlap
+          return ref.y + ref.h / 2 + currentDim.h / 2 - 1;
+        case 'bottom_of':
+          // Hang under bottom with 1mm overlap
+          return ref.y - ref.h / 2 - currentDim.h / 2 + 1;
+        case 'top_surface':
+          // Center directly on top surface (ideal for top hole cutouts)
+          return ref.y + ref.h / 2;
+        case 'bottom_surface':
+          return ref.y - ref.h / 2;
+        case 'right_of':
+          return ref.x + ref.w / 2 + currentDim.w / 2 - 1;
+        case 'left_of':
+          return ref.x - ref.w / 2 - currentDim.w / 2 + 1;
+        case 'front_of':
+          return ref.z + ref.d / 2 + currentDim.d / 2 - 1;
+        case 'back_of':
+          return ref.z - ref.d / 2 - currentDim.d / 2 + 1;
+        case 'center_of':
+          return ref[axis];
+      }
+    }
+  }
+
+  return !isNaN(num) ? num : 0;
+}
+
 // 9. True Constructive Solid Geometry Evaluator
 function buildCSGGeometry(operations: CSGOperation[]): THREE.BufferGeometry {
   if (!operations || operations.length === 0) {
@@ -427,25 +602,34 @@ function buildCSGGeometry(operations: CSGOperation[]): THREE.BufferGeometry {
   const evaluator = new Evaluator();
   evaluator.useGroups = false;
   let resultBrush: Brush | null = null;
+  const history: ComputedOpBounds[] = [];
 
   for (const op of operations) {
     let geo: THREE.BufferGeometry;
-    const w = op.width || 20;
-    const d = op.depth || 20;
-    const h = op.height || 20;
+    const w = op.width || (op.radius ? op.radius * 2 : 20);
+    const d = op.depth || (op.radius ? op.radius * 2 : 20);
+    const h = op.height || (op.radius ? op.radius * 2 : 20);
     const r = op.radius || Math.max(w, d) / 2;
     const wall = op.wallThickness || 2;
+    const segments = op.segments || 64;
 
-    if (op.shape === 'cylinder') geo = new THREE.CylinderGeometry(r, r, h, 32);
-    else if (op.shape === 'sphere') geo = new THREE.SphereGeometry(r, 32, 32);
-    else if (op.shape === 'cone') geo = new THREE.ConeGeometry(r, h, 32);
-    else if (op.shape === 'torus') geo = new THREE.TorusGeometry(r, wall, 32, 64);
-    else if (op.shape === 'pyramid') geo = new THREE.CylinderGeometry(0, r, h, 4, 1, false, Math.PI / 4); // rotate y to make it a pyramid
+    if (op.shape === 'cylinder') geo = new THREE.CylinderGeometry(r, r, h, segments);
+    else if (op.shape === 'sphere') geo = new THREE.SphereGeometry(r, segments, segments);
+    else if (op.shape === 'cone') geo = new THREE.ConeGeometry(r, h, segments);
+    else if (op.shape === 'torus') geo = new THREE.TorusGeometry(r, wall, segments, segments * 2);
+    else if (op.shape === 'pyramid') geo = new THREE.CylinderGeometry(0, r, h, 4, 1, false, Math.PI / 4);
     else geo = new THREE.BoxGeometry(w, h, d);
+
+    const currentDim = { w, h, d };
+    const posX = resolveCSGCoordinate(op.x, 'x', currentDim, history);
+    const posY = resolveCSGCoordinate(op.y, 'y', currentDim, history);
+    const posZ = resolveCSGCoordinate(op.z, 'z', currentDim, history);
+
+    history.push({ x: posX, y: posY, z: posZ, w, h, d });
 
     const material = new THREE.MeshStandardMaterial();
     const brush = new Brush(geo, material);
-    brush.position.set(op.x, op.y, op.z);
+    brush.position.set(posX, posY, posZ);
     
     if (op.rotationX) brush.rotation.x = op.rotationX;
     if (op.rotationY) brush.rotation.y = op.rotationY;
