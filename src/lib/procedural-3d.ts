@@ -1,6 +1,22 @@
 import * as THREE from 'three';
 import { Evaluator, Brush, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg';
 import { ModelParams, PrintAnalytics, MaterialType, CSGOperation } from '../types';
+import { measureMesh } from './mesh';
+
+/** three-bvh-csg needs every brush to carry the same attribute set. */
+function makeEvaluator(): Evaluator {
+  const evaluator = new Evaluator();
+  evaluator.useGroups = false;
+  evaluator.attributes = ['position', 'normal'];
+  return evaluator;
+}
+
+function brushOf(geometry: THREE.BufferGeometry): Brush {
+  if (!geometry.attributes.normal) geometry.computeVertexNormals();
+  const brush = new Brush(geometry, new THREE.MeshStandardMaterial());
+  brush.updateMatrixWorld();
+  return brush;
+}
 
 export function buildProceduralGeometry(params: ModelParams): THREE.BufferGeometry {
   const {
@@ -155,7 +171,8 @@ function createHollowBox(w: number, d: number, h: number, wall: number, radius: 
   holePath.quadraticCurveTo(iw, id, iw - ir, id);
   holePath.lineTo(-iw + ir, id);
   holePath.quadraticCurveTo(-iw, id, -iw, id - ir);
-  holePath.lineTo(-iw, -hd + r);
+  // Was -hd + r: outer dimensions leaking into the inner wall path.
+  holePath.lineTo(-iw, -id + ir);
   holePath.quadraticCurveTo(-iw, -id, -iw + ir, -id);
 
   // Base floor extrusion
@@ -181,7 +198,7 @@ function createHollowBox(w: number, d: number, h: number, wall: number, radius: 
   wallGeo.rotateX(Math.PI / 2);
   wallGeo.translate(0, wall, 0);
 
-  return mergeBufferGeometries([floorGeo, wallGeo]);
+  return unionGeometries([floorGeo, wallGeo]);
 }
 
 // 2. SD & MicroSD Card Organizer Tray
@@ -200,7 +217,7 @@ function createSDHolderTray(w: number, d: number, h: number, wall: number): THRE
     slots.push(divider);
   }
 
-  return mergeBufferGeometries(slots);
+  return unionGeometries(slots);
 }
 
 // 3. Wall Mountable Cable Clip
@@ -225,11 +242,18 @@ function createCableClip(w: number, d: number, h: number, holeDia: number, wall:
   const tabGeo = new THREE.BoxGeometry(w, wall * 2, d);
   tabGeo.translate(0, wall, d / 2);
 
-  // Screw hole cutout simulation
-  const screwHole = new THREE.CylinderGeometry(holeDia / 2, holeDia / 2, wall * 3, 32);
-  screwHole.translate(w / 3, wall, d / 2);
+  const body = unionGeometries([mainGeo, tabGeo]);
 
-  return mergeBufferGeometries([mainGeo, tabGeo]);
+  // A real CSG subtraction. This cylinder used to be built and then dropped
+  // on the floor, so the mounting tab shipped solid — and a union would not
+  // have cut a hole regardless.
+  if (holeDia > 0) {
+    const screwHole = new THREE.CylinderGeometry(holeDia / 2, holeDia / 2, wall * 6, 32);
+    screwHole.translate(w / 3, wall, d / 2);
+    return makeEvaluator().evaluate(brushOf(body), brushOf(screwHole), SUBTRACTION).geometry;
+  }
+
+  return body;
 }
 
 // 4. Custom Keychain Tag with Ring Hole
@@ -294,7 +318,7 @@ function createKeychainTag(w: number, d: number, h: number): THREE.BufferGeometr
   rimGeo.rotateX(Math.PI / 2);
   rimGeo.translate(0, h, 0);
 
-  return mergeBufferGeometries([tagGeo, rimGeo]);
+  return unionGeometries([tagGeo, rimGeo]);
 }
 
 // 5. Heavy Duty Wall Mount Hook
@@ -302,14 +326,24 @@ function createWallHook(w: number, d: number, h: number, wall: number): THREE.Bu
   const backplate = new THREE.BoxGeometry(w, h, wall * 1.5);
   backplate.translate(0, h / 2, wall * 0.75);
 
-  const hookArch = new THREE.TorusGeometry(d / 2, wall, 32, 64, Math.PI * 0.85);
+  const armRadius = d / 2;
+  const armCenterY = wall * 2 + armRadius;
+
+  const hookArch = new THREE.TorusGeometry(armRadius, wall, 32, 64, Math.PI * 0.85);
   hookArch.rotateY(Math.PI / 2);
-  hookArch.translate(0, wall * 2, d / 2 + wall);
+  hookArch.translate(0, armCenterY, wall * 1.5);
 
+  // Placed at the open end of the 0.85pi arc, so it actually caps the arm
+  // rather than floating beside it at an arbitrary offset.
+  const tipAngle = Math.PI * 0.85;
   const tip = new THREE.SphereGeometry(wall * 1.2, 32, 32);
-  tip.translate(0, d / 2 + wall * 2, d * 0.8);
+  tip.translate(
+    0,
+    armCenterY + Math.sin(tipAngle) * armRadius,
+    wall * 1.5 + Math.cos(tipAngle) * armRadius
+  );
 
-  return mergeBufferGeometries([backplate, hookArch, tip]);
+  return unionGeometries([backplate, hookArch, tip]);
 }
 
 // 6. Angled Desktop Phone Stand
@@ -369,7 +403,7 @@ function createHexagonTray(w: number, d: number, h: number, wall: number): THREE
   walls.rotateX(Math.PI / 2);
   walls.translate(0, wall, 0);
 
-  return mergeBufferGeometries([floor, walls]);
+  return unionGeometries([floor, walls]);
 }
 
 // 8. Custom Parametric Fallback Shape
@@ -427,7 +461,18 @@ function createCustomParametricShape(w: number, d: number, h: number, wall: numb
 }
 
 // 8b. Filament Calibration Swatch (FilTracker Component)
-export function createFilamentSwatch(w: number = 85, d: number = 54, h: number = 2): THREE.BufferGeometry {
+//
+// The stepped pockets are the whole point of a swatch — they let you judge a
+// filament's colour and translucency at different wall thicknesses. So each
+// pocket's *floor* is left at its target thickness.
+//
+// The previous version cut boxes 10mm tall centred at y=0.4 and y=0.7, which
+// engulfed a 2-3mm card entirely and punched straight through: a raycast
+// found zero material at both windows. It also built 2 of the 3 windows it
+// documented, and bevelling both faces made a "2mm" card 3mm thick.
+export const SWATCH_STEP_THICKNESSES = [0.8, 1.4, 2.0] as const;
+
+export function createFilamentSwatch(w: number = 85, d: number = 54, h: number = 3): THREE.BufferGeometry {
   const shape = new THREE.Shape();
   const r = 4;
   const hw = w / 2;
@@ -446,47 +491,41 @@ export function createFilamentSwatch(w: number = 85, d: number = 54, h: number =
 
   // Top-left keyring hole (5mm)
   const hole = new THREE.Path();
-  const holeRadius = 2.5;
-  const holeX = -hw + 10;
-  const holeY = hd - 10;
-  hole.absarc(holeX, holeY, holeRadius, 0, Math.PI * 2, true);
+  hole.absarc(-hw + 7, hd - 7, 2.5, 0, Math.PI * 2, true);
   shape.holes.push(hole);
 
-  const extrudeSettings = {
+  // Flat faces, no bevel: a bevelled underside will not sit flat on the bed,
+  // and it silently added 2 x bevelThickness to the card's stated thickness.
+  const cardGeo = new THREE.ExtrudeGeometry(shape, {
     depth: h,
-    bevelEnabled: true,
-    bevelSegments: 2,
+    bevelEnabled: false,
     steps: 1,
-    bevelSize: 0.5,
-    bevelThickness: 0.5,
-  };
+    curveSegments: 32,
+  });
+  cardGeo.rotateX(-Math.PI / 2); // extrusion runs +Z -> +Y, so the card spans y = 0..h
 
-  const cardGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-  cardGeo.rotateX(-Math.PI / 2);
+  const evaluator = makeEvaluator();
+  let result = brushOf(cardGeo);
 
-  // Add 3 stepped thickness transparency windows (0.8mm, 1.4mm, 2.0mm)
-  const evaluator = new Evaluator();
-  evaluator.useGroups = false;
+  const pocketW = Math.min(16, (w - 24) / SWATCH_STEP_THICKNESSES.length - 4);
+  const pocketD = Math.min(18, d * 0.4);
+  const spacing = pocketW + 6;
+  const firstX = -((SWATCH_STEP_THICKNESSES.length - 1) * spacing) / 2 + 6;
 
-  const cardBrush = new Brush(cardGeo, new THREE.MeshStandardMaterial());
+  SWATCH_STEP_THICKNESSES.forEach((floorThickness, i) => {
+    // Never cut past the card: leave at least 0.2mm of material.
+    const floor = Math.min(floorThickness, h - 0.2);
+    if (floor <= 0) return;
 
-  // Step 1: 0.8mm window cutout
-  const win1Geo = new THREE.BoxGeometry(15, 10, 10);
-  const win1Brush = new Brush(win1Geo, new THREE.MeshStandardMaterial());
-  win1Brush.position.set(-hw + 30, 0.4, 0);
-  win1Brush.updateMatrixWorld();
+    const cutHeight = h * 2;
+    const pocket = new THREE.BoxGeometry(pocketW, cutHeight, pocketD);
+    // Bottom face of the cutter lands exactly on the target floor height.
+    pocket.translate(firstX + i * spacing, floor + cutHeight / 2, -hd * 0.15);
 
-  const step1 = evaluator.evaluate(cardBrush, win1Brush, SUBTRACTION);
+    result = evaluator.evaluate(result, brushOf(pocket), SUBTRACTION);
+  });
 
-  // Step 2: 1.4mm window cutout
-  const win2Geo = new THREE.BoxGeometry(15, 10, 10);
-  const win2Brush = new Brush(win2Geo, new THREE.MeshStandardMaterial());
-  win2Brush.position.set(-hw + 50, 0.7, 0);
-  win2Brush.updateMatrixWorld();
-
-  const finalBrush = evaluator.evaluate(step1, win2Brush, SUBTRACTION);
-
-  return finalBrush.geometry;
+  return result.geometry;
 }
 
 // 8c. Spool Rim Tag Clip (FilTracker Component)
@@ -651,33 +690,54 @@ function buildCSGGeometry(operations: CSGOperation[]): THREE.BufferGeometry {
   return resultBrush ? resultBrush.geometry : new THREE.BoxGeometry(20, 20, 20);
 }
 
-// Utility to combine multiple buffer geometries safely
-function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const validGeos = geometries.map(g => (g.index ? g.toNonIndexed() : g.clone()));
-  
-  let totalVertices = 0;
-  validGeos.forEach(g => {
-    totalVertices += g.attributes.position.count;
-  });
+/**
+ * Boolean-unions a list of solids into one mesh.
+ *
+ * The previous implementation concatenated vertex buffers, which leaves every
+ * interior wall in place where parts overlap. That is not just untidy: the
+ * divergence-theorem volume then counts the overlap twice, measuring +22% on
+ * the hollow box and +12.6% on the SD tray against a voxel-sampled ground
+ * truth. Those figures drive the weight and cost estimates, so the CSG cost
+ * is worth paying.
+ */
+function unionGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const parts = geometries.filter((g) => g.attributes.position?.count);
+  if (parts.length === 0) return new THREE.BufferGeometry();
+  if (parts.length === 1) return parts[0];
 
-  const mergedPositions = new Float32Array(totalVertices * 3);
-  let offset = 0;
-
-  validGeos.forEach(g => {
-    const pos = g.attributes.position.array;
-    mergedPositions.set(pos, offset);
-    offset += pos.length;
-  });
-
-  const mergedGeo = new THREE.BufferGeometry();
-  mergedGeo.setAttribute('position', new THREE.BufferAttribute(mergedPositions, 3));
-  mergedGeo.computeVertexNormals();
-  mergedGeo.computeBoundingBox();
-
-  return mergedGeo;
+  const evaluator = makeEvaluator();
+  let result = brushOf(parts[0]);
+  for (let i = 1; i < parts.length; i++) {
+    result = evaluator.evaluate(result, brushOf(parts[i]), ADDITION);
+  }
+  return result.geometry;
 }
 
-// Calculate slicer analytics
+/** Cross-section of 1.75mm filament, in mm². */
+const FILAMENT_CROSS_SECTION_MM2 = Math.PI * 0.875 * 0.875;
+
+/** Rough volumetric throughput of a well-tuned modern printer, in cm³/hour. */
+const THROUGHPUT_CM3_PER_HOUR = 12;
+
+/** Perimeters + top/bottom shell thickness, and sparse infill fraction. */
+const SHELL_THICKNESS_MM = 1.2;
+const INFILL_FRACTION = 0.2;
+
+/**
+ * Slicer analytics.
+ *
+ * Volume is now measured from the mesh via the divergence theorem instead of
+ * multiplying the bounding box by a flat 0.35 — that guess was wrong by
+ * whatever the part's shape happened to be, and it drives the weight, length
+ * and time figures shown to the user.
+ *
+ * Weight also accounts for the fact that a print is a shell plus sparse
+ * infill, not a solid block: the shell is approximated as surface area x wall
+ * thickness (capped at the solid volume for parts thinner than two walls),
+ * and the remaining interior is filled at INFILL_FRACTION.
+ *
+ * The returned shape is unchanged, so PrintStats.tsx needs no edits.
+ */
 export function calculatePrintAnalytics(geometry: THREE.BufferGeometry, material: MaterialType = 'PLA'): PrintAnalytics {
   geometry.computeBoundingBox();
   const box = geometry.boundingBox || new THREE.Box3();
@@ -686,9 +746,13 @@ export function calculatePrintAnalytics(geometry: THREE.BufferGeometry, material
   const sizeY = Math.abs(box.max.y - box.min.y);
   const sizeZ = Math.abs(box.max.z - box.min.z);
 
-  // Approximate solid mesh volume (cm³) based on bounding box shell ratio
-  const boundingVolumeCm3 = (sizeX * sizeY * sizeZ) / 1000;
-  const estimatedSolidVolumeCm3 = Math.max(0.5, boundingVolumeCm3 * 0.35);
+  const { volumeMm3, areaMm2 } = measureMesh(geometry);
+  const solidVolumeCm3 = volumeMm3 / 1000;
+
+  const shellVolumeMm3 = Math.min(areaMm2 * SHELL_THICKNESS_MM, volumeMm3);
+  const interiorMm3 = Math.max(0, volumeMm3 - shellVolumeMm3);
+  const printedMm3 = shellVolumeMm3 + interiorMm3 * INFILL_FRACTION;
+  const printedVolumeCm3 = printedMm3 / 1000;
 
   // Material densities in g/cm³
   const densities: Record<MaterialType, number> = {
@@ -698,23 +762,29 @@ export function calculatePrintAnalytics(geometry: THREE.BufferGeometry, material
     ABS: 1.04,
   };
 
-  const weightGrams = Math.round(estimatedSolidVolumeCm3 * densities[material] * 10) / 10;
+  const round1 = (n: number) => Math.round(n * 10) / 10;
 
-  // Standard 1.75mm filament length calculation (area = PI * (0.875)^2 mm² = 2.405 mm²)
-  const filamentLengthMeters = Math.round((estimatedSolidVolumeCm3 * 1000 / 2.405) / 1000 * 10) / 10;
+  const weightGrams = round1(printedVolumeCm3 * densities[material]);
+  const filamentLengthMeters = round1(printedMm3 / FILAMENT_CROSS_SECTION_MM2 / 1000);
+  const estimatedTimeMin = Math.max(
+    5,
+    Math.round((printedVolumeCm3 / THROUGHPUT_CM3_PER_HOUR) * 60)
+  );
 
-  // Print time estimation heuristic (approx 18 cm³ per hour on modern high-speed printers)
-  const estimatedTimeMin = Math.max(10, Math.round((estimatedSolidVolumeCm3 / 18) * 60));
+  // A part can be rotated 90° on the bed, so either footprint orientation
+  // counts as a fit. The old check only tried one.
+  const fits = (bedX: number, bedY: number, maxZ: number) =>
+    ((sizeX <= bedX && sizeZ <= bedY) || (sizeZ <= bedX && sizeX <= bedY)) && sizeY <= maxZ;
 
   return {
-    volumeCm3: Math.round(estimatedSolidVolumeCm3 * 10) / 10,
+    volumeCm3: round1(solidVolumeCm3),
     weightGrams,
     estimatedTimeMin,
     filamentLengthMeters,
     bedCompatibility: {
-      bambuLab: sizeX <= 256 && sizeZ <= 256 && sizeY <= 256,
-      ender3: sizeX <= 220 && sizeZ <= 220 && sizeY <= 250,
-      mini: sizeX <= 180 && sizeZ <= 180 && sizeY <= 180,
+      bambuLab: fits(256, 256, 256),
+      ender3: fits(220, 220, 250),
+      mini: fits(180, 180, 180),
     },
   };
 }

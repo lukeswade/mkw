@@ -1,10 +1,25 @@
 import * as THREE from 'three';
+import { weldVertices } from './mesh';
 
+/**
+ * Serialises a geometry to binary STL.
+ *
+ * The scene is Y-up (three.js convention) but STL for 3D printing is Z-up.
+ * Exporting the scene orientation verbatim dropped every model into the
+ * slicer lying on its side; the rotation below fixes that. It is applied to a
+ * clone, so the previewed geometry is untouched.
+ *
+ * The mesh is also welded first, which collapses the duplicate vertex per
+ * triangle corner that CSG emits and drops the zero-area slivers that make
+ * slicers report a "non-manifold" model.
+ */
 export function exportBinarySTL(geometry: THREE.BufferGeometry): ArrayBuffer {
-  // Ensure we have non-indexed triangles for binary STL export
-  const nonIndexedGeo = geometry.index ? geometry.toNonIndexed() : geometry.clone();
+  const rotated = geometry.clone();
+  rotated.rotateX(Math.PI / 2);
+
+  const nonIndexedGeo = weldVertices(rotated).toNonIndexed();
   const posAttr = nonIndexedGeo.attributes.position;
-  
+
   if (!posAttr) {
     throw new Error('Geometry missing position attributes');
   }

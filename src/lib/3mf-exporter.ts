@@ -1,45 +1,47 @@
 import * as THREE from 'three';
 import JSZip from 'jszip';
+import { weldVertices } from './mesh';
 
+/**
+ * Serialises a geometry to a 3MF package.
+ *
+ * Like the STL writer, the mesh is rotated from the scene's Y-up to the Z-up
+ * convention 3D printing uses — without it the model arrives in the slicer
+ * lying on its side.
+ *
+ * Welding is delegated to weldVertices(), which compares actual distances
+ * across neighbouring grid cells. Deduplicating on a `toFixed(4)` string key
+ * (as this did) silently misses any pair that straddles a rounding boundary,
+ * leaving phantom cracks in the surface.
+ */
 export async function export3MF(geometry: THREE.BufferGeometry, modelTitle = 'Model'): Promise<Blob> {
-  const nonIndexedGeo = geometry.index ? geometry.toNonIndexed() : geometry.clone();
-  const posAttr = nonIndexedGeo.attributes.position;
+  const rotated = geometry.clone();
+  rotated.rotateX(Math.PI / 2);
 
-  if (!posAttr) {
+  const welded = weldVertices(rotated);
+  const posAttr = welded.attributes.position;
+  const index = welded.index;
+
+  if (!posAttr || !index) {
     throw new Error('Geometry missing position attribute');
   }
 
-  const vertexMap = new Map<string, number>();
-  const vertices: Array<{ x: number; y: number; z: number }> = [];
-  const triangles: Array<{ v1: number; v2: number; v3: number }> = [];
-
-  const getOrAddVertex = (x: number, y: number, z: number) => {
-    // Round to 4 decimal places for precision & deduplication
-    const key = `${x.toFixed(4)},${y.toFixed(4)},${z.toFixed(4)}`;
-    if (vertexMap.has(key)) {
-      return vertexMap.get(key)!;
-    }
-    const idx = vertices.length;
-    vertices.push({ x, y, z });
-    vertexMap.set(key, idx);
-    return idx;
-  };
-
-  for (let i = 0; i < posAttr.count; i += 3) {
-    const idx1 = getOrAddVertex(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
-    const idx2 = getOrAddVertex(posAttr.getX(i + 1), posAttr.getY(i + 1), posAttr.getZ(i + 1));
-    const idx3 = getOrAddVertex(posAttr.getX(i + 2), posAttr.getY(i + 2), posAttr.getZ(i + 2));
-
-    triangles.push({ v1: idx1, v2: idx2, v3: idx3 });
+  const vertexRows: string[] = [];
+  for (let i = 0; i < posAttr.count; i++) {
+    vertexRows.push(
+      `<vertex x="${posAttr.getX(i).toFixed(4)}" y="${posAttr.getY(i).toFixed(4)}" z="${posAttr.getZ(i).toFixed(4)}" />`
+    );
   }
 
-  const verticesXML = vertices
-    .map(v => `<vertex x="${v.x.toFixed(4)}" y="${v.y.toFixed(4)}" z="${v.z.toFixed(4)}" />`)
-    .join('\n');
+  const triangleRows: string[] = [];
+  for (let i = 0; i < index.count; i += 3) {
+    triangleRows.push(
+      `<triangle v1="${index.getX(i)}" v2="${index.getX(i + 1)}" v3="${index.getX(i + 2)}" />`
+    );
+  }
 
-  const trianglesXML = triangles
-    .map(t => `<triangle v1="${t.v1}" v2="${t.v2}" v3="${t.v3}" />`)
-    .join('\n');
+  const verticesXML = vertexRows.join('\n');
+  const trianglesXML = triangleRows.join('\n');
 
   const modelXML = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">

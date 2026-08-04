@@ -205,7 +205,9 @@ function parsePromptFallback(prompt: string) {
       description: 'Precision filament sample card with 3 stepped transparency windows (0.8mm, 1.4mm, 2.0mm).',
       width: 85,
       depth: 54,
-      height: 2,
+      // 3mm, not 2mm: the deepest window leaves a 2.0mm floor, so a 2mm card
+      // would have no material left above it and the step would vanish.
+      height: 3,
       wallThickness: 2,
       holeDiameter: 5,
       roundedRadius: 4,
