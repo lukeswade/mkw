@@ -88,13 +88,6 @@ export function exportBinarySTL(geometry: THREE.BufferGeometry): ArrayBuffer {
   return buffer;
 }
 
-export function downloadFile(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
+// downloadFile moved to ./download so App.tsx can use it without importing
+// three.js. Re-exported here for backwards compatibility.
+export { downloadFile } from './download';

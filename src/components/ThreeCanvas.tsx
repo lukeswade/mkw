@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three-stdlib';
+// three's own copy rather than three-stdlib: the whole package was being
+// pulled in for this one class.
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Eye, RotateCcw, Box, Layers, Loader2 } from 'lucide-react';
 import { MaterialType } from '../types';
 
