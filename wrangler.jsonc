@@ -11,6 +11,11 @@
   "ai": {
     "binding": "AI"
   },
+  // Keep the mkw.lukeswade.workers.dev fallback alive. Wrangler treats this
+  // config as the source of truth, so with `routes` set and this omitted it
+  // disables the workers.dev route on every deploy — silently undoing the
+  // dashboard toggle and leaving mattkwade.com as the only way in.
+  "workers_dev": true,
   "routes": [
     {
       "pattern": "mattkwade.com",
