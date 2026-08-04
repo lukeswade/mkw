@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { weldVertices } from './mesh';
+import { weldVertices, orientOutward } from './mesh';
 
 /**
  * Serialises a geometry to binary STL.
@@ -13,19 +13,21 @@ import { weldVertices } from './mesh';
  * triangle corner that CSG emits and drops the zero-area slivers that make
  * slicers report a "non-manifold" model.
  */
-export function exportBinarySTL(geometry: THREE.BufferGeometry): ArrayBuffer {
+export function exportBinarySTL(
+  geometry: THREE.BufferGeometry,
+  options: { title?: string } = {}
+): ArrayBuffer {
   const rotated = geometry.clone();
   rotated.rotateX(Math.PI / 2);
 
-  const nonIndexedGeo = weldVertices(rotated).toNonIndexed();
+  // Normalise winding so a boolean result whose faces ended up pointing inward
+  // is not written out as an inside-out solid.
+  const nonIndexedGeo = orientOutward(weldVertices(rotated)).geometry.toNonIndexed();
   const posAttr = nonIndexedGeo.attributes.position;
 
   if (!posAttr) {
     throw new Error('Geometry missing position attributes');
   }
-
-  nonIndexedGeo.computeVertexNormals();
-  const normalAttr = nonIndexedGeo.attributes.normal;
 
   const triangleCount = posAttr.count / 3;
   const bufferSize = 80 + 4 + triangleCount * (4 * 12 + 2);
@@ -33,7 +35,7 @@ export function exportBinarySTL(geometry: THREE.BufferGeometry): ArrayBuffer {
   const dataView = new DataView(buffer);
 
   // 80-byte header
-  const headerText = 'Exported from MKW 3D AI Studio (mattkwade.com)';
+  const headerText = `MKW 3D: ${options.title ?? 'model'}`.slice(0, 80);
   for (let i = 0; i < 80; i++) {
     dataView.setUint8(i, i < headerText.length ? headerText.charCodeAt(i) : 32);
   }
@@ -52,14 +54,14 @@ export function exportBinarySTL(geometry: THREE.BufferGeometry): ArrayBuffer {
     v2.fromBufferAttribute(posAttr, i + 1);
     v3.fromBufferAttribute(posAttr, i + 2);
 
-    if (normalAttr) {
-      normal.fromBufferAttribute(normalAttr, i);
-    } else {
-      // Calculate face normal manually
-      const cb = new THREE.Vector3().subVectors(v3, v2);
-      const ab = new THREE.Vector3().subVectors(v1, v2);
-      normal.crossVectors(cb, ab).normalize();
-    }
+    // Always the geometric face normal. Reading it from the normal attribute
+    // instead (as this used to) hands back a *smoothed* vertex normal — the
+    // average across adjacent faces from computeVertexNormals — which does not
+    // describe the facet's own plane on any curved surface.
+    const ab = new THREE.Vector3().subVectors(v2, v1);
+    const ac = new THREE.Vector3().subVectors(v3, v1);
+    normal.crossVectors(ab, ac);
+    if (normal.lengthSq() > 0) normal.normalize();
 
     // Normal vector
     dataView.setFloat32(offset, normal.x, true); offset += 4;

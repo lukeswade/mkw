@@ -152,7 +152,7 @@ export const App: React.FC = () => {
     if (!currentGeometry) return;
     try {
       const { exportBinarySTL } = await import('./lib/stl-exporter');
-      const buffer = exportBinarySTL(currentGeometry);
+      const buffer = exportBinarySTL(currentGeometry, { title: modelParams.title });
       downloadFile(new Blob([buffer], { type: 'model/stl' }), filenameFor('stl'));
     } catch (err) {
       console.error('Error exporting STL:', err);
