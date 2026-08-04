@@ -18,6 +18,11 @@ import * as THREE from 'three';
 export function measureMesh(geometry: THREE.BufferGeometry): {
   volumeMm3: number;
   areaMm2: number;
+  /**
+   * Signed volume. Negative means every face is wound inward — the solid is
+   * inside-out, which a slicer may read as a void rather than a body.
+   */
+  signedVolumeMm3: number;
 } {
   const geo = geometry.index ? geometry.toNonIndexed() : geometry;
   const pos = geo.attributes.position;
@@ -44,7 +49,7 @@ export function measureMesh(geometry: THREE.BufferGeometry): {
     area += cross.crossVectors(ab, ac).length() / 2;
   }
 
-  return { volumeMm3: Math.abs(volume), areaMm2: area };
+  return { volumeMm3: Math.abs(volume), areaMm2: area, signedVolumeMm3: volume };
 }
 
 /**
@@ -128,4 +133,34 @@ export function weldVertices(
   welded.computeVertexNormals();
   welded.computeBoundingBox();
   return welded;
+}
+
+/**
+ * Ensures triangles are wound counter-clockwise as seen from outside, which is
+ * what STL and 3MF both expect.
+ *
+ * A boolean subtraction can leave a result whose faces all point inward. It
+ * still previews fine — three.js will render backfaces — but a slicer reading
+ * the winding sees solid and void swapped. Detected from the sign of the
+ * divergence-theorem volume and fixed by reversing each triangle.
+ */
+export function orientOutward(geometry: THREE.BufferGeometry): {
+  geometry: THREE.BufferGeometry;
+  flipped: boolean;
+} {
+  const { signedVolumeMm3 } = measureMesh(geometry);
+  if (signedVolumeMm3 >= 0) return { geometry, flipped: false };
+
+  const geo = geometry.index ? geometry.toNonIndexed() : geometry.clone();
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+
+  for (let i = 0; i < pos.count; i += 3) {
+    const bx = pos.getX(i + 1), by = pos.getY(i + 1), bz = pos.getZ(i + 1);
+    pos.setXYZ(i + 1, pos.getX(i + 2), pos.getY(i + 2), pos.getZ(i + 2));
+    pos.setXYZ(i + 2, bx, by, bz);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+
+  return { geometry: geo, flipped: true };
 }
