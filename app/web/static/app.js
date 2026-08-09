@@ -76,10 +76,12 @@ window.initGraph = async function initGraph() {
     other: "#8b949e",
   };
 
+  const width = () => box.clientWidth || box.getBoundingClientRect().width || 900;
+  const height = () => box.clientHeight || 620;
   const graph = new ForceGraph(box)
     .graphData(data)
-    .width(box.clientWidth)
-    .height(box.clientHeight)
+    .width(width())
+    .height(height())
     .backgroundColor("#090c10")
     .nodeId("id")
     .nodeVal("val")
@@ -99,6 +101,15 @@ window.initGraph = async function initGraph() {
       ctx.fillStyle = "#c9d1d9";
       ctx.fillText(label, n.x, n.y + 7 + (n.val || 3) / 2);
     });
+
+  // hidden-at-load panes and window resizes must not leave a 0-width canvas
+  window.addEventListener("resize", () => graph.width(width()).height(height()));
+  const ro = new ResizeObserver(() => graph.width(width()).height(height()));
+  ro.observe(box);
+  let fitted = false;
+  graph.onEngineStop(() => {
+    if (!fitted && data.nodes.length) { fitted = true; graph.zoomToFit(400, 60); }
+  });
 
   const applyFilters = () => {
     const minSal = parseFloat(document.getElementById("g-salience").value || "0");

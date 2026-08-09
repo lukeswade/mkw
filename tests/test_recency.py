@@ -25,13 +25,14 @@ def test_recency_tables_cover_all_options():
     assert RECENCY_TO_TIME_RANGE["3months"] == "year"
     assert RECENCY_TO_TIME_RANGE["3years"] is None
     assert RECENCY_CUTOFF_DAYS["6months"] == 186
-    assert RECENCY_CUTOFF_DAYS["1year"] is None
+    # engines don't reliably honor time_range → every window has a cutoff
+    assert all(RECENCY_CUTOFF_DAYS[r] for r in options - {"all"})
 
 
 def test_cutoff_for():
     now = datetime(2026, 8, 9)
     assert cutoff_for("all", now) is None
-    assert cutoff_for("week", now) is None  # engine filter suffices
+    assert cutoff_for("week", now) == now - timedelta(days=8)
     assert cutoff_for("3months", now) == now - timedelta(days=93)
 
 

@@ -26,13 +26,16 @@ RECENCY_TO_TIME_RANGE: dict[str, str | None] = {
     "all": None,
 }
 
-# recency option → post-filter cutoff in days (None = engine filter suffices)
+# recency option → post-filter cutoff in days. Engines don't reliably honor
+# time_range (verified empirically — a 2009 page came back under "month"),
+# so every window gets a deterministic date check on top; undated results
+# are still kept and tagged.
 RECENCY_CUTOFF_DAYS: dict[str, int | None] = {
-    "week": None,
-    "month": None,
+    "week": 8,
+    "month": 32,
     "3months": 93,
     "6months": 186,
-    "1year": None,
+    "1year": 370,
     "3years": 1100,
     "all": None,
 }

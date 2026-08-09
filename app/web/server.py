@@ -47,15 +47,32 @@ def _build_templates() -> Jinja2Templates:
     return templates
 
 
-def create_app(cfg: Settings | None = None, enable_worker: bool = True,
-               enable_bot: bool = True) -> FastAPI:
+def _setup_logging(cfg: Settings) -> None:
+    root = logging.getLogger()
+    if any(getattr(h, "_dr_file", False) for h in root.handlers):
+        return
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        from logging.handlers import RotatingFileHandler
+        fh = RotatingFileHandler(cfg.data_path / "app.log",
+                                 maxBytes=5_000_000, backupCount=3)
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        fh._dr_file = True  # marker so reloads don't stack handlers
+        root.addHandler(fh)
+    except OSError:
+        pass  # unwritable data dir surfaces elsewhere with a better message
+
+
+def create_app(cfg: Settings | None = None, enable_worker: bool = True,
+               enable_bot: bool = True) -> FastAPI:
     fixed_cfg = cfg
     cfg_loader = (lambda: fixed_cfg) if fixed_cfg is not None else load_settings
     base_cfg = cfg_loader()
     base_cfg.ensure_dirs()
+    _setup_logging(base_cfg)
 
     templates = _build_templates()
     signer = load_signer(base_cfg.data_path)

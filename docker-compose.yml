@@ -17,6 +17,10 @@ services:
       - ./data:/data
     depends_on:
       - searxng
+    extra_hosts:
+      # lets the container reach a llama.cpp/LLM server on the host, both
+      # on Docker Desktop and on Linux
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
@@ -36,3 +40,13 @@ services:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-change_me_generate_with_openssl_rand_hex_32}
     restart: unless-stopped
     # No ports: only reachable from the internal Docker network.
+
+  # Optional: run a local LLM in the stack instead of DeepSeek. Put a .gguf
+  # in ./models, uncomment, then Settings → provider "local", base URL
+  # http://llama:8080/v1
+  # llama:
+  #   image: ghcr.io/ggml-org/llama.cpp:server
+  #   volumes:
+  #     - ./models:/models
+  #   command: ["-m", "/models/model.gguf", "--host", "0.0.0.0", "--port", "8080", "-c", "32768"]
+  #   restart: unless-stopped
