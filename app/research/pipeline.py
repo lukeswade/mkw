@@ -25,6 +25,7 @@ from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
 from app.research.dedupe import canonicalize, domain_of, interleave, rank_diverse
+from app.research.entities import extract_entities
 from app.research.extractor import extract
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
@@ -324,12 +325,21 @@ class Pipeline:
         store.write_further(synthesizer.render_further_md(fu.items))
         followups_json = [f.model_dump() for f in fu.items]
 
-        # knowledge layer: entities, embeddings, cross-run links (optional)
+        # knowledge graph entities (LLM + SQLite; independent of vector layer)
+        if findings:
+            try:
+                n_entities = await extract_entities(llm, self.repo, run_id, overview)
+                if n_entities:
+                    self.bus.publish(run_id, "log",
+                                     message=f"extracted {n_entities} entities")
+            except Exception:
+                log.exception("entity extraction failed (run still completes)")
+
+        # vector index + cross-run similarity links (optional knowledge layer)
         if self.rag is not None and findings:
             self.bus.publish(run_id, "phase", phase="indexing")
             try:
-                await self.rag.index_run(run_id, store, the_plan.title,
-                                         overview, findings)
+                await self.rag.index_run(self.repo, run_id)
             except Exception:
                 log.exception("indexing failed for %s (run still completes)", run_id)
 

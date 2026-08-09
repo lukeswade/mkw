@@ -195,3 +195,24 @@ def test_library_keyword_search(data_dir, monkeypatch):
         assert "Seeded Research" in r.text
         none = client.get("/library", params={"q": "missingword12345"})
         assert "Nothing found" in none.text
+
+
+def test_graph_api_shape(data_dir, monkeypatch):
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_a = seed_completed_run(cfg)
+    run_b = seed_completed_run(cfg)
+    repo = Repo(connect(cfg.db_path))
+    ent = repo.upsert_entity("QuantumScape", "quantumscape", "org", "battery co")
+    repo.set_run_entity(run_a, ent, 0.9)
+    repo.set_run_entity(run_b, ent, 0.4)
+    repo.add_run_link(run_a, run_b, "similar", 0.7)
+    with TestClient(app) as client:
+        data = client.get("/api/graph").json()
+    ids = {n["id"] for n in data["nodes"]}
+    assert f"run:{run_a}" in ids and f"run:{run_b}" in ids
+    ent_nodes = [n for n in data["nodes"] if n["group"] == "org"]
+    assert len(ent_nodes) == 1 and ent_nodes[0]["label"] == "QuantumScape"
+    assert ent_nodes[0]["salience"] == 0.9  # max across runs
+    kinds = {(l["kind"]) for l in data["links"]}
+    assert kinds == {"mentions", "similar"}
+    assert len([l for l in data["links"] if l["kind"] == "mentions"]) == 2

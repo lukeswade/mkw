@@ -112,6 +112,14 @@ class FollowUp(BaseModel):
 class FollowUpsOut(BaseModel):
     items: list[FollowUp] = Field(default_factory=list, max_length=10)
 
+    @field_validator("items", mode="before")
+    @classmethod
+    def _drop_unusable(cls, v):
+        if not isinstance(v, list):
+            return v
+        return [i for i in v if isinstance(i, dict)
+                and len(str(i.get("query", "")).strip()) >= 3][:10]
+
 
 class EntityItem(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -143,3 +151,12 @@ class EntityItem(BaseModel):
 
 class EntitiesOut(BaseModel):
     entities: list[EntityItem] = Field(default_factory=list, max_length=20)
+
+    @field_validator("entities", mode="before")
+    @classmethod
+    def _drop_unusable(cls, v):
+        # one malformed item must not sink the whole batch
+        if not isinstance(v, list):
+            return v
+        return [i for i in v if isinstance(i, dict)
+                and str(i.get("name", "")).strip()][:20]
