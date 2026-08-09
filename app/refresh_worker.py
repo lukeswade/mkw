@@ -2,14 +2,14 @@
 import asyncio
 import logging
 from app import db
-from app.config import Config
+from app.config import Settings, load_settings
 from app.models import RunParams
 
 log = logging.getLogger(__name__)
 
 async def refresh_loop(orchestrator):
     """Periodically wakes up, finds evergreen runs, and spawns update runs."""
-    cfg = Config.from_env()
+    cfg = load_settings()
     repo = db.Repo(db.connect(cfg.db_path))
     
     while True:
