@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Library · Deep Research{% endblock %}
 {% block content %}
-<h1>Library</h1>
+<div class="page-header">
+  <h1>Library</h1>
+  <p class="page-desc">Browse and search across all your research</p>
+</div>
 <form method="get" action="/library" class="search-bar">
   <input type="search" name="q" value="{{ q }}" placeholder="Search across all research…">
   <select name="mode">
@@ -12,9 +15,9 @@
 </form>
 
 {% if results is not none %}
-  <p class="result-count">{{ results | length }} match(es) for “{{ q }}” ({{ mode }})</p>
+  <p class="result-count">{{ results | length }} match(es) for "{{ q }}" ({{ mode }})</p>
   {% for hit in results %}
-  <a class="hit-card" href="/runs/{{ hit.run['id'] }}">
+  <a class="hit-card card" href="/runs/{{ hit.run['id'] }}">
     <span class="chip status-{{ hit.run['status'] }}">{{ hit.run['status'] }}</span>
     <span class="hit-run">{{ hit.run['title'] or hit.run['query'] }}</span>
     <span class="hit-kind">{{ hit.kind }}{% if hit.title and hit.kind == 'finding' %}: {{ hit.title }}{% endif %}</span>
@@ -30,10 +33,12 @@
     {% set r = item.row %}
     <a class="run-item" href="/runs/{{ r['id'] }}">
       <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
-      <span class="run-title">{{ r['title'] or r['query'] }}</span>
-      <span class="run-meta">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
-        {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
-        · {{ r['created_at'][:16].replace('T', ' ') }}</span>
+      <div class="run-info">
+        <span class="run-title">{{ r['title'] or r['query'] }}</span>
+        <span class="run-meta">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
+          {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
+          · {{ r['created_at'][:16].replace('T', ' ') }}</span>
+      </div>
     </a>
     {% else %}
     <p class="empty-note">No research yet.</p>

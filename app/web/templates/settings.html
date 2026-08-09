@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Settings · Deep Research{% endblock %}
 {% block content %}
-<h1>Settings</h1>
+<div class="page-header">
+  <h1>Settings</h1>
+  <p class="page-desc">Configure your LLM provider, search engine, and integrations</p>
+</div>
 {% if saved %}<p class="banner banner-ok">Saved. Values apply from the next research run. Telegram changes need a container restart.</p>{% endif %}
 
 <form method="post" action="/settings">
@@ -83,7 +86,7 @@
     <label><input type="checkbox" name="web_password_clear"> Remove the password entirely</label>
   </article>
 
-  <button type="submit">Save settings</button>
+  <button type="submit" class="save-btn">Save settings</button>
   <p class="hint">Secrets are stored in <code>data/settings.json</code> (mode 600), never in the image or git.</p>
 </form>
 {% endblock %}

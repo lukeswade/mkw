@@ -2,6 +2,7 @@
 {% block content %}
 <section class="hero">
   <h1>What should I research?</h1>
+  <p class="hero-sub">AI-powered deep web research with iterative source discovery</p>
   {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
   <form method="post" action="/runs" class="new-run card">
     <textarea name="query" rows="3" required minlength="3" autofocus

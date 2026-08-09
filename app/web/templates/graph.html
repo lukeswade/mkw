@@ -1,13 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Graph · Deep Research{% endblock %}
 {% block content %}
-<h1>Knowledge graph</h1>
-<div class="graph-controls">
+<div class="page-header">
+  <h1>Knowledge graph</h1>
+  <p class="page-desc">Visualise entities and connections across your research</p>
+</div>
+<div class="graph-controls card">
   <label>Min salience <input type="range" id="g-salience" min="0" max="1" step="0.05" value="0"></label>
   <label><input type="checkbox" id="g-runs-only"> Runs only</label>
   <span id="g-stats" class="hint"></span>
 </div>
-<div id="graph" class="graph-box"></div>
+<div id="graph" class="graph-box card"></div>
 {% if not rag_available %}
 <p class="hint">Entity extraction needs the knowledge layer — run links and entities appear after completed runs are indexed.</p>
 {% endif %}

@@ -5,15 +5,20 @@
   {% set r = item.row %}
   <a class="run-item" href="/runs/{{ r['id'] }}">
     <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
-    <span class="run-title">{{ r['title'] or r['query'] }}</span>
-    <span class="run-meta">
-      depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
-      {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
-      · {{ r['created_at'][:16].replace('T', ' ') }}
-    </span>
+    <div class="run-info">
+      <span class="run-title">{{ r['title'] or r['query'] }}</span>
+      <span class="run-meta">
+        depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
+        {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
+        · {{ r['created_at'][:16].replace('T', ' ') }}
+      </span>
+    </div>
   </a>
   {% endfor %}
 </div>
 {% else %}
-<p class="empty-note">No research yet — start your first run above.</p>
+<div class="empty-state">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.3;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+  <p class="empty-note">No research yet — start your first run above.</p>
+</div>
 {% endif %}
