@@ -143,6 +143,13 @@ class Pipeline:
                 final_text = await llm.chat_stream("chat", messages, self.bus, run_id, max_tokens=2048)
                 store.write_overview(final_text)
                 self.repo.fts_add(run_id, "overview", query[:100], final_text)
+                
+                # properly finalize the run
+                stats = {"rounds": 0, "urls_considered": 0, "sources_kept": 0, "sources_skipped": 0, "llm": llm.usage_summary()}
+                self.repo.set_stats(run_id, stats)
+                self.repo.update_run(run_id, status="completed", stop_reason="chat completed", finished_at=utcnow())
+                store.update_meta(status="completed", stop_reason="chat completed", finished_at=utcnow(), stats=stats)
+                self.bus.publish(run_id, "done", status="completed", stop_reason="chat completed", sources=0)
                 return
 
             # 2. plan
