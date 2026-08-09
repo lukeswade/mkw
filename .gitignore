@@ -1,5 +1,19 @@
-# Dependencies
-node_modules
+# Secrets — never commit
+.env
+
+# Runtime data (sqlite, chroma, research output, settings.json with API keys)
+data/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node (used only to vendor static assets)
+node_modules/
+package.json
+package-lock.json
 .pnpm-store
 
 # Build output
@@ -7,6 +21,7 @@ dist
 .vitesse
 .wrangler
 
-# System files
+# OS / editor
 .DS_Store
+*.tmp
 *.log

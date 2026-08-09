@@ -1,0 +1,38 @@
+# Production-shaped stack. For development use scripts/dev.sh, which layers
+# docker-compose.dev.yml on top (hot reload + SearXNG exposed on localhost).
+services:
+  app:
+    build:
+      context: .
+      target: prod
+    ports:
+      - "8090:8090"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SEARXNG_URL: http://searxng:8080
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    depends_on:
+      - searxng
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  searxng:
+    # Pinned by digest (upstream has changed limiter/format behavior across
+    # releases). To upgrade deliberately: docker pull searxng/searxng:latest,
+    # then update this digest.
+    image: searxng/searxng@sha256:f4c8e59de166ed71f6380c0847c312ca51f0d41996e31d0559163b6b09ecde52
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-change_me_generate_with_openssl_rand_hex_32}
+    restart: unless-stopped
+    # No ports: only reachable from the internal Docker network.

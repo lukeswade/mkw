@@ -1,0 +1,5 @@
+# CPU-only torch wheels (much smaller than CUDA builds; resolves on both
+# amd64 and arm64 — arm64 wheels are CPU-only regardless).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.13.0
+sentence-transformers==5.7.0

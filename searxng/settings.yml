@@ -1,0 +1,18 @@
+# SearXNG configuration for the deep-research stack.
+# `use_default_settings: true` keeps everything stock except the overrides below.
+use_default_settings: true
+
+server:
+  # Overridden by the SEARXNG_SECRET env var set in docker-compose.
+  secret_key: "change_me"
+  # The limiter needs a valkey instance and only matters for public instances;
+  # this one is reachable solely from the internal Docker network.
+  limiter: false
+  image_proxy: false
+
+search:
+  # 'json' is required for the app's API access — without it
+  # /search?format=json returns HTTP 403.
+  formats:
+    - html
+    - json

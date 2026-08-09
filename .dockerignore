@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+data
+tests
+scripts
+searxng
+node_modules
+__pycache__
+**/__pycache__
+.pytest_cache
+.ruff_cache
+README.md
+docker-compose*.yml
+.DS_Store
