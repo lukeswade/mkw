@@ -20,6 +20,7 @@ from app.models import RECENCY_CHOICES, RECENCY_LABELS
 from app.research.orchestrator import Orchestrator
 from app.research.progress import ProgressBus
 from app.web.auth import build_login_router, install_auth, load_signer
+from app.refresh_worker import refresh_loop
 
 log = logging.getLogger(__name__)
 
@@ -92,8 +93,11 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
         app.state.templates = templates
 
         orch.recover()
+        refresh_task = None
         if enable_worker:
             orch.start()
+            import asyncio
+            refresh_task = asyncio.create_task(refresh_loop(orch))
 
         bot = None
         if enable_bot:
@@ -114,6 +118,8 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
                 await stop_bot(bot)
             if enable_worker:
                 await orch.stop()
+                if refresh_task:
+                    refresh_task.cancel()
             conn.close()
 
     app = FastAPI(title="Deep Research", docs_url=None, redoc_url=None,
@@ -131,11 +137,13 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
     from app.web.routes_settings import router as settings_router
     from app.web.routes_graph import router as graph_router
     from app.web.routes_ask import router as ask_router
+    from app.web.routes_readme import router as readme_router
     app.include_router(runs_router)
     app.include_router(library_router)
     app.include_router(settings_router)
     app.include_router(graph_router)
     app.include_router(ask_router)
+    app.include_router(readme_router)
 
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")),
               name="static")

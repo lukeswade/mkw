@@ -185,6 +185,18 @@ async def cancel_run(request: Request, run_id: str):
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
 
+@router.post("/runs/{run_id}/evergreen")
+async def toggle_evergreen(request: Request, run_id: str):
+    repo = request.app.state.repo
+    row = repo.get_run(run_id)
+    if not row:
+        return Response("Not found", status_code=404)
+    # Toggle evergreen boolean
+    new_status = not bool(row["evergreen"])
+    repo.update_run(run_id, evergreen=new_status)
+    return RedirectResponse(f"/runs/{run_id}", status_code=303)
+
+
 @router.post("/runs/{run_id}/retry")
 async def retry_run(request: Request, run_id: str):
     row = _row_or_404(request, run_id)

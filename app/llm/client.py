@@ -50,7 +50,7 @@ class LLM:
     def __init__(self, cfg: Settings):
         self.provider = cfg.llm_provider
         if self.provider == "local":
-            base, key, self.model = (cfg.local_llm_base_url, "sk-local",
+            base, key, self.model = (cfg.local_llm_base_url, "sk-mlx-local",
                                      cfg.local_llm_model)
         else:
             base, key, self.model = (cfg.deepseek_base_url, cfg.deepseek_api_key,
@@ -133,6 +133,37 @@ class LLM:
             if attempt < len(_BACKOFF):
                 await asyncio.sleep(_BACKOFF[attempt])
         raise LLMError(f"LLM call '{kind}' failed after retries: {last_err}")
+
+    async def chat_stream(self, kind: str, messages: list[dict], bus, run_id: str, *,
+                          max_tokens: int = 2048, temperature: float = 0.3) -> str:
+        """Stream chat completions and publish chunks to the progress bus."""
+        if self.provider == "deepseek" and not self._configured:
+            raise LLMError("No DeepSeek API key configured.")
+        kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        
+        # We don't retry streaming calls because partial output might have already been sent to the user.
+        try:
+            full_text = []
+            async with self._sem:
+                stream = await self.client.chat.completions.create(**kwargs)
+                async for chunk in stream:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        full_text.append(content)
+                        bus.publish(run_id, "stream", chunk=content)
+            self.total_calls += 1
+            # We don't have accurate token counts for streams from all providers, so we can estimate
+            final_text = "".join(full_text)
+            self._track(kind, type("DummyResp", (), {"usage": type("DummyUsage", (), {"prompt_tokens": est_tokens(str(messages)), "completion_tokens": est_tokens(final_text)})}))
+            return final_text
+        except Exception as e:
+            raise LLMError(f"LLM stream call '{kind}' failed: {e}") from e
 
     async def chat_json(self, kind: str, messages: list[dict], schema: type[M], *,
                         max_tokens: int = 2048, temperature: float = 0.2) -> M:

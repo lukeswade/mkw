@@ -8,9 +8,9 @@
       placeholder="e.g. State of solid-state battery manufacturing — who is closest to mass production and what are the remaining blockers?">{{ prefill.query if prefill else "" }}</textarea>
     <div class="controls">
       <label class="depth-label">Depth <output id="depth-val">{{ prefill.depth if prefill else 3 }}</output>
-        <input type="range" name="depth" min="1" max="10"
+        <input type="range" name="depth" min="0" max="10"
                value="{{ prefill.depth if prefill else 3 }}"
-               oninput="document.getElementById('depth-val').value = this.value">
+               oninput="document.getElementById('depth-val').value = this.value == '0' ? '0 (Quick Chat)' : this.value">
       </label>
       <label>Recency
         <select name="recency">

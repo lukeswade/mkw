@@ -27,6 +27,7 @@ Produce a JSON object with exactly these keys:
 - "title": a short descriptive title for this research (max 10 words)
 - "brief": 2-4 sentences stating what the research must establish — the specific angles, subtopics, and what a complete answer looks like
 - "subqueries": array of exactly {breadth} distinct web search queries (plain strings). Make them specific and varied: cover different facets, use terminology a domain expert would search for, avoid near-duplicates. Where the recency focus makes it useful, include a year in the query text.
+- "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) that are strongly associated with the target information across these subqueries. These will be used for fast text extraction from large documents.
 
 Respond with only the JSON object."""
 
@@ -58,7 +59,10 @@ Produce a JSON object with exactly these keys:
 - "published_date": "YYYY-MM-DD" if the document states its publication date, else null
 - "summary": 1-2 sentences on what this source contributes
 - "notes_md": markdown notes (max 350 words) capturing the relevant facts, numbers, direct quotes (in quotation marks), names, and claims. Information-dense, concrete, no preamble.
-- "key_facts": array of up to 8 single-sentence facts from this source
+- "key_facts": array of up to 8 objects, each representing a single-sentence fact. Each object must have:
+  - "claim": the extracted fact
+  - "evidence_quote": a verbatim quote (≤200 chars) from the text supporting the claim, or null if unsupported
+  - "confidence": integer 0-10 representing confidence in the claim
 
 Respond with only the JSON object."""
 
@@ -84,6 +88,7 @@ Produce a JSON object with exactly these keys:
 - "state_md": REWRITE the complete research state document in markdown, merging the new findings into it: what is now established (cite source ids like [3]), what is uncertain or disputed, what is still missing. Max 1500 words. This document is the pipeline's only memory — keep it complete and dense.
 - "saturated": boolean — true only if further searching is unlikely to add material insight on the brief
 - "next_queries": if not saturated, an array of up to {breadth} NEW targeted search queries attacking the biggest remaining gaps (plain strings, specific, no duplicates of past queries). Empty array if saturated.
+- "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) relevant to the next_queries for fast text extraction.
 
 Respond with only the JSON object."""
 

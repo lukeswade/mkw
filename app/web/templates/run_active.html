@@ -13,13 +13,18 @@
   {% if parent %}<p class="parent-note">follows up on <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}
 </header>
 
-<article class="progress-card">
-  <div class="progress-head">
-    <p>Researching<span class="dots"></span></p>
-    <form method="post" action="/runs/{{ run_id }}/cancel">
-      <button type="submit" class="secondary outline">Cancel</button>
-    </form>
-  </div>
-  <pre id="live-log" class="log" data-run="{{ run_id }}"></pre>
-</article>
+  <article class="progress-card">
+    <div class="progress-head">
+      <p>Researching<span class="dots"></span></p>
+      <form method="post" action="/runs/{{ run_id }}/cancel">
+        <button type="submit" class="secondary outline">Cancel</button>
+      </form>
+    </div>
+    {% if row['depth'] == 0 %}
+    <div id="chat-output" class="markdown-body" style="padding: 1rem; border-top: 1px solid var(--border); white-space: pre-wrap;"></div>
+    <pre id="live-log" class="log" data-run="{{ run_id }}" style="display: none;"></pre>
+    {% else %}
+    <pre id="live-log" class="log" data-run="{{ run_id }}"></pre>
+    {% endif %}
+  </article>
 {% endblock %}

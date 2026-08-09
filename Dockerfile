@@ -24,6 +24,7 @@ RUN pip install -r requirements.txt
 
 RUN useradd --create-home --uid 1000 app
 COPY app ./app
+COPY README.md .
 USER app
 EXPOSE 8090
 

@@ -132,6 +132,19 @@ class Pipeline:
                     self.bus.publish(run_id, "log",
                                      message=f"building on {len(related)} related earlier run(s)")
 
+            if depth == 0:
+                self.bus.publish(run_id, "phase", phase="chatting")
+                self.repo.update_run(run_id, title=query[:100])
+                store.update_meta(title=query[:100])
+                messages = [
+                    {"role": "system", "content": "You are a helpful AI answering a direct query."},
+                    {"role": "user", "content": f"Query: {query}\n\nContext (if any):\n{prior}\n\nPlease answer the query based on the context and your knowledge."}
+                ]
+                final_text = await llm.chat_stream("chat", messages, self.bus, run_id, max_tokens=2048)
+                store.write_overview(final_text)
+                self.repo.fts_add(run_id, "overview", query[:100], final_text)
+                return
+
             # 2. plan
             self.bus.publish(run_id, "phase", phase="planning")
             the_plan = await planner_stage.plan(
@@ -144,6 +157,7 @@ class Pipeline:
 
             # 3. research rounds
             queries = the_plan.subqueries
+            current_keywords = the_plan.keywords
             dry_rounds = 0
             stop_reason = "depth limit reached"
             for round_no in range(1, depth + 1):
@@ -154,7 +168,7 @@ class Pipeline:
 
                 kept = await self._round(run_id, store, state, searcher, fetcher,
                                          llm, the_plan.brief, recency_desc, today,
-                                         recency, queries, breadth)
+                                         recency, queries, breadth, current_keywords)
                 state.searched.extend(queries)
 
                 if len(state.findings) >= max_docs_for_depth(depth):
@@ -191,6 +205,7 @@ class Pipeline:
                     stop_reason = "no further queries proposed"
                     break
                 queries = gap.next_queries
+                current_keywords = gap.keywords
 
             # 4. synthesis
             self._check_cancel()
@@ -199,7 +214,7 @@ class Pipeline:
 
     # ---- one search round ------------------------------------------------------------
     async def _round(self, run_id, store, state, searcher, fetcher, llm,
-                     brief, recency_desc, today, recency, queries, breadth) -> list[Finding]:
+                     brief, recency_desc, today, recency, queries, breadth, keywords) -> list[Finding]:
         results_lists = await asyncio.gather(
             *(searcher.search(q, recency) for q in queries),
             return_exceptions=True)
@@ -261,7 +276,7 @@ class Pipeline:
             notes = await take_notes(
                 llm, brief=brief, recency_desc=recency_desc, today=today,
                 url=fetched.final_url, title=title,
-                detected_date=detected_date, text=doc.text)
+                detected_date=detected_date, text=doc.text, keywords=keywords)
             if notes is None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
@@ -279,7 +294,7 @@ class Pipeline:
                 domain=domain_of(fetched.final_url),
                 published=notes.published_date or detected_date,
                 relevance=notes.relevance, summary=notes.summary,
-                notes_md=notes.notes_md, key_facts=notes.key_facts,
+                notes_md=notes.notes_md, key_facts=[f.model_dump() for f in notes.key_facts],
                 query=c.via_query,
             )
             state.findings.append(finding)

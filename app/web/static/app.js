@@ -42,6 +42,15 @@ function initProgress(el) {
   es.onmessage = (msg) => {
     let e;
     try { e = JSON.parse(msg.data); } catch { return; }
+    
+    if (e.type === "stream") {
+      const chatOut = document.getElementById("chat-output");
+      if (chatOut) {
+        chatOut.textContent += e.chunk;
+      }
+      return;
+    }
+    
     const line = fmtEvent(e);
     if (line) {
       el.textContent += line + "\n";

@@ -31,11 +31,12 @@ ENTITY_TYPES = (
 
 class RunParams(BaseModel):
     query: str = Field(min_length=3, max_length=2000)
-    depth: int = Field(ge=1, le=10)
+    depth: int = Field(ge=0, le=10)
     recency: Recency = "all"
     origin: Literal["web", "telegram", "cli"] = "web"
     parent_run_id: str | None = None
     origin_chat_id: int | None = None
+    evergreen: bool = False
 
     @field_validator("query")
     @classmethod
@@ -52,6 +53,7 @@ class PlannerOut(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     brief: str = ""
     subqueries: list[str] = Field(min_length=1, max_length=12)
+    keywords: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("subqueries")
     @classmethod
@@ -62,11 +64,25 @@ class PlannerOut(BaseModel):
         return cleaned
 
 
+class Fact(BaseModel):
+    claim: str = Field(min_length=1, max_length=500)
+    evidence_quote: str | None = None
+    confidence: int = Field(ge=0, le=10)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _clamp_confidence(cls, v):
+        try:
+            return max(0, min(10, int(float(v))))
+        except (TypeError, ValueError):
+            return 5
+
+
 class NotesOut(BaseModel):
     relevance: int = Field(ge=0, le=10)
     summary: str = ""
     notes_md: str = ""
-    key_facts: list[str] = Field(default_factory=list, max_length=10)
+    key_facts: list[Fact] = Field(default_factory=list, max_length=10)
     published_date: str | None = None
 
     @field_validator("relevance", mode="before")
@@ -82,6 +98,7 @@ class GapOut(BaseModel):
     state_md: str = ""
     saturated: bool = False
     next_queries: list[str] = Field(default_factory=list, max_length=12)
+    keywords: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("next_queries")
     @classmethod

@@ -21,7 +21,10 @@ def _schema() -> str:
 
 # One entry per schema version; index i migrates user_version i → i+1.
 def _migrations() -> list[str]:
-    return [_schema()]
+    return [
+        _schema(),
+        "ALTER TABLE runs ADD COLUMN evergreen BOOLEAN NOT NULL DEFAULT 0;"
+    ]
 
 
 def connect(db_path: Path | str) -> sqlite3.Connection:
@@ -47,7 +50,7 @@ def migrate(conn: sqlite3.Connection) -> None:
 _RUN_COLS = {
     "query", "title", "depth", "recency", "status", "dir", "parent_run_id",
     "origin", "origin_chat_id", "error", "stop_reason", "stats_json",
-    "created_at", "started_at", "finished_at",
+    "evergreen", "created_at", "started_at", "finished_at",
 }
 
 
@@ -60,13 +63,13 @@ class Repo:
     # ---- runs -------------------------------------------------------------
     def create_run(self, *, run_id: str, query: str, depth: int, recency: str,
                    dir: str, origin: str = "web", parent_run_id: str | None = None,
-                   origin_chat_id: int | None = None, status: str = "queued") -> None:
+                   origin_chat_id: int | None = None, status: str = "queued", evergreen: bool = False) -> None:
         self.conn.execute(
             "INSERT INTO runs (id, query, depth, recency, status, dir, origin,"
-            " parent_run_id, origin_chat_id, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " parent_run_id, origin_chat_id, evergreen, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, query, depth, recency, status, dir, origin,
-             parent_run_id, origin_chat_id, utcnow()),
+             parent_run_id, origin_chat_id, evergreen, utcnow()),
         )
         self.conn.commit()
 
@@ -84,6 +87,11 @@ class Repo:
         return self.conn.execute(
             f"SELECT * FROM runs WHERE status IN ({marks}) ORDER BY created_at",
             statuses,
+        ).fetchall()
+
+    def list_evergreen_runs(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM runs WHERE evergreen = 1 AND status = 'completed' ORDER BY created_at"
         ).fetchall()
 
     def update_run(self, run_id: str, **cols) -> None:
