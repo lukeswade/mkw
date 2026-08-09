@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Ask · Deep Research{% endblock %}
+{% block content %}
+<h1>Ask your research</h1>
+<p class="hint">Answers come only from your accumulated research corpus, with citations to the runs they came from.</p>
+{% if not rag_available %}
+<p class="banner banner-failed">The knowledge layer is unavailable in this build, so Ask is disabled.</p>
+{% else %}
+<form hx-post="/ask" hx-target="#answer" hx-indicator="#ask-spinner" class="search-bar">
+  <input type="search" name="question" required minlength="3" placeholder="e.g. What did we learn about sulfide electrolyte manufacturing yields?">
+  <button type="submit">Ask</button>
+</form>
+<p id="ask-spinner" class="htmx-indicator">Thinking…</p>
+<div id="answer"></div>
+{% endif %}
+{% endblock %}

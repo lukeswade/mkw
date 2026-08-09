@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Settings · Deep Research{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+{% if saved %}<p class="banner banner-ok">Saved. Values apply from the next research run. Telegram changes need a container restart.</p>{% endif %}
+
+<form method="post" action="/settings">
+  <article class="card">
+    <h3>LLM</h3>
+    <label>Provider
+      <select name="llm_provider">
+        <option value="deepseek" {{ 'selected' if cfg.llm_provider == 'deepseek' else '' }}>DeepSeek (cloud API)</option>
+        <option value="local" {{ 'selected' if cfg.llm_provider == 'local' else '' }}>Local (llama.cpp / OpenAI-compatible)</option>
+      </select>
+    </label>
+    <div class="grid">
+      <label>DeepSeek API key
+        <input type="password" name="deepseek_api_key" autocomplete="off"
+               placeholder="{{ masked.deepseek_api_key or 'not set' }} — leave blank to keep">
+      </label>
+      <label>DeepSeek model
+        <input type="text" name="deepseek_model" value="{{ cfg.deepseek_model }}">
+      </label>
+    </div>
+    <label>DeepSeek base URL
+      <input type="text" name="deepseek_base_url" value="{{ cfg.deepseek_base_url }}">
+    </label>
+    <div class="grid">
+      <label>Local LLM base URL
+        <input type="text" name="local_llm_base_url" value="{{ cfg.local_llm_base_url }}"
+               placeholder="http://host.docker.internal:8080/v1">
+      </label>
+      <label>Local LLM model name
+        <input type="text" name="local_llm_model" value="{{ cfg.local_llm_model }}">
+      </label>
+    </div>
+    <div class="test-row">
+      <button type="button" hx-post="/settings/test-llm" hx-target="#llm-test" class="secondary outline">Test LLM</button>
+      <span id="llm-test"></span>
+    </div>
+  </article>
+
+  <article class="card">
+    <h3>Search</h3>
+    <div class="grid">
+      <label>SearXNG URL
+        <input type="text" name="searxng_url" value="{{ cfg.searxng_url }}">
+      </label>
+      <label>Results per query
+        <input type="number" name="results_per_query" min="1" max="20" value="{{ cfg.results_per_query }}">
+      </label>
+    </div>
+    <label>
+      <input type="checkbox" name="respect_robots" {{ 'checked' if cfg.respect_robots else '' }}>
+      Respect robots.txt when fetching pages
+    </label>
+    <div class="test-row">
+      <button type="button" hx-post="/settings/test-searxng" hx-target="#sx-test" class="secondary outline">Test SearXNG</button>
+      <span id="sx-test"></span>
+    </div>
+  </article>
+
+  <article class="card">
+    <h3>Telegram bot <small>(optional)</small></h3>
+    <div class="grid">
+      <label>Bot token
+        <input type="password" name="telegram_bot_token" autocomplete="off"
+               placeholder="{{ masked.telegram_bot_token or 'not set' }} — leave blank to keep">
+      </label>
+      <label>Allowed user IDs <small>(comma-separated — send /id to the bot)</small>
+        <input type="text" name="telegram_allowed_user_ids" value="{{ cfg.telegram_allowed_user_ids }}">
+      </label>
+    </div>
+    <p class="hint">Get a token from @BotFather. Restart the container after changing these.</p>
+  </article>
+
+  <article class="card">
+    <h3>Web access</h3>
+    <label>Password <small>(blank input keeps the current one)</small>
+      <input type="password" name="web_password" autocomplete="new-password"
+             placeholder="{{ masked.web_password or 'no password set' }}">
+    </label>
+    <label><input type="checkbox" name="web_password_clear"> Remove the password entirely</label>
+  </article>
+
+  <button type="submit">Save settings</button>
+  <p class="hint">Secrets are stored in <code>data/settings.json</code> (mode 600), never in the image or git.</p>
+</form>
+{% endblock %}

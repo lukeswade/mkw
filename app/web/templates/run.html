@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}{{ row['title'] or row['query'] }} · Deep Research{% endblock %}
+{% block content %}
+<header class="run-header">
+  <h1>{{ row['title'] or row['query'] }}</h1>
+  <div class="chip-row">
+    <span class="chip status-{{ row['status'] }}">{{ row['status'] }}</span>
+    <span class="chip">depth {{ row['depth'] }}</span>
+    <span class="chip">{{ RECENCY_LABELS[row['recency']] | lower }}</span>
+    <span class="chip">via {{ row['origin'] }}</span>
+    {% if row['stop_reason'] %}<span class="chip subtle">{{ row['stop_reason'] }}</span>{% endif %}
+  </div>
+  {% if parent %}<p class="parent-note">follows up on <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}
+  {% if related %}
+  <p class="parent-note">
+    {% for kind, rid, rtitle in related %}<span class="rel">{{ kind }}: <a href="/runs/{{ rid }}">{{ rtitle or rid }}</a></span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+</header>
+
+{% if row['status'] != 'completed' %}
+<article class="banner banner-{{ row['status'] }}">
+  <p>This run ended with status <strong>{{ row['status'] }}</strong>{% if row['error'] %}: {{ row['error'] }}{% endif %}.
+     Anything gathered before it stopped is shown below.</p>
+  <form method="post" action="/runs/{{ run_id }}/retry">
+    <button type="submit" class="secondary">Retry with same parameters</button>
+  </form>
+</article>
+{% endif %}
+
+<nav class="tabs" role="tablist">
+  <button class="active" data-tab="overview">Overview</button>
+  <button data-tab="findings">Findings <span class="count">{{ findings | length }}</span></button>
+  <button data-tab="sources">Sources</button>
+  <button data-tab="further">Further research <span class="count">{{ followups | length }}</span></button>
+  <button data-tab="log">Log</button>
+</nav>
+
+<section class="tab-panel active" id="tab-overview">
+  <div class="prose">{{ overview_html | safe }}</div>
+  {% if findings %}
+  <h2 class="src-heading">Sources</h2>
+  <ol class="src-list">
+    {% for f in findings %}
+    <li id="src-{{ f['idx'] }}">
+      <a href="{{ f['url'] }}" target="_blank" rel="noopener noreferrer">{{ f['title'] }}</a>
+      <small>{{ f['domain'] }} · {{ f['published_date'] or 'undated' }} · relevance {{ f['relevance'] | int }}/10</small>
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</section>
+
+<section class="tab-panel" id="tab-findings">
+  {% for card in finding_cards %}
+  <details class="finding-card">
+    <summary>
+      <span class="idx">[{{ card.row['idx'] }}]</span>
+      <span class="f-title">{{ card.row['title'] }}</span>
+      <span class="f-meta">{{ card.row['domain'] }} · {{ card.row['published_date'] or 'undated' }} · {{ card.row['relevance'] | int }}/10</span>
+    </summary>
+    <div class="prose">{{ card.html | safe }}</div>
+    <p><a href="/runs/{{ run_id }}/file/{{ card.row['path'] }}?download=1">download .md</a> ·
+       <a href="{{ card.row['url'] }}" target="_blank" rel="noopener noreferrer">original source</a></p>
+  </details>
+  {% else %}
+  <p class="empty-note">No sources were kept for this run.</p>
+  {% endfor %}
+</section>
+
+<section class="tab-panel" id="tab-sources">
+  {% if findings %}
+  <table class="src-table">
+    <thead><tr><th>#</th><th>Source</th><th>Domain</th><th>Published</th><th>Relevance</th></tr></thead>
+    <tbody>
+      {% for f in findings %}
+      <tr>
+        <td>{{ f['idx'] }}</td>
+        <td><a href="{{ f['url'] }}" target="_blank" rel="noopener noreferrer">{{ f['title'] }}</a></td>
+        <td>{{ f['domain'] }}</td>
+        <td>{{ f['published_date'] or 'undated' }}</td>
+        <td>{{ f['relevance'] | int }}/10</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-note">No sources.</p>
+  {% endif %}
+  <h3>Files</h3>
+  <p class="file-links">
+    {% for name in files %}
+    <a href="/runs/{{ run_id }}/file/{{ name }}?download=1">{{ name }}</a>{% if not loop.last %} · {% endif %}
+    {% endfor %}
+  </p>
+</section>
+
+<section class="tab-panel" id="tab-further">
+  {% for fu in followups %}
+  <article class="followup-card">
+    <div>
+      <p class="fu-query">{{ fu.query }}</p>
+      <p class="fu-rationale">{{ fu.rationale }}</p>
+      <p class="chip-row">
+        <span class="chip">depth {{ fu.depth }}</span>
+        <span class="chip">{{ RECENCY_LABELS.get(fu.recency, fu.recency) | lower }}</span>
+      </p>
+    </div>
+    <form method="post" action="/runs">
+      <input type="hidden" name="query" value="{{ fu.query }}">
+      <input type="hidden" name="depth" value="{{ fu.depth }}">
+      <input type="hidden" name="recency" value="{{ fu.recency }}">
+      <input type="hidden" name="parent_run_id" value="{{ run_id }}">
+      <button type="submit">Run this</button>
+    </form>
+  </article>
+  {% else %}
+  <p class="empty-note">No follow-up suggestions for this run.</p>
+  {% endfor %}
+</section>
+
+<section class="tab-panel" id="tab-log">
+  <pre class="log static-log">{{ log_text }}</pre>
+</section>
+
+{% if stats %}
+<footer class="stats-footer">
+  rounds {{ stats.rounds }} · {{ stats.sources_kept }} kept / {{ stats.sources_skipped }} skipped
+  · {{ stats.llm.calls }} LLM calls ({{ stats.llm.prompt_tokens }} in / {{ stats.llm.completion_tokens }} out)
+  {%- if stats.llm.est_cost_usd is defined %} · est ${{ stats.llm.est_cost_usd }}{% endif %}
+</footer>
+{% endif %}
+{% endblock %}

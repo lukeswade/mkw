@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Deep Research{% endblock %}
+{% block content %}
+<section class="login-wrap">
+  <article class="card login-card">
+    <h2>🔭 Deep Research</h2>
+    {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label>Password
+        <input type="password" name="password" autofocus autocomplete="current-password">
+      </label>
+      <button type="submit">Sign in</button>
+    </form>
+  </article>
+</section>
+{% endblock %}

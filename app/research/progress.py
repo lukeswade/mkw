@@ -17,6 +17,40 @@ from app.research.storage import RunStore
 TERMINAL_EVENTS = {"done"}
 
 
+def format_event(e: dict) -> str | None:
+    """Human-readable one-liner for an event (CLI output and web log tab)."""
+    t = time.strftime("%H:%M:%S", time.localtime(e.get("ts", 0)))
+    typ = e.get("type")
+    if typ == "status":
+        return f"[{t}] status: {e.get('status')}"
+    if typ == "phase":
+        return f"[{t}] — {e.get('phase')} —"
+    if typ == "plan":
+        qs = "\n".join(f"          · {q}" for q in e.get("subqueries", []))
+        return f"[{t}] plan: {e.get('title')}\n{qs}"
+    if typ == "round_start":
+        qs = "\n".join(f"          · {q}" for q in e.get("queries", []))
+        return f"[{t}] ROUND {e.get('round')}/{e.get('depth')}\n{qs}"
+    if typ == "searched":
+        return (f"[{t}]   {e.get('results')} results → "
+                f"{e.get('candidates')} new candidates")
+    if typ == "source_skipped":
+        return f"[{t}]   ✗ {e.get('url')}  ({e.get('reason')})"
+    if typ == "finding":
+        return (f"[{t}]   ✓ [{e.get('idx')}] {e.get('title')} "
+                f"({e.get('domain')}, {e.get('relevance')}/10)")
+    if typ == "gap":
+        return (f"[{t}]   gap: saturated={e.get('saturated')}, "
+                f"next queries={len(e.get('next_queries', []))}")
+    if typ == "log":
+        return f"[{t}]   · {e.get('message')}"
+    if typ == "error":
+        return f"[{t}] ERROR: {e.get('message')}"
+    if typ == "done":
+        return f"[{t}] DONE: {e.get('status')} ({e.get('stop_reason', '')})"
+    return None
+
+
 class ProgressBus:
     def __init__(self) -> None:
         self._subs: dict[str, list[asyncio.Queue]] = defaultdict(list)

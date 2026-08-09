@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Library · Deep Research{% endblock %}
+{% block content %}
+<h1>Library</h1>
+<form method="get" action="/library" class="search-bar">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search across all research…">
+  <select name="mode">
+    <option value="keyword" {{ 'selected' if mode == 'keyword' else '' }}>Keyword</option>
+    <option value="semantic" {{ 'selected' if mode == 'semantic' else '' }} {{ 'disabled' if not rag_available else '' }}>Semantic{{ '' if rag_available else ' (unavailable)' }}</option>
+  </select>
+  <button type="submit">Search</button>
+</form>
+
+{% if results is not none %}
+  <p class="result-count">{{ results | length }} match(es) for “{{ q }}” ({{ mode }})</p>
+  {% for hit in results %}
+  <a class="hit-card" href="/runs/{{ hit.run['id'] }}">
+    <span class="chip status-{{ hit.run['status'] }}">{{ hit.run['status'] }}</span>
+    <span class="hit-run">{{ hit.run['title'] or hit.run['query'] }}</span>
+    <span class="hit-kind">{{ hit.kind }}{% if hit.title and hit.kind == 'finding' %}: {{ hit.title }}{% endif %}</span>
+    <span class="hit-snippet">{{ hit.snippet | safe if mode == 'keyword' else hit.snippet }}</span>
+    {% if hit.score is defined %}<span class="hit-score">similarity {{ '%.2f' | format(hit.score) }}</span>{% endif %}
+  </a>
+  {% else %}
+  <p class="empty-note">Nothing found.</p>
+  {% endfor %}
+{% elif runs is not none %}
+  <div class="run-list">
+    {% for item in runs %}
+    {% set r = item.row %}
+    <a class="run-item" href="/runs/{{ r['id'] }}">
+      <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
+      <span class="run-title">{{ r['title'] or r['query'] }}</span>
+      <span class="run-meta">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
+        {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
+        · {{ r['created_at'][:16].replace('T', ' ') }}</span>
+    </a>
+    {% else %}
+    <p class="empty-note">No research yet.</p>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

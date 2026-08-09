@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ row['title'] or row['query'] }} · Deep Research{% endblock %}
+{% block content %}
+<header class="run-header">
+  <h1>{{ row['title'] or row['query'] }}</h1>
+  <div class="chip-row">
+    <span id="status-chip" class="chip status-{{ row['status'] }}">{{ row['status'] }}</span>
+    <span class="chip">depth {{ row['depth'] }}</span>
+    <span class="chip">{{ RECENCY_LABELS[row['recency']] | lower }}</span>
+    <span class="chip">via {{ row['origin'] }}</span>
+    {% if queue_position %}<span class="chip">queue position {{ queue_position }}</span>{% endif %}
+  </div>
+  {% if parent %}<p class="parent-note">follows up on <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}
+</header>
+
+<article class="progress-card">
+  <div class="progress-head">
+    <p>Researching<span class="dots"></span></p>
+    <form method="post" action="/runs/{{ run_id }}/cancel">
+      <button type="submit" class="secondary outline">Cancel</button>
+    </form>
+  </div>
+  <pre id="live-log" class="log" data-run="{{ run_id }}"></pre>
+</article>
+{% endblock %}

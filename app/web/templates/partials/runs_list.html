@@ -1,0 +1,19 @@
+{% if runs %}
+<h3 class="section-title">Research runs</h3>
+<div class="run-list">
+  {% for item in runs %}
+  {% set r = item.row %}
+  <a class="run-item" href="/runs/{{ r['id'] }}">
+    <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
+    <span class="run-title">{{ r['title'] or r['query'] }}</span>
+    <span class="run-meta">
+      depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
+      {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
+      · {{ r['created_at'][:16].replace('T', ' ') }}
+    </span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty-note">No research yet — start your first run above.</p>
+{% endif %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>What should I research?</h1>
+  {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+  <form method="post" action="/runs" class="new-run card">
+    <textarea name="query" rows="3" required minlength="3" autofocus
+      placeholder="e.g. State of solid-state battery manufacturing — who is closest to mass production and what are the remaining blockers?">{{ prefill.query if prefill else "" }}</textarea>
+    <div class="controls">
+      <label class="depth-label">Depth <output id="depth-val">{{ prefill.depth if prefill else 3 }}</output>
+        <input type="range" name="depth" min="1" max="10"
+               value="{{ prefill.depth if prefill else 3 }}"
+               oninput="document.getElementById('depth-val').value = this.value">
+      </label>
+      <label>Recency
+        <select name="recency">
+          {% for r in RECENCY_CHOICES %}
+          <option value="{{ r }}" {{ 'selected' if (prefill.recency if prefill else 'all') == r else '' }}>{{ RECENCY_LABELS[r] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="go">Start research</button>
+    </div>
+    <p class="hint">Depth = maximum search rounds. Each round digs into the gaps the previous one exposed.</p>
+  </form>
+</section>
+
+<section id="recent" hx-get="/partials/recent-runs" hx-trigger="every 5s" hx-swap="innerHTML">
+  {% include "partials/runs_list.html" %}
+</section>
+{% endblock %}
