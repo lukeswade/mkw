@@ -1,4 +1,5 @@
 /* Deep Research — Ultra-Sleek Minimalist Theme (2026) */
+@view-transition { navigation: auto; }
 
 :root {
   /* Core Colors - Ultra Minimalist */
@@ -40,6 +41,22 @@ body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image: 
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: center top;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%);
 }
 
 main.container {
@@ -59,7 +76,11 @@ h1, h2, h3, h4, h5 {
   font-size: 2.2rem;
   font-weight: 500;
   margin-bottom: 1rem;
-  color: #fff;
+  background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
 }
 
 /* ---- Top Navigation ---- */
@@ -67,10 +88,11 @@ h1, h2, h3, h4, h5 {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  box-shadow: 0 4px 24px -1px rgba(0,0,0,0.5);
 }
 .nav-inner {
   max-width: 900px;
@@ -89,6 +111,13 @@ h1, h2, h3, h4, h5 {
   align-items: center;
   gap: 0.5rem;
   letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.topnav .brand svg {
+  stroke: url(#brand-gradient);
+  -webkit-text-fill-color: initial;
 }
 .topnav ul {
   display: flex; gap: 1rem; margin: 0; padding: 0; list-style: none;
@@ -114,11 +143,14 @@ h1, h2, h3, h4, h5 {
   border-radius: 8px;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-  transition: border-color 0.2s ease;
+  box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.03), 0 4px 24px rgba(0, 0, 0, 0.4);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(0);
 }
 .card:hover {
   border-color: #3f3f46;
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.05), 0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
 /* ---- Inputs & Controls ---- */
@@ -175,10 +207,15 @@ textarea {
   color: var(--accent-text);
   border: none;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: scale(1);
 }
 .new-run .controls .go:hover {
   background: #ffffff;
+  box-shadow: 0 0 12px rgba(255,255,255,0.3);
+}
+.new-run .controls .go:active {
+  transform: scale(0.96);
 }
 .depth-label output {
   color: #fff;
@@ -202,9 +239,14 @@ textarea {
 }
 .chip.subtle { border: none; padding: 0; }
 .status-completed { color: #fff; border-color: #52525b; }
-.status-running   { color: #fff; border-color: #fff; }
+.status-running   { color: #fff; border-color: rgba(255,255,255,0.8); animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; box-shadow: 0 0 8px rgba(255,255,255,0.2); }
 .status-queued    { color: #a1a1aa; border-color: #3f3f46; }
 .status-failed    { color: #f87171; border-color: rgba(248,113,113,0.3); }
+
+@keyframes pulse-border {
+  0%, 100% { border-color: rgba(255,255,255,1); box-shadow: 0 0 8px rgba(255,255,255,0.2); }
+  50% { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 2px rgba(255,255,255,0.1); }
+}
 
 /* ---- Run List (Library) ---- */
 .run-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1.5rem; }
@@ -304,3 +346,17 @@ textarea {
 
 .tab-panel { display: none; padding: 1rem 0; }
 .tab-panel.active { display: block; }
+
+#chat-output:empty {
+  min-height: 100px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.02) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.02) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite linear;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
