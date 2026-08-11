@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import json
 import logging
 from pathlib import Path
@@ -229,3 +230,18 @@ async def run_file(request: Request, run_id: str, name: str,
         headers["Content-Disposition"] = (
             f'attachment; filename="{run_id}_{Path(name).name}"')
     return FileResponse(target, media_type=media, headers=headers)
+
+@router.delete("/runs/{run_id}")
+async def delete_run(request: Request, run_id: str):
+    row = _row_or_404(request, run_id)
+    cfg = request.app.state.cfg_loader()
+    run_dir = (cfg.research_dir / row["dir"]).resolve()
+    
+    # Delete from DB
+    request.app.state.repo.delete_run(run_id)
+    
+    # Delete files
+    if run_dir.exists() and run_dir.is_dir():
+        shutil.rmtree(run_dir)
+        
+    return Response(status_code=200, headers={"HX-Redirect": "/library"})

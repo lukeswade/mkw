@@ -2,7 +2,14 @@
 {% block title %}{{ row['title'] or row['query'] }} · Deep Research{% endblock %}
 {% block content %}
 <header class="run-header">
-  <h1>{{ row['title'] or row['query'] }}</h1>
+  <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+    <h1>{{ row['title'] or row['query'] }}</h1>
+    <button class="delete-btn outline" style="width:auto; padding:0.25rem 0.5rem; margin-top:0.5rem;"
+            hx-delete="/runs/{{ run_id }}"
+            hx-confirm="Are you sure you want to permanently delete this run?"
+            title="Delete run">Delete</button>
+  </div>
+
   <div class="chip-row">
     <span class="chip status-{{ row['status'] }}">{{ row['status'] }}</span>
     <span class="chip">depth {{ row['depth'] }}</span>

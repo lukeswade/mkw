@@ -106,6 +106,11 @@ class Repo:
         )
         self.conn.commit()
 
+    def delete_run(self, run_id: str) -> None:
+        self.conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+        self.conn.execute("DELETE FROM fts WHERE run_id = ?", (run_id,))
+        self.conn.commit()
+
     def set_stats(self, run_id: str, stats: dict) -> None:
         self.update_run(run_id, stats_json=json.dumps(stats))
 
