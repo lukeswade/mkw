@@ -135,13 +135,11 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
     from app.web.routes_runs import router as runs_router
     from app.web.routes_library import router as library_router
     from app.web.routes_settings import router as settings_router
-    from app.web.routes_graph import router as graph_router
     from app.web.routes_ask import router as ask_router
     from app.web.routes_readme import router as readme_router
     app.include_router(runs_router)
     app.include_router(library_router)
     app.include_router(settings_router)
-    app.include_router(graph_router)
     app.include_router(ask_router)
     app.include_router(readme_router)
 
