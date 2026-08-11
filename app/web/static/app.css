@@ -26,6 +26,16 @@
   --accent-text: #000000;
   --accent-glow: rgba(255, 255, 255, 0.08);
 
+  /* Typography Scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+  --text-4xl: 2.5rem;
+
   /* Pico Overrides */
   --pico-font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --pico-background-color: var(--bg-base);
@@ -76,7 +86,7 @@ body {
   background-color: var(--bg-base);
   color: var(--text-primary);
   line-height: 1.65;
-  font-size: 14px;
+  font-size: var(--text-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   position: relative;
@@ -111,12 +121,12 @@ h1, h2, h3, h4, h5 {
   color: #fff;
   line-height: 1.25;
 }
-h1 { font-size: 2rem; }
-h2 { font-size: 1.4rem; }
-h3 { font-size: 1.15rem; }
+h1 { font-size: var(--text-3xl); }
+h2 { font-size: var(--text-2xl); }
+h3 { font-size: var(--text-lg); }
 
 .hero h1, .run-header h1, .page-header h1 {
-  font-size: 2.2rem;
+  font-size: var(--text-4xl);
   font-weight: 600;
   margin-bottom: 0.25rem;
   background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
@@ -128,7 +138,7 @@ h3 { font-size: 1.15rem; }
 
 .hero-sub, .page-desc {
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   margin-bottom: 1.5rem;
   margin-top: 0;
 }
@@ -140,7 +150,7 @@ h3 { font-size: 1.15rem; }
 .section-title {
   color: var(--text-secondary);
   font-weight: 500;
-  font-size: 0.85rem;
+  font-size: var(--text-base);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin: 2rem 0 0.75rem;
@@ -148,13 +158,13 @@ h3 { font-size: 1.15rem; }
 
 .hint {
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   margin-top: 0.75rem;
 }
 
 .form-error {
   color: #f87171;
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   margin-bottom: 1rem;
   padding: 0.5rem 0.75rem;
   background: rgba(248, 113, 113, 0.06);
@@ -188,7 +198,7 @@ h3 { font-size: 1.15rem; }
 }
 .topnav .brand {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: var(--text-base);
   color: #fff;
   text-decoration: none;
   display: flex;
@@ -216,7 +226,7 @@ h3 { font-size: 1.15rem; }
 .topnav ul a {
   text-decoration: none;
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: var(--text-base);
   font-weight: 450;
   padding: 0.35rem 0.6rem;
   border-radius: 6px;
@@ -247,7 +257,12 @@ h3 { font-size: 1.15rem; }
 }
 
 /* ---- Inputs & Controls ---- */
-input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="range"]),
+input[type="text"],
+input[type="search"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="url"],
 textarea,
 select {
   width: 100%;
@@ -256,7 +271,7 @@ select {
   border-radius: 8px;
   padding: 0.7rem 0.85rem;
   font-family: inherit;
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   color: #fff;
   transition: border-color 0.2s ease, background 0.2s ease;
 }
@@ -323,16 +338,16 @@ input[type="checkbox"] {
   margin: 0;
   font-weight: 400;
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: var(--text-base);
 }
 .new-run .controls select {
   margin-top: 0.5rem;
-  font-size: 0.82rem;
+  font-size: var(--text-base);
 }
 .new-run .controls .go {
   flex: 0 0 auto;
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: var(--text-base);
   padding: 0.55rem 1.25rem;
   border-radius: 8px;
   background: var(--accent);
@@ -369,9 +384,10 @@ input[type="checkbox"] {
 }
 .search-bar button {
   flex: 0 0 auto;
+  width: auto;
   padding: 0.55rem 1rem;
   font-weight: 500;
-  font-size: 0.85rem;
+  font-size: var(--text-base);
   border-radius: 8px;
   background: var(--accent);
   color: var(--accent-text);
@@ -391,7 +407,7 @@ input[type="checkbox"] {
   align-items: center;
   padding: 0.2rem 0.55rem;
   border-radius: 5px;
-  font-size: 0.65rem;
+  font-size: var(--text-xs);
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -421,7 +437,7 @@ input[type="checkbox"] {
   align-items: center;
   gap: 0.6rem;
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: var(--text-base);
   padding: 1rem 0;
 }
 
@@ -459,14 +475,14 @@ input[type="checkbox"] {
 .run-title {
   color: #fff;
   font-weight: 450;
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .run-meta {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: var(--text-sm);
   margin-top: 0.15rem;
 }
 
@@ -481,11 +497,11 @@ input[type="checkbox"] {
 }
 .empty-note {
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: var(--text-base);
 }
 .result-count {
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: var(--text-base);
   margin: 0.5rem 0 1rem;
 }
 
@@ -502,7 +518,7 @@ input[type="checkbox"] {
   border: none;
   color: var(--text-muted);
   padding: 0.65rem 1rem;
-  font-size: 0.82rem;
+  font-size: var(--text-base);
   font-weight: 450;
   border-bottom: 2px solid transparent;
   cursor: pointer;
@@ -521,7 +537,7 @@ input[type="checkbox"] {
   background: var(--bg-elevated);
   border-radius: 4px;
   padding: 0.1rem 0.4rem;
-  font-size: 0.65rem;
+  font-size: var(--text-xs);
   margin-left: 0.35rem;
   color: var(--text-secondary);
 }
@@ -537,7 +553,7 @@ input[type="checkbox"] {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  font-size: 0.85rem;
+  font-size: var(--text-base);
 }
 .banner p { margin: 0; }
 .banner-ok {
@@ -556,7 +572,7 @@ input[type="checkbox"] {
   color: #fff;
   padding: 0.35rem 0.7rem;
   border-radius: 6px;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -565,12 +581,12 @@ input[type="checkbox"] {
 /* ---- Prose / Markdown ---- */
 .prose {
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: var(--text-base);
   line-height: 1.7;
 }
 .prose h1, .prose h2, .prose h3 { color: #fff; font-weight: 600; }
-.prose h2 { font-size: 1.25rem; margin-top: 2rem; margin-bottom: 0.6rem; }
-.prose h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+.prose h2 { font-size: var(--text-xl); margin-top: 2rem; margin-bottom: 0.6rem; }
+.prose h3 { font-size: var(--text-lg); margin-top: 1.5rem; }
 .prose p { margin: 0.75rem 0; }
 .prose a {
   color: #fff;
@@ -591,14 +607,14 @@ input[type="checkbox"] {
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 1rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   overflow-x: auto;
 }
 .prose code {
   background: var(--bg-elevated);
   padding: 0.15em 0.35em;
   border-radius: 4px;
-  font-size: 0.85em;
+  font-size: var(--text-sm);
 }
 .prose pre code {
   background: none;
@@ -614,7 +630,7 @@ input[type="checkbox"] {
   width: 100%;
   border-collapse: collapse;
   margin: 1rem 0;
-  font-size: 0.85rem;
+  font-size: var(--text-base);
 }
 .prose th, .prose td {
   padding: 0.5rem 0.75rem;
@@ -654,22 +670,22 @@ input[type="checkbox"] {
 .finding-card summary::before {
   content: '▸';
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   transition: transform 0.15s ease;
 }
 .finding-card[open] summary::before {
   transform: rotate(90deg);
 }
-.finding-card .idx { color: var(--text-muted); font-weight: 400; font-size: 0.8rem; }
-.finding-card .f-title { font-weight: 500; font-size: 0.9rem; color: #fff; }
-.finding-card .f-meta { color: var(--text-muted); font-size: 0.75rem; margin-left: auto; white-space: nowrap; }
+.finding-card .idx { color: var(--text-muted); font-weight: 400; font-size: var(--text-sm); }
+.finding-card .f-title { font-weight: 500; font-size: var(--text-base); color: #fff; }
+.finding-card .f-meta { color: var(--text-muted); font-size: var(--text-sm); margin-left: auto; white-space: nowrap; }
 .finding-card .prose { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle); }
 
 /* ---- Sources table ---- */
 .src-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: var(--text-base);
 }
 .src-table th {
   text-align: left;
@@ -677,7 +693,7 @@ input[type="checkbox"] {
   font-weight: 500;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -691,12 +707,12 @@ input[type="checkbox"] {
   text-decoration: none;
 }
 .src-table a:hover { text-decoration: underline; }
-.src-heading { margin-top: 2rem; font-size: 0.9rem; }
+.src-heading { margin-top: 2rem; font-size: var(--text-base); }
 .src-list { padding-left: 1.2rem; }
-.src-list li { margin: 0.4rem 0; font-size: 0.85rem; }
+.src-list li { margin: 0.4rem 0; font-size: var(--text-base); }
 .src-list a { color: #fff; text-decoration: none; }
 .src-list a:hover { text-decoration: underline; }
-.src-list small { color: var(--text-muted); font-size: 0.75rem; margin-left: 0.3rem; }
+.src-list small { color: var(--text-muted); font-size: var(--text-sm); margin-left: 0.3rem; }
 
 /* ---- Follow-ups ---- */
 .followup-card {
@@ -712,15 +728,15 @@ input[type="checkbox"] {
   transition: border-color 0.15s ease;
 }
 .followup-card:hover { border-color: var(--border); }
-.fu-query { color: #fff; font-weight: 450; font-size: 0.9rem; margin: 0 0 0.25rem; }
-.fu-rationale { color: var(--text-muted); font-size: 0.8rem; margin: 0 0 0.5rem; }
+.fu-query { color: #fff; font-weight: 450; font-size: var(--text-base); margin: 0 0 0.25rem; }
+.fu-rationale { color: var(--text-muted); font-size: var(--text-sm); margin: 0 0 0.5rem; }
 .followup-card button {
   background: #fff;
   color: #000;
   border: none;
   border-radius: 6px;
   font-weight: 600;
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   padding: 0.4rem 0.8rem;
   cursor: pointer;
   flex-shrink: 0;
@@ -743,7 +759,7 @@ input[type="checkbox"] {
   align-items: center;
   gap: 0.6rem;
 }
-.progress-label p { margin: 0; font-weight: 500; font-size: 0.9rem; }
+.progress-label p { margin: 0; font-weight: 500; font-size: var(--text-base); }
 .dots::after { content: ''; animation: dots 1.5s steps(4, end) infinite; }
 .cancel-btn {
   background: transparent;
@@ -751,7 +767,7 @@ input[type="checkbox"] {
   color: var(--text-secondary);
   padding: 0.35rem 0.8rem;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -767,7 +783,7 @@ input[type="checkbox"] {
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 1rem;
-  font-size: 0.75rem;
+  font-size: var(--text-sm);
   line-height: 1.6;
   max-height: 500px;
   overflow-y: auto;
@@ -799,11 +815,11 @@ input[type="checkbox"] {
   transform: translateY(-1px);
   box-shadow: 0 4px 16px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03);
 }
-.hit-run { color: #fff; font-weight: 450; font-size: 0.9rem; }
-.hit-kind { color: var(--text-secondary); font-size: 0.78rem; }
-.hit-snippet { color: var(--text-muted); font-size: 0.8rem; line-height: 1.5; margin-top: 0.2rem; }
+.hit-run { color: #fff; font-weight: 450; font-size: var(--text-base); }
+.hit-kind { color: var(--text-secondary); font-size: var(--text-sm); }
+.hit-snippet { color: var(--text-muted); font-size: var(--text-sm); line-height: 1.5; margin-top: 0.2rem; }
 .hit-snippet mark { background: rgba(255,255,255,0.12); color: #fff; border-radius: 2px; padding: 0 2px; }
-.hit-score { color: var(--text-faint); font-size: 0.7rem; margin-top: 0.15rem; }
+.hit-score { color: var(--text-faint); font-size: var(--text-xs); margin-top: 0.15rem; }
 
 /* ---- Graph ---- */
 .graph-controls {
@@ -816,7 +832,7 @@ input[type="checkbox"] {
 }
 .graph-controls label {
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: var(--text-base);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -833,13 +849,13 @@ input[type="checkbox"] {
 .card h3 {
   margin-top: 0;
   margin-bottom: 1rem;
-  font-size: 1rem;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 .card h3 small {
   color: var(--text-muted);
   font-weight: 400;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 .card .grid {
   display: grid;
@@ -849,7 +865,7 @@ input[type="checkbox"] {
 .card label {
   display: block;
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: var(--text-base);
   margin-bottom: 0.75rem;
 }
 .test-row {
@@ -864,7 +880,7 @@ input[type="checkbox"] {
   color: var(--text-secondary);
   padding: 0.4rem 0.85rem;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -874,7 +890,7 @@ input[type="checkbox"] {
 }
 .save-btn {
   font-weight: 600;
-  font-size: 0.88rem;
+  font-size: var(--text-base);
   padding: 0.6rem 1.5rem;
   border-radius: 8px;
   background: var(--accent);
@@ -895,7 +911,7 @@ input[type="checkbox"] {
 /* ---- Stats footer ---- */
 .stats-footer {
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   text-align: center;
   padding: 1.5rem 0 0;
   border-top: 1px solid var(--border-subtle);
@@ -903,12 +919,12 @@ input[type="checkbox"] {
 }
 .parent-note {
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: var(--text-base);
   margin-top: 0.5rem;
 }
 .parent-note a { color: #fff; }
 .rel { margin-right: 0.3rem; }
-.file-links { font-size: 0.82rem; }
+.file-links { font-size: var(--text-base); }
 .file-links a {
   color: var(--text-secondary);
   text-decoration: none;
@@ -936,7 +952,7 @@ input[type="checkbox"] {
 .login-header svg { color: var(--text-muted); }
 .login-header h2 {
   margin: 0;
-  font-size: 1.3rem;
+  font-size: var(--text-xl);
   background: linear-gradient(135deg, #fff, #a1a1aa);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -949,7 +965,7 @@ input[type="checkbox"] {
 }
 .ask-sources li {
   padding: 0.3rem 0;
-  font-size: 0.85rem;
+  font-size: var(--text-base);
 }
 .ask-sources a { color: #fff; text-decoration: none; }
 .ask-sources a:hover { text-decoration: underline; }
@@ -979,7 +995,7 @@ input[type="checkbox"] {
   display: inline-block;
   padding: 0.4rem 0.9rem;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-secondary);
   background: var(--bg-surface);
@@ -994,11 +1010,11 @@ input[type="checkbox"] {
 }
 .footer-sep {
   color: var(--text-faint);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 .footer-copy {
   color: var(--text-faint);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   margin-top: 0.75rem;
   margin-bottom: 0;
 }
@@ -1013,13 +1029,13 @@ input[type="checkbox"] {
   main.container { padding: 1.5rem 1rem 3rem; }
   .nav-inner { padding: 0.6rem 1rem; gap: 1rem; }
   .topnav ul { gap: 0; }
-  .topnav ul a { font-size: 0.75rem; padding: 0.3rem 0.4rem; }
-  .hero h1, .run-header h1, .page-header h1 { font-size: 1.6rem; }
+  .topnav ul a { font-size: var(--text-sm); padding: 0.3rem 0.4rem; }
+  .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-2xl); }
   .new-run .controls { flex-direction: column; align-items: stretch; }
   .search-bar { flex-direction: column; }
   .search-bar button { width: 100%; }
   .card .grid { grid-template-columns: 1fr; }
   .followup-card { flex-direction: column; }
   .graph-box { min-height: 350px; }
-  .tabs button { padding: 0.5rem 0.6rem; font-size: 0.75rem; }
+  .tabs button { padding: 0.5rem 0.6rem; font-size: var(--text-sm); }
 }
