@@ -3,7 +3,7 @@
 <div class="run-list">
   {% for item in runs %}
   {% set r = item.row %}
-  <div class="run-item-wrap" style="position:relative;">
+  <div class="run-item-wrap">
     <a class="run-item" href="/runs/{{ r['id'] }}">
       <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
       <div class="run-info">

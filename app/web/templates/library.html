@@ -31,15 +31,23 @@
   <div class="run-list">
     {% for item in runs %}
     {% set r = item.row %}
-    <a class="run-item" href="/runs/{{ r['id'] }}">
-      <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
-      <div class="run-info">
-        <span class="run-title">{{ r['title'] or r['query'] }}</span>
-        <span class="run-meta">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
-          {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
-          · {{ r['created_at'][:16].replace('T', ' ') }}</span>
-      </div>
-    </a>
+    <div class="run-item-wrap">
+      <a class="run-item" href="/runs/{{ r['id'] }}">
+        <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
+        <div class="run-info">
+          <span class="run-title">{{ r['title'] or r['query'] }}</span>
+          <span class="run-meta">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
+            {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
+            · {{ r['created_at'][:16].replace('T', ' ') }}</span>
+        </div>
+      </a>
+      <button class="delete-btn outline" 
+              hx-delete="/runs/{{ r['id'] }}" 
+              hx-confirm="Are you sure you want to delete this run?"
+              hx-target="closest .run-item-wrap" 
+              hx-swap="outerHTML"
+              title="Delete run">×</button>
+    </div>
     {% else %}
     <p class="empty-note">No research yet.</p>
     {% endfor %}

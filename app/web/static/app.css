@@ -133,7 +133,7 @@ h2 { font-size: var(--text-2xl); }
 h3 { font-size: var(--text-lg); }
 
 .hero h1, .run-header h1, .page-header h1 {
-  font-size: var(--text-4xl);
+  font-size: var(--text-3xl);
   font-weight: 600;
   margin-bottom: 0.25rem;
   background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
@@ -1051,7 +1051,7 @@ input[type="checkbox"] {
 @media (max-width: 640px) {
   html { font-size: 13px; }
   .card, article.card { padding: 1rem; margin-bottom: 1rem; }
-  .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-3xl); }
+  .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-2xl); }
   .new-run .controls { gap: 0.75rem; }
   .new-run .controls label { flex: 1 1 100%; }
   .new-run .controls .go { width: 100%; margin-top: 0.5rem; }
@@ -1059,4 +1059,37 @@ input[type="checkbox"] {
   .search-bar button { width: 100%; }
   .finding-card { padding: 0.75rem 1rem; }
   .nav-inner { gap: 1rem; padding: 0.5rem 1rem; }
+}
+
+.delete-btn {
+  background: transparent !important;
+  color: var(--text-muted) !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px;
+  width: 32px !important;
+  height: 32px !important;
+  flex: 0 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0 !important;
+  font-size: 1.25rem !important;
+  transition: all 0.15s ease;
+  margin: 0 !important;
+}
+.delete-btn:hover {
+  color: #f87171 !important;
+  border-color: rgba(248, 113, 113, 0.4) !important;
+  background: rgba(248, 113, 113, 0.06) !important;
+}
+.run-item-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 2px;
+}
+.run-item-wrap > .run-item {
+  flex: 1;
+  margin-bottom: 0;
 }
