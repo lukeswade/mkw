@@ -24,11 +24,6 @@ RECENCY_LABELS: dict[str, str] = {
     "all": "All time",
 }
 
-ENTITY_TYPES = (
-    "person", "org", "technology", "concept", "place", "event", "product", "other",
-)
-
-
 class RunParams(BaseModel):
     query: str = Field(min_length=3, max_length=2000)
     depth: int = Field(ge=0, le=10)
@@ -97,7 +92,7 @@ class NotesOut(BaseModel):
     @classmethod
     def _drop_unusable(cls, v):
         # One malformed fact must not cost us the whole document — same
-        # tolerance FollowUpsOut and EntitiesOut already apply.
+        # tolerance FollowUpsOut already applies.
         if not isinstance(v, list):
             return []
         out = []
@@ -159,44 +154,3 @@ class FollowUpsOut(BaseModel):
             return v
         return [i for i in v if isinstance(i, dict)
                 and len(str(i.get("query", "")).strip()) >= 3][:10]
-
-
-class EntityItem(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    type: str = "other"
-    salience: float = 0.5
-    description: str = ""
-
-    @field_validator("type", mode="before")
-    @classmethod
-    def _coerce_type(cls, v):
-        v = str(v or "").strip().lower()
-        if v in {"organization", "organisation", "company"}:
-            return "org"
-        return v if v in ENTITY_TYPES else "other"
-
-    @field_validator("salience", mode="before")
-    @classmethod
-    def _clamp_salience(cls, v):
-        try:
-            return max(0.0, min(1.0, float(v)))
-        except (TypeError, ValueError):
-            return 0.5
-
-    @field_validator("description")
-    @classmethod
-    def _trim_desc(cls, v: str) -> str:
-        return v[:300]
-
-
-class EntitiesOut(BaseModel):
-    entities: list[EntityItem] = Field(default_factory=list, max_length=20)
-
-    @field_validator("entities", mode="before")
-    @classmethod
-    def _drop_unusable(cls, v):
-        # one malformed item must not sink the whole batch
-        if not isinstance(v, list):
-            return v
-        return [i for i in v if isinstance(i, dict)
-                and str(i.get("name", "")).strip()][:20]

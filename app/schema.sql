@@ -35,22 +35,6 @@ CREATE TABLE IF NOT EXISTS findings (
   UNIQUE (run_id, idx)
 );
 
-CREATE TABLE IF NOT EXISTS entities (
-  id          INTEGER PRIMARY KEY,
-  name        TEXT NOT NULL,
-  name_norm   TEXT NOT NULL UNIQUE,
-  type        TEXT NOT NULL DEFAULT 'other',
-  description TEXT,
-  created_at  TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS run_entities (
-  run_id    TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  salience  REAL NOT NULL DEFAULT 0.5,
-  PRIMARY KEY (run_id, entity_id)
-);
-
 CREATE TABLE IF NOT EXISTS run_links (
   src_run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   dst_run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,

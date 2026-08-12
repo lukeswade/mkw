@@ -5,6 +5,8 @@ this process, so uvicorn MUST run with exactly one worker.
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -96,8 +98,8 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
         refresh_task = None
         if enable_worker:
             orch.start()
-            import asyncio
-            refresh_task = asyncio.create_task(refresh_loop(orch))
+            refresh_task = asyncio.create_task(
+                refresh_loop(orch, repo), name="evergreen-refresh")
 
         bot = None
         if enable_bot:
@@ -116,10 +118,14 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
             if bot is not None:
                 from app.telegram.bot import stop_bot
                 await stop_bot(bot)
+            if refresh_task is not None:
+                refresh_task.cancel()
+                # await it, or the task is garbage-collected mid-cancel and
+                # python logs "Task was destroyed but it is pending"
+                with contextlib.suppress(asyncio.CancelledError):
+                    await refresh_task
             if enable_worker:
                 await orch.stop()
-                if refresh_task:
-                    refresh_task.cancel()
             conn.close()
 
     app = FastAPI(title="Deep Research", docs_url=None, redoc_url=None,

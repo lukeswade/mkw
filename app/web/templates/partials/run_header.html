@@ -1,0 +1,34 @@
+<header class="run-header">
+  <div class="run-header-top">
+    <h1>{{ row['title'] or row['query'] }}</h1>
+    <div class="run-actions">
+      {% if row['status'] == 'completed' %}
+      <button class="evergreen-btn{{ ' is-on' if row['evergreen'] else '' }}"
+              hx-post="/runs/{{ run_id }}/evergreen"
+              hx-target="closest .run-header" hx-swap="outerHTML"
+              title="{{ 'Stop refreshing this research automatically' if row['evergreen'] else 'Re-research this topic every day and link the updates here' }}">
+        {{ '★ Evergreen on' if row['evergreen'] else '☆ Keep evergreen' }}
+      </button>
+      {% endif %}
+      <button class="delete-btn"
+              hx-delete="/runs/{{ run_id }}"
+              hx-confirm="Permanently delete this run and all its files?"
+              title="Delete run">Delete</button>
+    </div>
+  </div>
+
+  <div class="chip-row">
+    <span class="chip status-{{ row['status'] }}">{{ row['status'] }}</span>
+    <span class="chip">depth {{ row['depth'] }}</span>
+    <span class="chip">{{ RECENCY_LABELS[row['recency']] | lower }}</span>
+    <span class="chip">via {{ row['origin'] }}</span>
+    {% if row['evergreen'] %}<span class="chip chip-evergreen">auto-refreshing daily</span>{% endif %}
+    {% if row['stop_reason'] %}<span class="chip subtle">{{ row['stop_reason'] }}</span>{% endif %}
+  </div>
+  {% if parent %}<p class="parent-note">follows up on <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}
+  {% if related %}
+  <p class="parent-note">
+    {% for kind, rid, rtitle in related %}<span class="rel">{{ kind }}: <a href="/runs/{{ rid }}">{{ rtitle or rid }}</a></span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+</header>

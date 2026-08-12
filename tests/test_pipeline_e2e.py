@@ -82,11 +82,6 @@ def script(gap_rounds: list[dict]) -> dict:
         "followups": [{"items": [{"query": "Follow-up question about X",
                                   "rationale": "Gap remains.", "depth": 3,
                                   "recency": "6months"}]}],
-        "entities": [{"entities": [
-            {"name": "Example Corp", "type": "org", "salience": 0.9,
-             "description": "A company"},
-            {"name": "Widget Tech", "type": "technology", "salience": 0.7,
-             "description": "A technology"}]}],
     }
 
 
@@ -191,11 +186,6 @@ async def test_full_run(data_dir):
     hits = repo.fts_search("flibbertigibbet")
     assert hits and hits[0]["run_id"] == run_id
 
-    # knowledge-graph entities stored
-    ents = repo.conn.execute(
-        "SELECT e.name FROM entities e JOIN run_entities re ON re.entity_id = e.id"
-        " WHERE re.run_id = ?", (run_id,)).fetchall()
-    assert {e["name"] for e in ents} == {"Example Corp", "Widget Tech"}
 
 
 @respx.mock

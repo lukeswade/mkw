@@ -828,29 +828,6 @@ input[type="checkbox"] {
 .hit-snippet mark { background: rgba(255,255,255,0.12); color: #fff; border-radius: 2px; padding: 0 2px; }
 .hit-score { color: var(--text-faint); font-size: var(--text-xs); margin-top: 0.15rem; }
 
-/* ---- Graph ---- */
-.graph-controls {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  padding: 1rem 1.25rem;
-  margin-bottom: 0.5rem;
-}
-.graph-controls label {
-  color: var(--text-secondary);
-  font-size: var(--text-base);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.graph-box {
-  min-height: 500px;
-  border-radius: 12px;
-  overflow: hidden;
-  padding: 0;
-}
-.graph-box canvas { border-radius: 12px; }
 
 /* ---- Settings ---- */
 .card h3 {
@@ -1043,7 +1020,6 @@ input[type="checkbox"] {
   .search-bar button { width: 100%; }
   .card .grid { grid-template-columns: 1fr; }
   .followup-card { flex-direction: column; }
-  .graph-box { min-height: 350px; }
   .tabs button { padding: 0.5rem 0.6rem; font-size: var(--text-sm); }
 }
 
@@ -1093,3 +1069,33 @@ input[type="checkbox"] {
   flex: 1;
   margin-bottom: 0;
 }
+
+/* ---- Run header actions ---- */
+.run-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.run-actions { display: flex; gap: 0.4rem; flex-shrink: 0; padding-top: 0.35rem; }
+.run-actions button { width: auto; margin: 0; font-size: var(--text-xs); }
+.evergreen-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+.evergreen-btn:hover { color: var(--text-primary); border-color: var(--text-faint); }
+.evergreen-btn.is-on {
+  color: var(--accent-strong, #6ee7b7);
+  border-color: currentColor;
+}
+.chip-evergreen { color: var(--accent-strong, #6ee7b7); border-color: currentColor; }
+
+/* Restores the pass/fail signal on the Settings test buttons, which the CSS
+   rewrite dropped while the template kept emitting these classes. */
+.test-result { font-size: var(--text-sm); }
+.test-result.ok { color: #6ee7b7; }
+.test-result.fail { color: #f87171; }

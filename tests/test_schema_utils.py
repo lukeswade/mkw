@@ -2,9 +2,9 @@
 a stray $ref or a missing 'required' entry makes a local server reject the
 request and silently drop us back to unconstrained output."""
 from app.llm.schema_utils import response_format_for, strict_schema
-from app.models import EntitiesOut, FollowUpsOut, GapOut, NotesOut, PlannerOut
+from app.models import FollowUpsOut, GapOut, NotesOut, PlannerOut
 
-MODELS = [NotesOut, PlannerOut, GapOut, FollowUpsOut, EntitiesOut]
+MODELS = [NotesOut, PlannerOut, GapOut, FollowUpsOut]
 
 
 def _walk(node):

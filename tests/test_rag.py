@@ -9,7 +9,6 @@ import pytest
 from app.config import Settings
 from app.db import Repo, connect
 from app.rag.service import RagService, _parse_finding_md
-from app.research.entities import extract_entities, normalize_name
 from app.research.storage import RunStore
 from tests.fake_llm import FakeLLM
 
@@ -132,27 +131,3 @@ def test_parse_finding_md():
                       "domain": "x.y", "published_date": None, "relevance": 6.0,
                       "summary": "The summary."}
     assert _parse_finding_md("no header here") is None
-
-
-async def test_entity_extraction_and_dedupe(cfg):
-    repo = Repo(connect(cfg.db_path))
-    run_a = seed_run(cfg, repo, "entity run one", "Entities One", BATTERY_TEXT)
-    run_b = seed_run(cfg, repo, "entity run two", "Entities Two", BATTERY_TEXT)
-    fake = FakeLLM({"entities": [{"entities": [
-        {"name": "QuantumScape", "type": "org", "salience": 0.9,
-         "description": "Solid-state battery company"},
-        {"name": "Sulfide Electrolyte", "type": "technology", "salience": 0.8,
-         "description": "Electrolyte class"},
-        {"name": "", "type": "org", "salience": 0.5, "description": "bad"},
-    ]}]})
-    assert await extract_entities(fake, repo, run_a, "overview text") == 2
-    assert await extract_entities(fake, repo, run_b, "overview text") == 2
-
-    ents = repo.conn.execute("SELECT COUNT(*) c FROM entities").fetchone()["c"]
-    assert ents == 2  # deduped by name_norm across runs
-    run_ents = repo.conn.execute("SELECT COUNT(*) c FROM run_entities").fetchone()["c"]
-    assert run_ents == 4
-
-    assert normalize_name("  QuantumScape! ") == "quantumscape"
-    assert normalize_name("Open  AI") == "open ai"
-    assert normalize_name("Über") == "uber"

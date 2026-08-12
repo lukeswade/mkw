@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -41,6 +41,11 @@ def _migrations() -> list:
         lambda conn: conn.executescript(_schema()),
         lambda conn: _add_column_if_missing(
             conn, "runs", "evergreen", "BOOLEAN NOT NULL DEFAULT 0"),
+        # The knowledge-graph feature was removed; these tables were
+        # write-only once the graph page went away.
+        lambda conn: conn.executescript(
+            "DROP TABLE IF EXISTS run_entities;"
+            "DROP TABLE IF EXISTS entities;"),
     ]
 
 
@@ -108,7 +113,28 @@ class Repo:
 
     def list_evergreen_runs(self) -> list[sqlite3.Row]:
         return self.conn.execute(
-            "SELECT * FROM runs WHERE evergreen = 1 AND status = 'completed' ORDER BY created_at"
+            "SELECT * FROM runs WHERE evergreen = 1 AND status = 'completed'"
+            " ORDER BY created_at"
+        ).fetchall()
+
+    def evergreen_due(self, interval_hours: int) -> list[sqlite3.Row]:
+        """Evergreen runs with no refresh in flight and none inside the window.
+
+        The flag stays on the original run, so 'due' is derived from the age of
+        its newest child rather than by moving the flag along a chain (which
+        died permanently the first time a child failed).
+        """
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(hours=interval_hours)).isoformat(timespec="seconds")
+        return self.conn.execute(
+            "SELECT r.* FROM runs r"
+            " WHERE r.evergreen = 1 AND r.status = 'completed'"
+            "   AND COALESCE(r.finished_at, r.created_at) < ?"
+            "   AND NOT EXISTS ("
+            "     SELECT 1 FROM runs c WHERE c.parent_run_id = r.id"
+            "       AND (c.status IN ('queued','running') OR c.created_at >= ?))"
+            " ORDER BY r.created_at",
+            (cutoff, cutoff),
         ).fetchall()
 
     def update_run(self, run_id: str, **cols) -> None:
@@ -158,30 +184,7 @@ class Repo:
             "SELECT * FROM findings WHERE run_id = ? ORDER BY idx", (run_id,)
         ).fetchall()
 
-    # ---- entities & graph ----------------------------------------------------
-    def upsert_entity(self, name: str, name_norm: str, type_: str,
-                      description: str) -> int:
-        row = self.conn.execute(
-            "SELECT id FROM entities WHERE name_norm = ?", (name_norm,)
-        ).fetchone()
-        if row:
-            return int(row["id"])
-        cur = self.conn.execute(
-            "INSERT INTO entities (name, name_norm, type, description, created_at)"
-            " VALUES (?,?,?,?,?)",
-            (name, name_norm, type_, description, utcnow()),
-        )
-        self.conn.commit()
-        return int(cur.lastrowid)
-
-    def set_run_entity(self, run_id: str, entity_id: int, salience: float) -> None:
-        self.conn.execute(
-            "INSERT OR REPLACE INTO run_entities (run_id, entity_id, salience)"
-            " VALUES (?,?,?)",
-            (run_id, entity_id, salience),
-        )
-        self.conn.commit()
-
+    # ---- cross-run links ------------------------------------------------
     def add_run_link(self, src: str, dst: str, kind: str, score: float | None) -> None:
         self.conn.execute(
             "INSERT OR REPLACE INTO run_links (src_run_id, dst_run_id, kind, score)"
@@ -199,19 +202,6 @@ class Repo:
             " WHERE l.src_run_id = ? OR l.dst_run_id = ?",
             (run_id, run_id),
         ).fetchall()
-
-    def graph_rows(self) -> tuple[list[sqlite3.Row], list[sqlite3.Row], list[sqlite3.Row]]:
-        runs = self.conn.execute(
-            "SELECT r.id, r.title, r.query, r.status,"
-            " (SELECT COUNT(*) FROM findings f WHERE f.run_id = r.id) AS n_findings"
-            " FROM runs r WHERE r.status IN ('completed','interrupted','cancelled')"
-        ).fetchall()
-        entities = self.conn.execute(
-            "SELECT e.id, e.name, e.type, e.description, re.run_id, re.salience"
-            " FROM entities e JOIN run_entities re ON re.entity_id = e.id"
-        ).fetchall()
-        links = self.conn.execute("SELECT * FROM run_links").fetchall()
-        return runs, entities, links
 
     # ---- full-text search ------------------------------------------------------
     def fts_add(self, run_id: str, kind: str, title: str, body: str) -> None:
@@ -244,7 +234,6 @@ class Repo:
 
     def delete_run_index(self, run_id: str) -> None:
         """Remove derived index data for a run (used by reindex)."""
-        self.conn.execute("DELETE FROM run_entities WHERE run_id = ?", (run_id,))
         self.conn.execute(
             "DELETE FROM run_links WHERE src_run_id = ? OR dst_run_id = ?",
             (run_id, run_id),

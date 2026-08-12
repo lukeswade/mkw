@@ -1,48 +1,56 @@
-"""Background worker to automatically refresh evergreen research runs."""
+"""Background refresh for runs marked evergreen.
+
+A run flagged evergreen is re-researched periodically against a recent time
+window, producing a child run linked to it. The flag stays on the original —
+that way a failed refresh can't break the chain, and the toggle stays where
+the user put it.
+"""
+from __future__ import annotations
+
 import asyncio
 import logging
-from app import db
-from app.config import Settings, load_settings
+
 from app.models import RunParams
 
 log = logging.getLogger(__name__)
 
-async def refresh_loop(orchestrator):
-    """Periodically wakes up, finds evergreen runs, and spawns update runs."""
-    cfg = load_settings()
-    repo = db.Repo(db.connect(cfg.db_path))
-    
+REFRESH_INTERVAL_HOURS = 24
+# The due-check is one indexed query, so polling often is cheap and means a
+# restart doesn't skip a cycle (the old worker slept 24h before its first look).
+CHECK_EVERY_SECONDS = 900
+
+
+async def refresh_due_runs(orchestrator, repo) -> int:
+    """Enqueue a refresh for every evergreen run that is due. Returns the count."""
+    due = repo.evergreen_due(REFRESH_INTERVAL_HOURS)
+    for row in due:
+        params = RunParams(
+            query=row["query"],
+            depth=row["depth"],
+            recency="month",           # refreshes look for what's new
+            parent_run_id=row["id"],
+            origin=row["origin"] or "web",
+            origin_chat_id=row["origin_chat_id"],
+        )
+        new_id = orchestrator.enqueue(params)
+        log.info("evergreen refresh %s queued for %s", new_id, row["id"])
+    return len(due)
+
+
+async def refresh_loop(orchestrator, repo) -> None:
+    log.info("evergreen refresh worker started (every %ds, interval %dh)",
+             CHECK_EVERY_SECONDS, REFRESH_INTERVAL_HOURS)
     while True:
         try:
-            # Wake up every 24 hours
-            await asyncio.sleep(24 * 3600)
-            
-            evergreen_runs = repo.list_evergreen_runs()
-            if not evergreen_runs:
-                continue
-                
-            log.info("Waking up to refresh %d evergreen runs", len(evergreen_runs))
-            
-            for row in evergreen_runs:
-                # Disable evergreen on the parent so we don't branch indefinitely from it
-                repo.update_run(row["id"], evergreen=False)
-                
-                # Spawn a new run targeting the past month, building on the parent
-                params = RunParams(
-                    query=row["query"],
-                    depth=row["depth"],
-                    recency="month",
-                    parent_run_id=row["id"],
-                    evergreen=True,
-                    origin="web",
-                    origin_chat_id=row["origin_chat_id"]
-                )
-                new_run_id = orchestrator.enqueue(params)
-                log.info("Spawned evergreen refresh run %s for parent %s", new_run_id, row["id"])
-                
+            await refresh_due_runs(orchestrator, repo)
         except asyncio.CancelledError:
-            log.info("Refresh loop shutting down")
-            break
-        except Exception as e:
-            log.exception("Error in refresh loop: %s", e)
-            await asyncio.sleep(300)  # wait 5 mins before retry on crash
+            log.info("evergreen refresh worker stopping")
+            raise
+        except Exception:
+            # A bad row or a transient DB error must not kill the loop.
+            log.exception("evergreen refresh check failed")
+        try:
+            await asyncio.sleep(CHECK_EVERY_SECONDS)
+        except asyncio.CancelledError:
+            log.info("evergreen refresh worker stopping")
+            raise

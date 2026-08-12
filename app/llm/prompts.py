@@ -164,23 +164,6 @@ Produce a JSON object with exactly this key:
 
 Respond with only the JSON object."""
 
-ENTITIES = """Extract the key entities from this research overview for a \
-knowledge graph.
-
-Overview:
----
-{overview}
----
-
-Produce a JSON object with exactly this key:
-- "entities": array of up to 15 objects, most important first, each with:
-  - "name": canonical name
-  - "type": one of "person","org","technology","concept","place","event","product","other"
-  - "salience": number 0.0-1.0 — how central to this research
-  - "description": one sentence
-
-Respond with only the JSON object."""
-
 ASK = """Answer the question using ONLY the research excerpts below.
 
 Question: {question}

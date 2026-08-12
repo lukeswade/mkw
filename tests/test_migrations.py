@@ -3,7 +3,9 @@ a fresh database runs step 0 AND every later step. These tests cover the three
 states a real deployment can be in."""
 import sqlite3
 
-from app.db import Repo, _schema, connect, migrate
+from app.db import Repo, _migrations, _schema, connect, migrate
+
+CURRENT_VERSION = len(_migrations())
 
 
 def _legacy_v1_db(path) -> None:
@@ -22,7 +24,7 @@ def _columns(conn, table="runs") -> set[str]:
 
 def test_fresh_database_boots(data_dir):
     conn = connect(data_dir / "fresh.sqlite3")
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_VERSION
     assert "evergreen" in _columns(conn)
 
 
@@ -30,7 +32,7 @@ def test_legacy_v1_database_upgrades(data_dir):
     path = data_dir / "legacy.sqlite3"
     _legacy_v1_db(path)
     conn = connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_VERSION
     assert "evergreen" in _columns(conn)
 
 
@@ -39,7 +41,7 @@ def test_migrate_is_reentrant(data_dir):
     conn = connect(data_dir / "again.sqlite3")
     migrate(conn)
     migrate(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_VERSION
 
 
 def test_legacy_rows_survive_upgrade(data_dir):

@@ -1,4 +1,4 @@
-/* Deep Research client JS: tabs, live SSE progress, knowledge graph. */
+/* Deep Research client JS: tabs and live SSE progress. */
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -67,73 +67,3 @@ function initProgress(el) {
   };
   // on error the browser auto-reconnects and replays via Last-Event-ID
 }
-
-/* ---- knowledge graph page ---- */
-window.initGraph = async function initGraph() {
-  const box = document.getElementById("graph");
-  if (!box || typeof ForceGraph === "undefined") return;
-  const data = await fetch("/api/graph").then((r) => r.json());
-  const stats = document.getElementById("g-stats");
-  if (stats) {
-    const runs = data.nodes.filter((n) => n.group === "run").length;
-    stats.textContent = `${runs} runs · ${data.nodes.length - runs} entities · ${data.links.length} links`;
-  }
-
-  const COLORS = {
-    run: "#6ee7b7", person: "#79c0ff", org: "#ffa657", technology: "#d2a8ff",
-    concept: "#f2cc60", place: "#7ee787", event: "#ff7b72", product: "#a5d6ff",
-    other: "#8b949e",
-  };
-
-  const width = () => box.clientWidth || box.getBoundingClientRect().width || 900;
-  const height = () => box.clientHeight || 620;
-  const graph = new ForceGraph(box)
-    .graphData(data)
-    .width(width())
-    .height(height())
-    .backgroundColor("#090c10")
-    .nodeId("id")
-    .nodeVal("val")
-    .nodeLabel((n) => n.group === "run" ? `research: ${n.label}`
-                                        : `${n.group}: ${n.label}\n${n.description || ""}`)
-    .nodeColor((n) => COLORS[n.group] || COLORS.other)
-    .linkColor((l) => (l.kind === "similar" ? "#3fb95055" : l.kind === "followup" ? "#79c0ff55" : "#30363d"))
-    .linkWidth((l) => (l.kind === "mentions" ? 0.6 : 1.6))
-    .linkLineDash((l) => (l.kind === "similar" ? [3, 3] : null))
-    .onNodeClick((n) => { if (n.url) window.location = n.url; })
-    .nodeCanvasObjectMode(() => "after")
-    .nodeCanvasObject((n, ctx, scale) => {
-      if (n.group !== "run" && scale < 1.2) return; // label runs always, entities when zoomed
-      const label = n.label.length > 34 ? n.label.slice(0, 32) + "…" : n.label;
-      ctx.font = `${Math.max(10 / scale, 2.4)}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#c9d1d9";
-      ctx.fillText(label, n.x, n.y + 7 + (n.val || 3) / 2);
-    });
-
-  // hidden-at-load panes and window resizes must not leave a 0-width canvas
-  window.addEventListener("resize", () => graph.width(width()).height(height()));
-  const ro = new ResizeObserver(() => graph.width(width()).height(height()));
-  ro.observe(box);
-  let fitted = false;
-  graph.onEngineStop(() => {
-    if (!fitted && data.nodes.length) { fitted = true; graph.zoomToFit(400, 60); }
-  });
-
-  const applyFilters = () => {
-    const minSal = parseFloat(document.getElementById("g-salience").value || "0");
-    const runsOnly = document.getElementById("g-runs-only").checked;
-    const keepNode = (n) =>
-      n.group === "run" || (!runsOnly && (n.salience === undefined || n.salience >= minSal));
-    const nodes = data.nodes.filter(keepNode);
-    const ids = new Set(nodes.map((n) => n.id));
-    const links = data.links.filter((l) => {
-      const s = typeof l.source === "object" ? l.source.id : l.source;
-      const t = typeof l.target === "object" ? l.target.id : l.target;
-      return ids.has(s) && ids.has(t);
-    });
-    graph.graphData({ nodes, links });
-  };
-  document.getElementById("g-salience").addEventListener("input", applyFilters);
-  document.getElementById("g-runs-only").addEventListener("change", applyFilters);
-};

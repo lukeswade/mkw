@@ -39,6 +39,33 @@ def _row_or_404(request: Request, run_id: str):
     return row
 
 
+def _related_links(repo, run_id: str) -> list[tuple[str, str, str]]:
+    related = []
+    for l in repo.links_for_run(run_id):
+        if l["kind"] == "followup" and l["src_run_id"] == run_id:
+            related.append(("follow-up", l["dst_run_id"], l["dst_title"]))
+        elif l["kind"] == "followup":
+            related.append(("follows up on", l["src_run_id"], l["src_title"]))
+        elif l["src_run_id"] == run_id:
+            related.append(("related", l["dst_run_id"], l["dst_title"]))
+        else:
+            related.append(("related", l["src_run_id"], l["src_title"]))
+    return related
+
+
+def _run_header_context(request: Request, run_id: str) -> dict:
+    """Context for partials/run_header.html — shared by the run page and the
+    evergreen toggle, which swaps the header in place."""
+    repo = request.app.state.repo
+    row = repo.get_run(run_id)
+    return {
+        "row": row,
+        "run_id": run_id,
+        "parent": repo.get_run(row["parent_run_id"]) if row["parent_run_id"] else None,
+        "related": _related_links(repo, run_id),
+    }
+
+
 def _runs_context(request: Request, limit: int = 20) -> dict:
     repo = request.app.state.repo
     rows = repo.list_runs(limit=limit)
@@ -113,17 +140,7 @@ async def run_page(request: Request, run_id: str):
 
     log_lines = [line for e in store.read_events()
                  if (line := format_event(e))]
-    links = repo.links_for_run(run_id)
-    related = []
-    for l in links:
-        if l["kind"] == "followup" and l["src_run_id"] == run_id:
-            related.append(("follow-up", l["dst_run_id"], l["dst_title"]))
-        elif l["kind"] == "followup":
-            related.append(("follows up on", l["src_run_id"], l["src_title"]))
-        elif l["src_run_id"] == run_id:
-            related.append(("related", l["dst_run_id"], l["dst_title"]))
-        else:
-            related.append(("related", l["src_run_id"], l["src_title"]))
+    related = _related_links(repo, run_id)
 
     ctx.update({
         "overview_html": render_overview(overview_md, len(findings)),
@@ -190,12 +207,11 @@ async def cancel_run(request: Request, run_id: str):
 @router.post("/runs/{run_id}/evergreen")
 async def toggle_evergreen(request: Request, run_id: str):
     repo = request.app.state.repo
-    row = repo.get_run(run_id)
-    if not row:
-        return Response("Not found", status_code=404)
-    # Toggle evergreen boolean
-    new_status = not bool(row["evergreen"])
-    repo.update_run(run_id, evergreen=new_status)
+    row = _row_or_404(request, run_id)
+    repo.update_run(run_id, evergreen=not bool(row["evergreen"]))
+    if request.headers.get("hx-request"):
+        return _tpl(request).TemplateResponse(
+            request, "partials/run_header.html", _run_header_context(request, run_id))
     return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
 

@@ -1,29 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ row['title'] or row['query'] }} · Deep Research{% endblock %}
 {% block content %}
-<header class="run-header">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-    <h1>{{ row['title'] or row['query'] }}</h1>
-    <button class="delete-btn outline" style="width:auto; padding:0.25rem 0.5rem; margin-top:0.5rem;"
-            hx-delete="/runs/{{ run_id }}"
-            hx-confirm="Are you sure you want to permanently delete this run?"
-            title="Delete run">Delete</button>
-  </div>
-
-  <div class="chip-row">
-    <span class="chip status-{{ row['status'] }}">{{ row['status'] }}</span>
-    <span class="chip">depth {{ row['depth'] }}</span>
-    <span class="chip">{{ RECENCY_LABELS[row['recency']] | lower }}</span>
-    <span class="chip">via {{ row['origin'] }}</span>
-    {% if row['stop_reason'] %}<span class="chip subtle">{{ row['stop_reason'] }}</span>{% endif %}
-  </div>
-  {% if parent %}<p class="parent-note">follows up on <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}
-  {% if related %}
-  <p class="parent-note">
-    {% for kind, rid, rtitle in related %}<span class="rel">{{ kind }}: <a href="/runs/{{ rid }}">{{ rtitle or rid }}</a></span>{% if not loop.last %} · {% endif %}{% endfor %}
-  </p>
-  {% endif %}
-</header>
+{% include "partials/run_header.html" %}
 
 {% if row['status'] != 'completed' %}
 <article class="banner banner-{{ row['status'] }}">
