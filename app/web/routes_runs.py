@@ -13,6 +13,7 @@ from fastapi.responses import (FileResponse, RedirectResponse, Response,
 from pydantic import ValidationError
 
 from app.models import RunParams
+from app.research.estimate import estimate_run
 from app.research.progress import format_event
 from app.research.storage import SERVABLE_RE, RunStore
 from app.web.markdown import render, render_overview
@@ -76,11 +77,31 @@ def _runs_context(request: Request, limit: int = 20) -> dict:
     return {"runs": runs}
 
 
+def _index_context(request: Request, depth: int = 3) -> dict:
+    cfg = request.app.state.cfg_loader()
+    ctx = _runs_context(request)
+    ctx.update({
+        "nav": "home",
+        "llm_configured": cfg.llm_is_configured,
+        "provider_label": cfg.provider.label,
+        "estimate": estimate_run(request.app.state.repo, depth=depth),
+    })
+    return ctx
+
+
 @router.get("/")
 async def index(request: Request):
-    ctx = _runs_context(request)
-    ctx["nav"] = "home"
-    return _tpl(request).TemplateResponse(request, "index.html", ctx)
+    return _tpl(request).TemplateResponse(request, "index.html",
+                                          _index_context(request))
+
+
+@router.get("/partials/estimate")
+async def estimate_partial(request: Request, depth: int = 3):
+    """Live pre-flight estimate as the depth slider moves."""
+    depth = max(0, min(10, depth))
+    return _tpl(request).TemplateResponse(
+        request, "partials/estimate.html",
+        {"estimate": estimate_run(request.app.state.repo, depth=depth)})
 
 
 @router.get("/partials/recent-runs")
@@ -97,8 +118,7 @@ async def create_run(request: Request, query: str = Form(...),
         params = RunParams(query=query, depth=depth, recency=recency,
                            origin="web", parent_run_id=parent_run_id or None)
     except ValidationError as e:
-        ctx = _runs_context(request)
-        ctx["nav"] = "home"
+        ctx = _index_context(request, depth=depth if 0 <= depth <= 10 else 3)
         ctx["error"] = "; ".join(err["msg"] for err in e.errors())
         ctx["prefill"] = {"query": query, "depth": depth, "recency": recency}
         return _tpl(request).TemplateResponse(request, "index.html", ctx,

@@ -11,32 +11,38 @@
   <article class="card">
     <h3>LLM</h3>
     <label>Provider
-      <select name="llm_provider">
-        <option value="deepseek" {{ 'selected' if cfg.llm_provider == 'deepseek' else '' }}>DeepSeek (cloud API)</option>
-        <option value="local" {{ 'selected' if cfg.llm_provider == 'local' else '' }}>Local (llama.cpp / OpenAI-compatible)</option>
+      <select name="llm_provider" id="llm-provider">
+        {% for p in PROVIDERS.values() %}
+        <option value="{{ p.key }}" {{ 'selected' if cfg.llm_provider == p.key else '' }}
+                data-base-url="{{ p.base_url }}" data-model="{{ p.default_model }}"
+                data-needs-key="{{ 1 if p.needs_key else 0 }}"
+                data-hint="{{ p.hint }}">{{ p.label }}</option>
+        {% endfor %}
       </select>
     </label>
+    <p class="hint" id="provider-hint">{{ cfg.provider.hint }}</p>
+
     <div class="grid">
-      <label>DeepSeek API key
-        <input type="password" name="deepseek_api_key" autocomplete="off"
-               placeholder="{{ masked.deepseek_api_key or 'not set' }} — leave blank to keep">
+      <label>Model
+        <input type="text" name="llm_model" id="llm-model" value="{{ cfg.resolved_model }}"
+               placeholder="model id">
       </label>
-      <label>DeepSeek model
-        <input type="text" name="deepseek_model" value="{{ cfg.deepseek_model }}">
+      <label>API key
+        <input type="password" name="llm_api_key" id="llm-api-key" autocomplete="off"
+               placeholder="{{ masked.llm_api_key or ('not needed for local servers' if cfg.provider.needs_key == false else 'not set') }} — blank keeps the current one">
       </label>
     </div>
-    <label>DeepSeek base URL
-      <input type="text" name="deepseek_base_url" value="{{ cfg.deepseek_base_url }}">
+    <label>Base URL
+      <input type="text" name="llm_base_url" id="llm-base-url" value="{{ cfg.resolved_base_url }}">
     </label>
-    <div class="grid">
-      <label>Local LLM base URL
-        <input type="text" name="local_llm_base_url" value="{{ cfg.local_llm_base_url }}"
-               placeholder="http://host.docker.internal:8080/v1">
-      </label>
-      <label>Local LLM model name
-        <input type="text" name="local_llm_model" value="{{ cfg.local_llm_model }}">
-      </label>
-    </div>
+    <label>Fast model <small>(optional)</small>
+      <input type="text" name="fast_model" value="{{ cfg.fast_model }}"
+             placeholder="leave blank to use the model above for everything">
+    </label>
+    <p class="hint">A run makes one planning and one synthesis call but a dozen
+      or more per-document note calls. Naming a smaller, faster model here uses
+      it for the notes only — often several times quicker with little loss.</p>
+
     <div class="test-row">
       <button type="button" hx-post="/settings/test-llm" hx-target="#llm-test" class="secondary outline">Test LLM</button>
       <span id="llm-test"></span>

@@ -1,5 +1,10 @@
 # 🔭 Deep Research
 
+[![CI](https://github.com/lukeswade/deep-research/actions/workflows/ci.yml/badge.svg)](https://github.com/lukeswade/deep-research/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776ab.svg)](https://www.python.org/)
+[![Self-hosted](https://img.shields.io/badge/runs-100%25%20self--hosted-6ee7b7.svg)](#install)
+
 A self-hosted deep-research agent — a personal Perplexity that digs much
 deeper. Give it a question, a depth, and a recency window; it unpacks the
 question into targeted web searches, reads the results, writes per-source
@@ -19,6 +24,28 @@ Ollama, or MLX.
 - **Everything is plain markdown on disk** (`data/research_data/<run>/`).
   SQLite and the vector index are derived — `reindex` rebuilds them from the
   files at any time.
+
+![The research form, with a live estimate of what the chosen depth implies](docs/screenshots/home.png)
+
+
+
+## What it looks like
+
+A finished run: a cited synthesis, the sources behind every claim, per-source
+findings with verbatim evidence, suggested follow-ups, and the full log.
+
+![A completed run showing the cited overview, related runs and result tabs](docs/screenshots/run-overview.png)
+
+Semantic search across everything you have ever researched — the library
+answers by meaning, not just keywords.
+
+![Library search results ranked by semantic similarity](docs/screenshots/library.png)
+
+Bring your own model. Any OpenAI-compatible endpoint works, and the
+high-volume note-taking calls can go to a smaller, faster model than the one
+doing the planning and synthesis.
+
+![Settings page showing provider presets and the fast-model option](docs/screenshots/settings.png)
 
 ---
 
@@ -45,34 +72,48 @@ minutes and produces a ~2.5 GB image.
 
 ### Choose an LLM
 
-**Cloud (simplest, costs cents per run).** Get a key from
-<https://platform.deepseek.com> and put it in `.env`:
+Deep Research talks to any **OpenAI-compatible** endpoint. Pick a preset on the
+Settings page and the base URL is filled in for you:
+
+| | Providers |
+|---|---|
+| **Cloud** | DeepSeek · OpenAI · OpenRouter · Groq · Together |
+| **Local** | LM Studio · Ollama · llama.cpp / vLLM / MLX (as "Other") |
+
+The quickest cloud start is DeepSeek — cheap, and strong at structured output:
 
 ```
 DEEPSEEK_API_KEY=sk-...
 ```
 
-**Local (free, private, slower).** Run any OpenAI-compatible server — LM
-Studio, llama.cpp's `llama-server`, Ollama, or an MLX server — and point the
-app at it:
+The quickest local start is LM Studio or Ollama:
 
 ```
-LLM_PROVIDER=local
-LOCAL_LLM_BASE_URL=http://host.docker.internal:1234/v1
-LOCAL_LLM_MODEL=your-model-id
-LOCAL_LLM_API_KEY=sk-local     # only if your server checks it
-LLM_CONCURRENCY=1              # one request at a time suits a single GPU
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen2.5:32b-instruct
+LLM_CONCURRENCY=1        # one request at a time suits a single GPU
 ```
 
-Pick a model that supports **strict `json_schema` output** (LM Studio and
-recent llama.cpp both do). The pipeline asks for schema-constrained decoding,
-which makes malformed JSON impossible; without it the app still works, but
-weaker models occasionally emit unparseable output and those sources get
-dropped. A 30B-class instruct model is a good floor for research quality.
+Two things worth knowing when running locally:
 
-You can change any of this later on the **Settings** page, which also has
-"Test LLM" and "Test SearXNG" buttons. Settings are stored in
-`data/settings.json` (chmod 600) and override `.env`.
+- **Prefer a model that supports strict `json_schema` output** (LM Studio and
+  recent llama.cpp do). The pipeline uses schema-constrained decoding, which
+  makes malformed JSON impossible. Without it everything still works, but a
+  weaker model will occasionally emit unparseable output and lose that source.
+  A 30B-class instruct model is a good floor for research quality.
+- **Set a fast model.** A run makes one planning call and one synthesis call
+  but a dozen or more per-document note calls, so nearly all the time goes into
+  note-taking. Naming a smaller model in the *Fast model* box uses it for the
+  notes only and leaves the big model to do the thinking:
+
+  ```
+  LLM_MODEL=qwen2.5:32b-instruct   # planning + synthesis
+  FAST_MODEL=qwen2.5:7b-instruct   # per-source notes
+  ```
+
+You can change all of this later on the **Settings** page, which also has
+"Test LLM" and "Test SearXNG" buttons. Settings live in `data/settings.json`
+(chmod 600) and override `.env`.
 
 ---
 

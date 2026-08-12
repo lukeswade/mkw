@@ -15,10 +15,9 @@ from app.research.searcher import Searcher, SearxngError
 log = logging.getLogger(__name__)
 router = APIRouter()
 
-_TEXT_FIELDS = ("llm_provider", "deepseek_base_url", "deepseek_model",
-                "local_llm_base_url", "local_llm_model",
+_TEXT_FIELDS = ("llm_provider", "llm_base_url", "llm_model", "fast_model",
                 "telegram_allowed_user_ids", "searxng_url")
-_SECRET_FORM_FIELDS = ("deepseek_api_key", "telegram_bot_token", "web_password")
+_SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password")
 
 
 @router.get("/settings")

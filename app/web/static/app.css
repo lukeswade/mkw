@@ -1098,3 +1098,63 @@ input[type="checkbox"] {
 .test-result { font-size: var(--text-sm); }
 .test-result.ok { color: #6ee7b7; }
 .test-result.fail { color: var(--danger); }
+
+/* ---- Pre-flight estimate ---- */
+.estimate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.9rem;
+  margin: 0.6rem 0 0;
+  padding: 0.55rem 0.8rem;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.est-item { white-space: nowrap; }
+.est-time { color: var(--text-primary); font-weight: 600; }
+.est-basis { color: var(--text-faint); margin-left: auto; font-style: italic; }
+
+/* ---- First-run setup banner ---- */
+.banner-setup {
+  background: rgba(110, 231, 183, 0.06);
+  border: 1px solid rgba(110, 231, 183, 0.35);
+  color: var(--text-primary);
+}
+.banner-setup a[role="button"] {
+  width: auto;
+  display: inline-block;
+  padding: 0.35rem 0.9rem;
+  font-size: var(--text-sm);
+}
+
+/* ---- Live streamed output (quick chat + synthesis) ---- */
+.stream-pane {
+  border-top: 1px solid var(--border);
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+}
+.stream-label {
+  margin: 0 0 0.5rem;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.stream-output {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 460px;
+  overflow-y: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  color: var(--text-primary);
+}
+.stream-output::after {
+  content: "▌";
+  animation: cursor-blink 1.1s steps(2) infinite;
+  color: var(--text-faint);
+}
+@keyframes cursor-blink { 50% { opacity: 0; } }

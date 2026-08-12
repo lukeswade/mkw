@@ -330,7 +330,8 @@ class Pipeline:
             overview = await synthesizer.synthesize(
                 llm, query=query, title=the_plan.title, brief=the_plan.brief,
                 recency_desc=recency_desc, today=today,
-                state_md=state.state_md, findings=findings)
+                state_md=state.state_md, findings=findings,
+                bus=self.bus, run_id=run_id)
             overview, removed = validate_citations(overview, len(findings))
             if removed:
                 self.bus.publish(run_id, "log",

@@ -151,15 +151,14 @@ def test_settings_save_masking_and_mode(data_dir, monkeypatch):
     with TestClient(app) as client:
         r = client.post("/settings", data={
             "llm_provider": "deepseek",
-            "deepseek_base_url": "https://api.deepseek.com",
-            "deepseek_model": "deepseek-chat",
-            "local_llm_base_url": "http://x/v1",
-            "local_llm_model": "m",
+            "llm_base_url": "https://api.deepseek.com",
+            "llm_model": "deepseek-chat",
+            "fast_model": "",
             "telegram_allowed_user_ids": "123",
             "searxng_url": "http://searxng:8080",
             "results_per_query": "9",
             "respect_robots": "on",
-            "deepseek_api_key": "sk-supersecret-9876",
+            "llm_api_key": "sk-supersecret-9876",
             "telegram_bot_token": "",
             "web_password": "",
         }, follow_redirects=False)
@@ -168,7 +167,7 @@ def test_settings_save_masking_and_mode(data_dir, monkeypatch):
         settings_file = cfg.data_path / "settings.json"
         assert stat.S_IMODE(os.stat(settings_file).st_mode) == 0o600
         saved = json.loads(settings_file.read_text())
-        assert saved["deepseek_api_key"] == "sk-supersecret-9876"
+        assert saved["llm_api_key"] == "sk-supersecret-9876"
         assert saved["results_per_query"] == 9
         assert "telegram_bot_token" not in saved  # blank secret untouched
 
@@ -178,9 +177,9 @@ def test_settings_save_masking_and_mode(data_dir, monkeypatch):
 
         # blank key on re-save keeps the stored secret
         client.post("/settings", data={"llm_provider": "deepseek",
-                                       "deepseek_api_key": ""})
+                                       "llm_api_key": ""})
         saved = json.loads(settings_file.read_text())
-        assert saved["deepseek_api_key"] == "sk-supersecret-9876"
+        assert saved["llm_api_key"] == "sk-supersecret-9876"
 
 
 def test_library_keyword_search(data_dir, monkeypatch):

@@ -19,6 +19,10 @@ SETTINGS_FILENAME = "settings.json"
 # dataclass field name → environment variable
 ENV_MAP = {
     "llm_provider": "LLM_PROVIDER",
+    "llm_base_url": "LLM_BASE_URL",
+    "llm_model": "LLM_MODEL",
+    "llm_api_key": "LLM_API_KEY",
+    "fast_model": "FAST_MODEL",
     "deepseek_api_key": "DEEPSEEK_API_KEY",
     "deepseek_base_url": "DEEPSEEK_BASE_URL",
     "deepseek_model": "DEEPSEEK_MODEL",
@@ -43,6 +47,10 @@ ENV_MAP = {
 # Fields the web Settings page is allowed to persist into settings.json.
 UI_EDITABLE = {
     "llm_provider",
+    "llm_base_url",
+    "llm_model",
+    "llm_api_key",
+    "fast_model",
     "deepseek_api_key",
     "deepseek_base_url",
     "deepseek_model",
@@ -58,20 +66,31 @@ UI_EDITABLE = {
     "respect_robots",
 }
 
-SECRET_FIELDS = {"deepseek_api_key", "telegram_bot_token", "web_password",
-                 "local_llm_api_key"}
+SECRET_FIELDS = {"llm_api_key", "deepseek_api_key", "local_llm_api_key",
+                 "telegram_bot_token", "web_password"}
 
 
 @dataclass
 class Settings:
-    llm_provider: str = "deepseek"  # "deepseek" | "local"
+    # Any OpenAI-compatible endpoint. `llm_provider` selects a preset from
+    # app.llm.providers; the three fields below override the preset's defaults
+    # and are what the client actually uses.
+    llm_provider: str = "deepseek"
+    llm_base_url: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
+    # Optional cheaper/faster model for the high-volume per-document note
+    # calls, leaving the main model for planning and synthesis. Same endpoint.
+    fast_model: str = ""
+
+    # --- legacy fields, still read so existing .env files keep working ---
     deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
-    local_llm_base_url: str = "http://host.docker.internal:8080/v1"
-    local_llm_model: str = "local"
-    # Most local servers ignore this; LM Studio / MLX with auth enabled do not.
-    local_llm_api_key: str = "sk-local"
+    deepseek_base_url: str = ""
+    deepseek_model: str = ""
+    local_llm_base_url: str = ""
+    local_llm_model: str = ""
+    local_llm_api_key: str = ""
+
     telegram_bot_token: str = ""
     telegram_allowed_user_ids: str = ""
     web_password: str = ""
@@ -85,6 +104,48 @@ class Settings:
     respect_robots: bool = True
     allow_private_fetch: bool = False
     user_agent: str = "deep-research/0.1 (personal research agent)"
+
+    # --- resolved LLM endpoint -------------------------------------------
+    # Precedence: explicit generic field → legacy provider-specific field →
+    # the preset's default. The legacy step is what keeps a .env written
+    # against the old DEEPSEEK_* / LOCAL_LLM_* names working untouched.
+    def _legacy(self, field: str) -> str:
+        if self.llm_provider == "deepseek":
+            return {"base_url": self.deepseek_base_url,
+                    "model": self.deepseek_model,
+                    "api_key": self.deepseek_api_key}.get(field, "")
+        return {"base_url": self.local_llm_base_url,
+                "model": self.local_llm_model,
+                "api_key": self.local_llm_api_key}.get(field, "")
+
+    @property
+    def provider(self):
+        from app.llm import providers
+        return providers.get(self.llm_provider)
+
+    @property
+    def resolved_base_url(self) -> str:
+        return (self.llm_base_url or self._legacy("base_url")
+                or self.provider.base_url)
+
+    @property
+    def resolved_model(self) -> str:
+        return (self.llm_model or self._legacy("model")
+                or self.provider.default_model)
+
+    @property
+    def resolved_api_key(self) -> str:
+        return self.llm_api_key or self._legacy("api_key")
+
+    @property
+    def llm_is_configured(self) -> bool:
+        """Enough to attempt a call: local servers need no key, clouds do."""
+        from app.llm import providers
+        if not self.resolved_model:
+            return False
+        if providers.is_local(self.llm_provider):
+            return bool(self.resolved_base_url)
+        return bool(self.resolved_api_key)
 
     # --- derived paths ---
     @property

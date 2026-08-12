@@ -37,7 +37,10 @@ services:
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
-      SEARXNG_SECRET: ${SEARXNG_SECRET:-change_me_generate_with_openssl_rand_hex_32}
+      # A real secret is strongly preferred (see .env.example), but this
+      # service has no published ports and is reachable only from the
+      # internal network, so a missing one must not block a first run.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-insecure-default-change-me}
     restart: unless-stopped
     # No ports: only reachable from the internal Docker network.
 

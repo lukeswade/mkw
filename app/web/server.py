@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import selfcheck
 from app.config import Settings, load_settings
+from app.llm import providers
 from app.db import Repo, connect
 from app.models import RECENCY_CHOICES, RECENCY_LABELS
 from app.research.orchestrator import Orchestrator
@@ -62,6 +63,7 @@ def _build_templates() -> Jinja2Templates:
     templates.env.globals.update(
         RECENCY_CHOICES=RECENCY_CHOICES,
         RECENCY_LABELS=RECENCY_LABELS,
+        PROVIDERS=providers.PROVIDERS,
         asset=_asset_url,
     )
     templates.env.filters["fromjson"] = lambda s: json.loads(s) if s else {}

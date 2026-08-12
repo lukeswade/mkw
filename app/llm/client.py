@@ -1,9 +1,10 @@
 """Provider-agnostic async LLM client.
 
-DeepSeek and llama.cpp both speak the OpenAI chat-completions dialect, so one
-AsyncOpenAI client with a configurable base_url covers both. Every call
-carries a `kind` tag (planner/notes/gap/synth/...) used for usage accounting
-and for routing canned responses in tests.
+Every supported provider speaks the OpenAI chat-completions dialect, so one
+AsyncOpenAI client with a configurable base_url covers all of them — see
+app.llm.providers for the presets. Every call carries a `kind` tag
+(planner/notes/gap/synth/...) used for usage accounting, for choosing between
+the main and fast model, and for routing canned responses in tests.
 """
 from __future__ import annotations
 
@@ -35,11 +36,6 @@ def est_tokens(text: str) -> int:
     return len(text) // 3
 
 
-# USD per 1M tokens, deepseek-chat standard pricing — for the per-run cost
-# estimate shown in stats. Rough by design.
-_DEEPSEEK_IN_PER_M = 0.27
-_DEEPSEEK_OUT_PER_M = 1.10
-
 _BACKOFF = (2.0, 8.0)
 
 # Ceiling for the truncation retry. DeepSeek caps output at 8k; local servers
@@ -51,24 +47,32 @@ class LLMError(Exception):
     pass
 
 
+# High-volume, mechanical calls — these are what the fast model is for.
+_FAST_KINDS = {"notes"}
+
+
 class LLM:
     def __init__(self, cfg: Settings):
         self.provider = cfg.llm_provider
-        if self.provider == "local":
-            base, key, self.model = (cfg.local_llm_base_url,
-                                     cfg.local_llm_api_key or "sk-local",
-                                     cfg.local_llm_model)
-        else:
-            base, key, self.model = (cfg.deepseek_base_url, cfg.deepseek_api_key,
-                                     cfg.deepseek_model)
-        self._configured = bool(key)
-        self.client = AsyncOpenAI(base_url=base, api_key=key or "missing",
-                                  timeout=cfg.llm_timeout, max_retries=0)
+        self.preset = cfg.provider
+        self.model = cfg.resolved_model
+        # Optional cheaper model for per-document notes. A run makes one
+        # planning and one synthesis call but a dozen-plus note calls, so this
+        # is where nearly all the time and tokens go.
+        self.fast_model = cfg.fast_model.strip() or self.model
+        self._configured = cfg.llm_is_configured
+        self.client = AsyncOpenAI(
+            base_url=cfg.resolved_base_url,
+            api_key=cfg.resolved_api_key or "sk-no-key-required",
+            timeout=cfg.llm_timeout, max_retries=0)
         self._sem = asyncio.Semaphore(cfg.llm_concurrency)
         self.usage: dict[str, dict[str, int]] = {}
         self.total_calls = 0
         # Constrained decoding, disabled automatically if the server 400s on it.
         self.supports_json_schema = True
+
+    def model_for(self, kind: str) -> str:
+        return self.fast_model if kind in _FAST_KINDS else self.model
 
     def _track(self, kind: str, resp) -> None:
         u = self.usage.setdefault(kind, {"calls": 0, "prompt_tokens": 0,
@@ -89,10 +93,14 @@ class LLM:
             "completion_tokens": total_out,
             "by_kind": self.usage,
         }
-        if self.provider == "deepseek":
+        if self.fast_model != self.model:
+            summary["fast_model"] = self.fast_model
+        # Only priced where the preset's default model has a stable published
+        # price; elsewhere the token counts stand on their own.
+        if self.preset.price_in and self.preset.price_out:
             summary["est_cost_usd"] = round(
-                total_in / 1e6 * _DEEPSEEK_IN_PER_M
-                + total_out / 1e6 * _DEEPSEEK_OUT_PER_M, 4)
+                total_in / 1e6 * self.preset.price_in
+                + total_out / 1e6 * self.preset.price_out, 4)
         return summary
 
     async def chat(self, kind: str, messages: list[dict], *,
@@ -114,13 +122,13 @@ class LLM:
         so the JSON is truncated and no amount of repair prompting will fix it —
         the caller needs a bigger budget, not a retry.
         """
-        if self.provider == "deepseek" and not self._configured:
+        if not self._configured:
             raise LLMError(
-                "No DeepSeek API key configured — add it on the Settings page "
-                "or as DEEPSEEK_API_KEY in .env (or switch to a local LLM)."
+                f"{self.preset.label} is not fully configured — set the model "
+                f"and API key on the Settings page (or in .env)."
             )
         kwargs: dict = {
-            "model": self.model,
+            "model": self.model_for(kind),
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -172,10 +180,10 @@ class LLM:
     async def chat_stream(self, kind: str, messages: list[dict], bus, run_id: str, *,
                           max_tokens: int = 2048, temperature: float = 0.3) -> str:
         """Stream chat completions and publish chunks to the progress bus."""
-        if self.provider == "deepseek" and not self._configured:
-            raise LLMError("No DeepSeek API key configured.")
+        if not self._configured:
+            raise LLMError(f"{self.preset.label} is not fully configured.")
         kwargs: dict = {
-            "model": self.model,
+            "model": self.model_for(kind),
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -188,6 +196,8 @@ class LLM:
             async with self._sem:
                 stream = await self.client.chat.completions.create(**kwargs)
                 async for chunk in stream:
+                    if not chunk.choices:
+                        continue  # usage-only final chunk
                     content = chunk.choices[0].delta.content
                     if content:
                         full_text.append(content)

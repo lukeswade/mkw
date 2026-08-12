@@ -3,14 +3,26 @@
 <section class="hero">
   <h1>What should I research?</h1>
   <p class="hero-sub">AI-powered deep web research with iterative source discovery</p>
+
+  {% if llm_configured is defined and not llm_configured %}
+  <article class="banner banner-setup">
+    <p><strong>Almost ready.</strong> No language model is configured yet, so
+       research runs will fail. Pick a provider — a cloud API key, or a local
+       server like LM Studio or Ollama — and you're set.</p>
+    <a href="/settings" role="button">Open Settings</a>
+  </article>
+  {% endif %}
+
   {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
   <form method="post" action="/runs" class="new-run card">
     <textarea name="query" rows="3" required minlength="3" autofocus
       placeholder="e.g. State of solid-state battery manufacturing — who is closest to mass production and what are the remaining blockers?">{{ prefill.query if prefill else "" }}</textarea>
     <div class="controls">
       <label class="depth-label">Depth <output id="depth-val">{{ prefill.depth if prefill else 3 }}</output>
-        <input type="range" name="depth" min="0" max="10"
+        <input type="range" name="depth" id="depth-range" min="0" max="10"
                value="{{ prefill.depth if prefill else 3 }}"
+               hx-get="/partials/estimate" hx-trigger="input changed delay:150ms"
+               hx-target="#estimate" hx-swap="outerHTML"
                oninput="document.getElementById('depth-val').value = this.value == '0' ? '0 (Quick Chat)' : this.value">
       </label>
       <label>Recency
@@ -22,6 +34,7 @@
       </label>
       <button type="submit" class="go">Start research</button>
     </div>
+    {% include "partials/estimate.html" %}
     <p class="hint">Depth = maximum search rounds. Each round digs into the gaps the previous one exposed.</p>
   </form>
 </section>

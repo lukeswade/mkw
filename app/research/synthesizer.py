@@ -28,7 +28,7 @@ def _note_block(f: Finding) -> str:
 
 async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                      recency_desc: str, today: str, state_md: str,
-                     findings: list[Finding]) -> str:
+                     findings: list[Finding], bus=None, run_id: str = "") -> str:
     blocks = [_note_block(f) for f in findings]
 
     if est_tokens("".join(blocks)) > _SINGLE_CALL_BUDGET:
@@ -39,10 +39,21 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         today=today, state_md=state_md or "(none)",
         notes_block="\n".join(blocks),
     )
-    return await llm.chat(
-        "synth", [{"role": "user", "content": prompt}],
-        max_tokens=8000, temperature=0.4,
-    )
+    messages = [{"role": "user", "content": prompt}]
+
+    # Synthesis is the longest single call in a run and the one the user is
+    # actually waiting on, so stream it into the progress pane rather than
+    # sitting behind a spinner. A stream failure falls back to a normal call —
+    # the document matters more than the animation.
+    if bus is not None and run_id:
+        try:
+            return await llm.chat_stream("synth", messages, bus, run_id,
+                                         max_tokens=8000, temperature=0.4)
+        except Exception:
+            log.warning("streaming synthesis failed, retrying unstreamed",
+                        exc_info=True)
+
+    return await llm.chat("synth", messages, max_tokens=8000, temperature=0.4)
 
 
 async def _map_digest(llm: LLM, query: str, blocks: list[str]) -> list[str]:

@@ -1,0 +1,15 @@
+<div id="estimate" class="estimate">
+  {% if estimate.depth == 0 %}
+  <span class="est-item"><strong>Quick chat</strong> — a direct answer, no web search</span>
+  {% else %}
+  <span class="est-item">~{{ estimate.queries }} searches</span>
+  <span class="est-item">{{ estimate.sources_label }}</span>
+  <span class="est-item">~{{ estimate.llm_calls }} LLM calls</span>
+  <span class="est-item est-time">{{ estimate.duration_label }}</span>
+  {% if estimate.cost_usd %}<span class="est-item">~${{ estimate.cost_usd }}</span>{% endif %}
+  {% endif %}
+  <span class="est-basis">
+    {%- if estimate.calibrated %}based on your last {{ estimate.samples }} runs
+    {%- else %}rough estimate — improves once you have a few completed runs{% endif %}
+  </span>
+</div>

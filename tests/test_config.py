@@ -10,7 +10,7 @@ from app.config import Settings, load_settings, mask_secret, save_settings
 def test_defaults(data_dir):
     s = load_settings(str(data_dir))
     assert s.llm_provider == "deepseek"
-    assert s.deepseek_base_url == "https://api.deepseek.com"
+    assert s.resolved_base_url == "https://api.deepseek.com"
     assert s.results_per_query == 8
     assert s.respect_robots is True
 
