@@ -154,7 +154,9 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
     try:
         return await llm.chat_json(
             "notes", [{"role": "user", "content": prompt}],
-            NotesOut, max_tokens=1200, temperature=0.2,
+            # 350 words of notes plus up to 8 facts with verbatim quotes does
+            # not fit in 1200 tokens; truncation there silently drops sources.
+            NotesOut, max_tokens=2400, temperature=0.2,
         )
     except LLMJsonError as e:
         log.warning("notes skipped for %s: %s", url, e)

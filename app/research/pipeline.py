@@ -289,7 +289,8 @@ class Pipeline:
                 self.bus.publish(run_id, "source_skipped", url=c.url,
                                  reason="unusable notes output")
                 return
-            if notes.relevance < RELEVANCE_KEEP:
+            if notes.relevance < getattr(self.cfg, "relevance_threshold",
+                                         RELEVANCE_KEEP):
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
                                  reason=f"relevance {notes.relevance}/10")

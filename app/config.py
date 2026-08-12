@@ -24,6 +24,7 @@ ENV_MAP = {
     "deepseek_model": "DEEPSEEK_MODEL",
     "local_llm_base_url": "LOCAL_LLM_BASE_URL",
     "local_llm_model": "LOCAL_LLM_MODEL",
+    "local_llm_api_key": "LOCAL_LLM_API_KEY",
     "telegram_bot_token": "TELEGRAM_BOT_TOKEN",
     "telegram_allowed_user_ids": "TELEGRAM_ALLOWED_USER_IDS",
     "web_password": "WEB_PASSWORD",
@@ -33,6 +34,7 @@ ENV_MAP = {
     "llm_concurrency": "LLM_CONCURRENCY",
     "llm_timeout": "LLM_TIMEOUT",
     "results_per_query": "RESULTS_PER_QUERY",
+    "relevance_threshold": "RELEVANCE_THRESHOLD",
     "respect_robots": "RESPECT_ROBOTS",
     "allow_private_fetch": "ALLOW_PRIVATE_FETCH",
     "user_agent": "USER_AGENT",
@@ -46,15 +48,18 @@ UI_EDITABLE = {
     "deepseek_model",
     "local_llm_base_url",
     "local_llm_model",
+    "local_llm_api_key",
     "telegram_bot_token",
     "telegram_allowed_user_ids",
     "web_password",
     "searxng_url",
     "results_per_query",
+    "relevance_threshold",
     "respect_robots",
 }
 
-SECRET_FIELDS = {"deepseek_api_key", "telegram_bot_token", "web_password"}
+SECRET_FIELDS = {"deepseek_api_key", "telegram_bot_token", "web_password",
+                 "local_llm_api_key"}
 
 
 @dataclass
@@ -65,6 +70,8 @@ class Settings:
     deepseek_model: str = "deepseek-chat"
     local_llm_base_url: str = "http://host.docker.internal:8080/v1"
     local_llm_model: str = "local"
+    # Most local servers ignore this; LM Studio / MLX with auth enabled do not.
+    local_llm_api_key: str = "sk-local"
     telegram_bot_token: str = ""
     telegram_allowed_user_ids: str = ""
     web_password: str = ""
@@ -74,6 +81,7 @@ class Settings:
     llm_concurrency: int = 4
     llm_timeout: int = 180
     results_per_query: int = 8
+    relevance_threshold: int = 5
     respect_robots: bool = True
     allow_private_fetch: bool = False
     user_agent: str = "deep-research/0.1 (personal research agent)"

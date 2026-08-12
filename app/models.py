@@ -67,7 +67,7 @@ class PlannerOut(BaseModel):
 class Fact(BaseModel):
     claim: str = Field(min_length=1, max_length=500)
     evidence_quote: str | None = None
-    confidence: int = Field(ge=0, le=10)
+    confidence: int = 5
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -77,6 +77,14 @@ class Fact(BaseModel):
         except (TypeError, ValueError):
             return 5
 
+    @field_validator("evidence_quote", mode="before")
+    @classmethod
+    def _trim_quote(cls, v):
+        if v is None:
+            return None
+        v = str(v).strip()
+        return v[:500] or None
+
 
 class NotesOut(BaseModel):
     relevance: int = Field(ge=0, le=10)
@@ -84,6 +92,21 @@ class NotesOut(BaseModel):
     notes_md: str = ""
     key_facts: list[Fact] = Field(default_factory=list, max_length=10)
     published_date: str | None = None
+
+    @field_validator("key_facts", mode="before")
+    @classmethod
+    def _drop_unusable(cls, v):
+        # One malformed fact must not cost us the whole document — same
+        # tolerance FollowUpsOut and EntitiesOut already apply.
+        if not isinstance(v, list):
+            return []
+        out = []
+        for item in v:
+            if isinstance(item, str) and item.strip():
+                out.append({"claim": item.strip()})
+            elif isinstance(item, dict) and str(item.get("claim", "")).strip():
+                out.append(item)
+        return out[:10]
 
     @field_validator("relevance", mode="before")
     @classmethod

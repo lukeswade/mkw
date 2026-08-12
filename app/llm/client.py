@@ -23,6 +23,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.config import Settings
 from app.llm.json_utils import LLMJsonError, extract_json
+from app.llm.schema_utils import response_format_for
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,10 @@ _DEEPSEEK_OUT_PER_M = 1.10
 
 _BACKOFF = (2.0, 8.0)
 
+# Ceiling for the truncation retry. DeepSeek caps output at 8k; local servers
+# vary, but doubling past this wastes time rather than fixing anything.
+_MAX_OUTPUT_TOKENS = 8000
+
 
 class LLMError(Exception):
     pass
@@ -50,7 +55,8 @@ class LLM:
     def __init__(self, cfg: Settings):
         self.provider = cfg.llm_provider
         if self.provider == "local":
-            base, key, self.model = (cfg.local_llm_base_url, "sk-mlx-local",
+            base, key, self.model = (cfg.local_llm_base_url,
+                                     cfg.local_llm_api_key or "sk-local",
                                      cfg.local_llm_model)
         else:
             base, key, self.model = (cfg.deepseek_base_url, cfg.deepseek_api_key,
@@ -61,6 +67,8 @@ class LLM:
         self._sem = asyncio.Semaphore(cfg.llm_concurrency)
         self.usage: dict[str, dict[str, int]] = {}
         self.total_calls = 0
+        # Constrained decoding, disabled automatically if the server 400s on it.
+        self.supports_json_schema = True
 
     def _track(self, kind: str, resp) -> None:
         u = self.usage.setdefault(kind, {"calls": 0, "prompt_tokens": 0,
@@ -89,7 +97,23 @@ class LLM:
 
     async def chat(self, kind: str, messages: list[dict], *,
                    max_tokens: int = 2048, temperature: float = 0.3,
-                   json_mode: bool = False) -> str:
+                   json_mode: bool = False,
+                   response_format: dict | None = None) -> str:
+        text, _finish = await self.chat_raw(
+            kind, messages, max_tokens=max_tokens, temperature=temperature,
+            json_mode=json_mode, response_format=response_format)
+        return text
+
+    async def chat_raw(self, kind: str, messages: list[dict], *,
+                       max_tokens: int = 2048, temperature: float = 0.3,
+                       json_mode: bool = False,
+                       response_format: dict | None = None) -> tuple[str, str]:
+        """Return (content, finish_reason).
+
+        finish_reason matters: 'length' means the model was cut off mid-answer,
+        so the JSON is truncated and no amount of repair prompting will fix it —
+        the caller needs a bigger budget, not a retry.
+        """
         if self.provider == "deepseek" and not self._configured:
             raise LLMError(
                 "No DeepSeek API key configured — add it on the Settings page "
@@ -101,7 +125,9 @@ class LLM:
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
-        if json_mode:
+        if response_format is not None:
+            kwargs["response_format"] = response_format
+        elif json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
         last_err: Exception | None = None
@@ -111,13 +137,22 @@ class LLM:
                     resp = await self.client.chat.completions.create(**kwargs)
                 self.total_calls += 1
                 self._track(kind, resp)
-                return resp.choices[0].message.content or ""
+                choice = resp.choices[0]
+                return (choice.message.content or "",
+                        getattr(choice, "finish_reason", "") or "")
             except (APIConnectionError, APITimeoutError, RateLimitError) as e:
                 last_err = e
             except APIStatusError as e:
                 if e.status_code == 400 and "response_format" in kwargs:
-                    # some local servers reject json mode — retry without it
-                    kwargs.pop("response_format")
+                    fmt = kwargs["response_format"].get("type")
+                    if fmt == "json_schema":
+                        # server can't constrain to a schema — step down to
+                        # plain json mode and stop trying for this session
+                        self.supports_json_schema = False
+                        kwargs["response_format"] = {"type": "json_object"}
+                    else:
+                        # some local servers reject json mode entirely
+                        kwargs.pop("response_format")
                     last_err = e
                 elif e.status_code >= 500:
                     last_err = e
@@ -167,9 +202,31 @@ class LLM:
 
     async def chat_json(self, kind: str, messages: list[dict], schema: type[M], *,
                         max_tokens: int = 2048, temperature: float = 0.2) -> M:
-        """Structured call: extract_json → validate → one repair round-trip."""
-        text = await self.chat(kind, messages, max_tokens=max_tokens,
-                               temperature=temperature, json_mode=True)
+        """Structured call.
+
+        Preference order, each step falling back to the next:
+          1. constrained decoding against the model's JSON schema
+          2. plain json mode, then extract_json's tolerant parsing
+          3. one repair round-trip
+        A truncated response (finish_reason 'length') is retried with a larger
+        budget rather than repaired — repair re-sends the prompt plus the
+        truncated text, so it just truncates again.
+        """
+        fmt = response_format_for(schema) if self.supports_json_schema else None
+        budget = max_tokens
+
+        for attempt in range(2):
+            text, finish = await self.chat_raw(
+                kind, messages, max_tokens=budget, temperature=temperature,
+                json_mode=True,
+                response_format=fmt if self.supports_json_schema else None)
+            if finish != "length":
+                break
+            if attempt == 0:
+                budget = min(budget * 2, _MAX_OUTPUT_TOKENS)
+                log.warning("%s: response truncated, retrying with %d tokens",
+                            kind, budget)
+
         try:
             return schema.model_validate(extract_json(text))
         except (LLMJsonError, ValidationError) as first_err:
@@ -184,8 +241,10 @@ class LLM:
                     "no explanation, no markdown fences."
                 )},
             ]
-            text2 = await self.chat(kind, repair_messages, max_tokens=max_tokens,
-                                    temperature=0.0, json_mode=True)
+            text2 = await self.chat(
+                kind, repair_messages, max_tokens=budget, temperature=0.0,
+                json_mode=True,
+                response_format=fmt if self.supports_json_schema else None)
             try:
                 return schema.model_validate(extract_json(text2))
             except (LLMJsonError, ValidationError) as second_err:
