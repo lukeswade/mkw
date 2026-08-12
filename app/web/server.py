@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -16,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from app import selfcheck
 from app.config import Settings, load_settings
 from app.db import Repo, connect
 from app.models import RECENCY_CHOICES, RECENCY_LABELS
@@ -40,11 +42,27 @@ def _build_rag(cfg: Settings):
         return None
 
 
+def _asset_url(name: str) -> str:
+    """Cache-bust by content hash.
+
+    The previous scheme was a hand-incremented ?v=N in base.html, which was
+    forgotten twice in eleven commits and shipped stale CSS to returning users
+    both times. A hash cannot be forgotten.
+    """
+    path = _HERE / "static" / name
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+    except OSError:
+        return f"/static/{name}"
+    return f"/static/{name}?v={digest}"
+
+
 def _build_templates() -> Jinja2Templates:
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     templates.env.globals.update(
         RECENCY_CHOICES=RECENCY_CHOICES,
         RECENCY_LABELS=RECENCY_LABELS,
+        asset=_asset_url,
     )
     templates.env.filters["fromjson"] = lambda s: json.loads(s) if s else {}
     return templates
@@ -57,6 +75,11 @@ def _setup_logging(cfg: Settings) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # httpx logs every request at INFO. Telegram long-polls every 10s and the
+    # bot token is embedded in that URL, so leaving this on writes the token to
+    # disk thousands of times a day and buries everything else.
+    for noisy in ("httpx", "httpcore", "telegram.ext.Updater"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     try:
         from logging.handlers import RotatingFileHandler
         fh = RotatingFileHandler(cfg.data_path / "app.log",
@@ -76,6 +99,8 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
     base_cfg = cfg_loader()
     base_cfg.ensure_dirs()
     _setup_logging(base_cfg)
+    # Fail at boot rather than on the first document of the first run.
+    selfcheck.run_all(base_cfg)
 
     templates = _build_templates()
     signer = load_signer(base_cfg.data_path)

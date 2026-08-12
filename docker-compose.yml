@@ -51,11 +51,16 @@ services:
   #   command: ["-m", "/models/model.gguf", "--host", "0.0.0.0", "--port", "8080", "-c", "32768"]
   #   restart: unless-stopped
 
+  # Optional: expose the UI on a public hostname through a Cloudflare Tunnel,
+  # with no inbound ports opened on the host. Opt in with:
+  #   docker compose --profile tunnel up -d
+  # Put a Cloudflare Access policy in front of the hostname — the tunnel makes
+  # the app reachable from the internet, and WEB_PASSWORD alone is thin cover.
   cloudflared:
+    profiles: ["tunnel"]
     image: cloudflare/cloudflared:latest
-    container_name: cloudflared
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env to use the tunnel profile}
     command: tunnel run
     restart: unless-stopped
     depends_on:

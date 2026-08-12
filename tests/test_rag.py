@@ -6,6 +6,9 @@ import json
 
 import pytest
 
+pytest.importorskip("sentence_transformers", reason="vector layer deps not installed")
+pytest.importorskip("chromadb", reason="vector layer deps not installed")
+
 from app.config import Settings
 from app.db import Repo, connect
 from app.rag.service import RagService, _parse_finding_md

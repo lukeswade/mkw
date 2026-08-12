@@ -1,7 +1,9 @@
 /* Deep Research — Ultra-Sleek Minimalist Theme (v5 Polish) */
 @view-transition { navigation: auto; }
 
-html { font-size: 14px; }
+/* 87.5% of the reader's chosen base size — keeps the intended scale
+   without discarding a larger accessibility default. */
+html { font-size: 87.5%; }
 
 :root {
   /* Core palette */
@@ -27,6 +29,11 @@ html { font-size: 14px; }
   --accent-hover: #ffffff;
   --accent-text: #000000;
   --accent-glow: rgba(255, 255, 255, 0.08);
+
+  /* Destructive actions */
+  --danger: #f87171;
+  --danger-border: rgba(248, 113, 113, 0.4);
+  --danger-bg: rgba(248, 113, 113, 0.06);
 
   /* Typography Scale */
   --text-xs: 0.75rem;
@@ -115,12 +122,6 @@ main.container {
   max-width: 880px;
   padding: 2rem 1.25rem 4rem;
 }
-@media (max-width: 640px) {
-  main.container {
-    padding: 1rem 0.75rem 2.5rem;
-  }
-}
-
 /* ---- Typography ---- */
 h1, h2, h3, h4, h5 {
   font-weight: 600;
@@ -170,7 +171,7 @@ h3 { font-size: var(--text-lg); }
 }
 
 .form-error {
-  color: #f87171;
+  color: var(--danger);
   font-size: var(--text-base);
   margin-bottom: 1rem;
   padding: 0.5rem 0.75rem;
@@ -427,7 +428,7 @@ input[type="checkbox"] {
 .status-completed { color: #a1ffa1; border-color: rgba(161,255,161,0.15); background: rgba(161,255,161,0.04); }
 .status-running   { color: #fff; border-color: rgba(255,255,255,0.5); animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 .status-queued    { color: var(--text-muted); border-color: var(--border); }
-.status-failed    { color: #f87171; border-color: rgba(248,113,113,0.2); background: rgba(248,113,113,0.04); }
+.status-failed    { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
 
 /* ---- Spinner ---- */
 .spinner {
@@ -780,7 +781,7 @@ input[type="checkbox"] {
 }
 .cancel-btn:hover {
   border-color: rgba(248, 113, 113, 0.4);
-  color: #f87171;
+  color: var(--danger);
   background: rgba(248, 113, 113, 0.06);
 }
 
@@ -1009,55 +1010,53 @@ input[type="checkbox"] {
 .htmx-request.htmx-indicator { display: flex; }
 
 /* ---- Responsive ---- */
+/* ---- Mobile ---- */
 @media (max-width: 640px) {
+  html { font-size: 81.25%; }
   main.container { padding: 1.5rem 1rem 3rem; }
-  .nav-inner { padding: 0.6rem 1rem; gap: 1rem; }
+  .nav-inner { padding: 0.5rem 1rem; gap: 1rem; }
   .topnav ul { gap: 0; }
   .topnav ul a { font-size: var(--text-sm); padding: 0.3rem 0.4rem; }
   .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-2xl); }
-  .new-run .controls { flex-direction: column; align-items: stretch; }
-  .search-bar { flex-direction: column; }
-  .search-bar button { width: 100%; }
-  .card .grid { grid-template-columns: 1fr; }
-  .followup-card { flex-direction: column; }
-  .tabs button { padding: 0.5rem 0.6rem; font-size: var(--text-sm); }
-}
-
-/* ---- Mobile Layout Polish ---- */
-@media (max-width: 640px) {
-  html { font-size: 13px; }
   .card, article.card { padding: 1rem; margin-bottom: 1rem; }
-  .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-2xl); }
-  .new-run .controls { gap: 0.75rem; }
+  .new-run .controls { flex-direction: column; align-items: stretch; gap: 0.75rem; }
   .new-run .controls label { flex: 1 1 100%; }
   .new-run .controls .go { width: 100%; margin-top: 0.5rem; }
   .search-bar { flex-direction: column; }
   .search-bar button { width: 100%; }
+  .card .grid { grid-template-columns: 1fr; }
+  .followup-card { flex-direction: column; }
   .finding-card { padding: 0.75rem 1rem; }
-  .nav-inner { gap: 1rem; padding: 0.5rem 1rem; }
+  .tabs button { padding: 0.5rem 0.6rem; font-size: var(--text-sm); }
+  .run-header-top { flex-direction: column; gap: 0.5rem; }
 }
 
-.delete-btn {
-  background: transparent !important;
-  color: var(--text-muted) !important;
-  border: 1px solid transparent !important;
+
+.run-actions .delete-btn,
+.run-item-wrap .delete-btn,
+.hit-card-wrap .delete-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
   border-radius: 6px;
-  width: 32px !important;
-  height: 32px !important;
-  flex: 0 0 32px;
-  display: flex;
+  min-width: 32px;
+  height: 32px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  padding: 0 !important;
-  font-size: 1.25rem !important;
-  transition: all 0.15s ease;
-  margin: 0 !important;
+  padding: 0 0.5rem;
+  font-size: var(--text-sm);
+  line-height: 1;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+  margin: 0;
 }
-.delete-btn:hover {
-  color: #f87171 !important;
-  border-color: rgba(248, 113, 113, 0.4) !important;
-  background: rgba(248, 113, 113, 0.06) !important;
+.run-actions .delete-btn:hover,
+.run-item-wrap .delete-btn:hover,
+.hit-card-wrap .delete-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
 }
 .run-item-wrap {
   display: flex;
@@ -1098,4 +1097,4 @@ input[type="checkbox"] {
    rewrite dropped while the template kept emitting these classes. */
 .test-result { font-size: var(--text-sm); }
 .test-result.ok { color: #6ee7b7; }
-.test-result.fail { color: #f87171; }
+.test-result.fail { color: var(--danger); }

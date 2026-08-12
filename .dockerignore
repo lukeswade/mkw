@@ -6,6 +6,8 @@ tests
 scripts
 searxng
 node_modules
+.venv
+REVIEW-AND-PLAN.md
 __pycache__
 **/__pycache__
 .pytest_cache

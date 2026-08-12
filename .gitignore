@@ -5,15 +5,15 @@
 data/
 
 # Python
+.venv/
+uv.lock
 __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
 
-# Node (used only to vendor static assets)
+# Node (only ever used to vendor static assets)
 node_modules/
-package.json
-package-lock.json
 .pnpm-store
 
 # Build output

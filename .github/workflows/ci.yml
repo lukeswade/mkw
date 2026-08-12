@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # The ML stack (torch + sentence-transformers) is only needed by the
+      # vector layer, which the suite skips when it is absent. Installing it
+      # here would add several minutes and gigabytes for two tests.
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Startup self-check
+        run: |
+          python -c "
+          from app.config import load_settings
+          from app import selfcheck
+          cfg = load_settings('/tmp/ci-data'); cfg.ensure_dirs()
+          selfcheck.run_all(cfg)
+          print('self-check OK')"
+
+      - name: Tests
+        run: pytest -q
