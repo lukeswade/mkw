@@ -104,8 +104,8 @@ class Settings:
     llm_timeout: int = 180
     results_per_query: int = 8
     # SearXNG categories to query. general alone is four engines that all
-    # rate-limit; science and it add sources that do not.
-    search_categories: str = "general,science,it"
+    # rate-limit; science backfills with sources that do not.
+    search_categories: str = "general,science"
     search_concurrency: int = 2
     relevance_threshold: int = 5
     # Off by default: this fetches a handful of pages a person could

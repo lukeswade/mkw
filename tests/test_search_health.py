@@ -17,7 +17,7 @@ def _payload(results, unresponsive=None):
 def test_categories_include_non_gated_sources():
     """general alone is four engines that all rate-limit."""
     cats = categories_for("all")
-    assert "science" in cats and "it" in cats
+    assert "science" in cats
     assert categories_for("week").endswith(",news")
 
 
@@ -95,3 +95,34 @@ async def test_custom_categories_are_sent():
     async with httpx.AsyncClient() as client:
         await Searcher(BASE, client, categories="general").search("q", "all")
     assert route.calls.last.request.url.params["categories"] == "general"
+
+
+def test_engine_tiers():
+    from app.research.searcher import engine_tier
+    for general in ("bing", "google cse", "DuckDuckGo", "mojeek", "wikipedia"):
+        assert engine_tier(general) == 0, general
+    # specialist engines are backfill, not the main course
+    for specialist in ("crossref", "openalex", "semantic scholar", "arxiv",
+                       "mdn", "docker hub", "google scholar", ""):
+        assert engine_tier(specialist) == 1, specialist
+
+
+def test_it_category_is_excluded_by_default():
+    """MDN matched 'enclosure' and 'node' as literal API names and flooded a
+    real run with SVGSVGElement.checkEnclosure and AudioNode.channelCountMode."""
+    assert "it" not in DEFAULT_CATEGORIES.split(",")
+    assert DEFAULT_CATEGORIES.split(",") == ["general", "science"]
+
+
+def test_general_web_outranks_specialist_but_specialist_survives():
+    """Sorting must be stable so every sub-query still contributes."""
+    from app.research.searcher import SearchResult, engine_tier
+
+    def r(engine, url):
+        return SearchResult(url=url, title=url, snippet="", engine=engine,
+                            published=None, score=1.0)
+
+    merged = [r("crossref", "https://doi.org/1"), r("bing", "https://a.com/1"),
+              r("openalex", "https://doi.org/2"), r("mojeek", "https://b.com/1")]
+    merged.sort(key=lambda x: engine_tier(x.engine))
+    assert [x.engine for x in merged] == ["bing", "mojeek", "crossref", "openalex"]

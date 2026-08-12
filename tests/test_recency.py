@@ -41,7 +41,7 @@ def test_categories_for():
     # sources; news is added only where freshness is the point
     assert categories_for("week").endswith(",news")
     assert "science" in categories_for("1year")
-    assert categories_for("1year") == "general,science,it"
+    assert categories_for("1year") == "general,science"
 
 
 def test_parse_published():

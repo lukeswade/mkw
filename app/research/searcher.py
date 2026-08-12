@@ -50,10 +50,26 @@ def cutoff_for(recency: str, now: datetime | None = None) -> datetime | None:
 
 
 # The stock `general` category is four gate-happy engines (Google, Brave,
-# DuckDuckGo, Startpage). Including science and it reaches Crossref, OpenAlex,
-# Semantic Scholar, arXiv, Stack Overflow and GitHub — better research sources
-# that also do not CAPTCHA, so a run still works when the big engines throttle.
-DEFAULT_CATEGORIES = "general,science,it"
+# DuckDuckGo, Startpage); when they all throttle at once a run finds nothing.
+# Adding `science` reaches Crossref, OpenAlex, Semantic Scholar and arXiv,
+# which do not CAPTCHA and are good sources — but only as backfill, see
+# engine_tier: a practical question should not be answered out of a journal.
+# `it` is deliberately excluded: MDN and Docker Hub match generic words like
+# "node" and "enclosure" and flood the candidate pool with noise.
+DEFAULT_CATEGORIES = "general,science"
+
+# General-web engines. Everything else (academic, code, Q&A) is backfill that
+# only gets picked once these have had their turn.
+_GENERAL_WEB_ENGINES = frozenset({
+    "bing", "google", "google cse", "duckduckgo", "brave", "startpage",
+    "mojeek", "qwant", "yahoo", "wikipedia", "wikidata", "presearch",
+    "marginalia", "mullvad leta",
+})
+
+
+def engine_tier(engine: str) -> int:
+    """0 = general web, 1 = specialist. Lower sorts first."""
+    return 0 if (engine or "").strip().lower() in _GENERAL_WEB_ENGINES else 1
 
 
 def categories_for(recency: str, base: str = DEFAULT_CATEGORIES) -> str:

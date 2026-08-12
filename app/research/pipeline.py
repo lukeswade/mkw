@@ -30,7 +30,8 @@ from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
                                 take_notes)
 from app.research.progress import ProgressBus
-from app.research.searcher import Searcher, SearxngError, cutoff_for
+from app.research.searcher import (Searcher, SearxngError, cutoff_for,
+                                   engine_tier)
 from app.research.storage import RunStore, validate_citations
 
 log = logging.getLogger(__name__)
@@ -246,6 +247,10 @@ class Pipeline:
                 f"all searches failed: {errors[0]}")
 
         merged = interleave(merged_lists)
+        # Stable sort keeps the round-robin order inside each tier, so every
+        # sub-query still contributes — but a practical web page outranks a
+        # journal abstract, and academic results backfill rather than dominate.
+        merged.sort(key=lambda r: engine_tier(r.engine))
         candidates = rank_diverse(merged, state.seen_urls, per_domain=2,
                                   limit=breadth * 3)
         for c in candidates:
