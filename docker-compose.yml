@@ -60,7 +60,10 @@ services:
     profiles: ["tunnel"]
     image: cloudflare/cloudflared:latest
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env to use the tunnel profile}
+      # Plain default, not ${VAR:?...}: compose interpolates every service at
+      # parse time, even ones behind an inactive profile, so a required-variable
+      # form here breaks `docker compose up` for everyone without a tunnel.
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
     command: tunnel run
     restart: unless-stopped
     depends_on:
