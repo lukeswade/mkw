@@ -37,8 +37,11 @@ def test_cutoff_for():
 
 
 def test_categories_for():
-    assert categories_for("week") == "general,news"
-    assert categories_for("1year") == "general"
+    # science/it reach engines that don't CAPTCHA and are better research
+    # sources; news is added only where freshness is the point
+    assert categories_for("week").endswith(",news")
+    assert "science" in categories_for("1year")
+    assert categories_for("1year") == "general,science,it"
 
 
 def test_parse_published():

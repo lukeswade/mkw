@@ -231,9 +231,15 @@ building one never clobbers the other.
   that break the container with "disk I/O error". Use
   `docker compose exec app python -m app.cli runs` instead. If it happens: stop
   the app, delete `data/app.sqlite3-shm` and `-wal`, start again.
-- SearXNG engines rate-limit sometimes (`unresponsive_engines` in the logs);
-  other engines fill in and the pipeline rephrases on an empty round. The
-  SearXNG image is pinned by digest in `docker-compose.yml`.
+- **Search engines rate-limit.** Google, Brave, DuckDuckGo and Startpage all
+  throttle or serve CAPTCHAs to home and datacenter IPs under research-volume
+  traffic, and the stock SearXNG `general` category is made up of exactly those.
+  The app therefore searches `general,science,it` by default, which also reaches
+  Crossref, OpenAlex, Semantic Scholar, arXiv, Stack Overflow and GitHub —
+  better research sources that don't gate. Queries are throttled to two at a
+  time for the same reason. If every engine does block, a run says so
+  explicitly rather than reporting "no sources found"; wait a few minutes and
+  hit *Retry*. Tune with `SEARCH_CATEGORIES` and `SEARCH_CONCURRENCY`.
 
 ---
 

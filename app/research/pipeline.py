@@ -118,7 +118,9 @@ class Pipeline:
         limits = httpx.Limits(max_connections=cfg.fetch_concurrency * 2)
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
                                      limits=limits) as http:
-            searcher = Searcher(cfg.searxng_url, http)
+            searcher = Searcher(cfg.searxng_url, http,
+                                categories=cfg.search_categories,
+                                max_concurrent=cfg.search_concurrency)
             fetcher = Fetcher(cfg, http)
 
             # 1. prior knowledge from earlier runs (knowledge layer, optional)
@@ -216,7 +218,8 @@ class Pipeline:
             # 4. synthesis
             self._check_cancel()
             await self._finalize(run_id, store, state, llm, query, the_plan,
-                                 recency, recency_desc, today, stop_reason)
+                                 recency, recency_desc, today, stop_reason,
+                                 searcher=searcher)
 
     # ---- one search round ------------------------------------------------------------
     async def _round(self, run_id, store, state, searcher, fetcher, llm,
@@ -229,7 +232,11 @@ class Pipeline:
             if isinstance(res, BaseException):
                 errors.append(res)
                 self.bus.publish(run_id, "log",
-                                 message=f"search failed for {q!r}: {res}")
+                                 # str() on a timeout is empty, which produced
+                                 # log lines that named no cause at all
+                                 message=(f"search failed for {q!r}: "
+                                          f"{type(res).__name__}"
+                                          f"{f' — {res}' if str(res) else ''}"))
             else:
                 for r in res:
                     r.via_query = q
@@ -243,9 +250,15 @@ class Pipeline:
                                   limit=breadth * 3)
         for c in candidates:
             state.seen_urls.add(canonicalize(c.url))
-        self.bus.publish(run_id, "searched",
-                         results=sum(len(l) for l in merged_lists),
+        total_results = sum(len(l) for l in merged_lists)
+        self.bus.publish(run_id, "searched", results=total_results,
                          candidates=len(candidates))
+        if total_results == 0 and searcher.blocked_engines:
+            blocked = ", ".join(f"{k} ({v})" for k, v in
+                                sorted(searcher.blocked_engines.items()))
+            self.bus.publish(
+                run_id, "log",
+                message=f"no results — every engine refused: {blocked}")
         if not candidates:
             return []
 
@@ -320,7 +333,8 @@ class Pipeline:
 
     # ---- finalization ---------------------------------------------------------------
     async def _finalize(self, run_id, store, state, llm, query, the_plan,
-                        recency, recency_desc, today, stop_reason) -> None:
+                        recency, recency_desc, today, stop_reason,
+                        searcher=None) -> None:
         findings = state.findings
         store.write_sources(synthesizer.render_sources_md(findings))
 
@@ -337,6 +351,25 @@ class Pipeline:
                 self.bus.publish(run_id, "log",
                                  message=f"stripped invalid citations: {sorted(removed)}")
             fu = await synthesizer.follow_ups(llm, query=query, overview=overview)
+        elif searcher is not None and searcher.degraded:
+            # Every search came back empty *and* engines were reporting blocks.
+            # Saying "no sources exist" here would be a lie about the topic.
+            blocked = "\n".join(f"- **{k}** — {v}" for k, v in
+                                 sorted(searcher.blocked_engines.items()))
+            stop_reason = "search engines unavailable"
+            overview = (
+                f"# {the_plan.title}\n\n"
+                f"**This run found nothing because the search engines were "
+                f"unavailable, not because the topic has no sources.**\n\n"
+                f"Every engine SearXNG queried refused the request:\n\n"
+                f"{blocked}\n\n"
+                f"This is usually temporary rate-limiting from too many "
+                f"searches in a short window. Wait a few minutes and use "
+                f"*Retry with same parameters*. If it persists, check the "
+                f"engine mix in `searxng/settings.yml` — engines like Crossref, "
+                f"OpenAlex and Stack Overflow do not rate-limit the way "
+                f"Google and DuckDuckGo do.\n")
+            fu = synthesizer.FollowUpsOut(items=[])
         else:
             overview = (f"# {the_plan.title}\n\nNo relevant sources were found "
                         f"for this query within the selected recency window "
@@ -365,6 +398,9 @@ class Pipeline:
 
         stats = {
             "rounds": state.rounds_done,
+            "searches": getattr(searcher, "searches", 0),
+            "empty_searches": getattr(searcher, "empty_searches", 0),
+            "blocked_engines": dict(getattr(searcher, "blocked_engines", {})),
             "urls_considered": len(state.seen_urls),
             "sources_kept": len(findings),
             "sources_skipped": state.skipped,

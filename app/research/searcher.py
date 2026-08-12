@@ -7,6 +7,7 @@ document's own date).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -48,9 +49,16 @@ def cutoff_for(recency: str, now: datetime | None = None) -> datetime | None:
     return (now or datetime.now()) - timedelta(days=days)
 
 
-def categories_for(recency: str) -> str:
-    # freshness-focused runs benefit from the news category
-    return "general,news" if recency in ("week", "month") else "general"
+# The stock `general` category is four gate-happy engines (Google, Brave,
+# DuckDuckGo, Startpage). Including science and it reaches Crossref, OpenAlex,
+# Semantic Scholar, arXiv, Stack Overflow and GitHub — better research sources
+# that also do not CAPTCHA, so a run still works when the big engines throttle.
+DEFAULT_CATEGORIES = "general,science,it"
+
+
+def categories_for(recency: str, base: str = DEFAULT_CATEGORIES) -> str:
+    # freshness-focused runs additionally benefit from the news category
+    return f"{base},news" if recency in ("week", "month") else base
 
 
 def parse_published(value: str | None) -> datetime | None:
@@ -80,9 +88,31 @@ class SearchResult:
 
 
 class Searcher:
-    def __init__(self, base_url: str, client: httpx.AsyncClient):
+    def __init__(self, base_url: str, client: httpx.AsyncClient,
+                 categories: str = DEFAULT_CATEGORIES,
+                 max_concurrent: int = 2, timeout: float = 45.0):
         self.base_url = base_url.rstrip("/")
         self.client = client
+        self.categories = categories or DEFAULT_CATEGORIES
+        # Searches need a longer budget than page fetches: SearXNG fans one
+        # query out to a dozen-plus engines and waits for the slow ones. The
+        # shared 15s client timeout was killing multi-category queries.
+        self.timeout = timeout
+        # A round fires every sub-query at once, and each SearXNG query fans
+        # out to a dozen engines. Firing five of those simultaneously is what
+        # trips the rate limits in the first place.
+        self._sem = asyncio.Semaphore(max(1, max_concurrent))
+        # Observability for the "search itself is broken" case, which otherwise
+        # looks identical to "this topic has no sources".
+        self.searches = 0
+        self.empty_searches = 0
+        self.blocked_engines: dict[str, str] = {}
+
+    @property
+    def degraded(self) -> bool:
+        """Every search came back empty and engines were reporting blocks."""
+        return (self.searches > 0 and self.empty_searches == self.searches
+                and bool(self.blocked_engines))
 
     async def search(self, query: str, recency: str, *, pageno: int = 1) -> list[SearchResult]:
         params = {
@@ -91,16 +121,18 @@ class Searcher:
             "language": "en",
             "safesearch": 0,
             "pageno": pageno,
-            "categories": categories_for(recency),
+            "categories": categories_for(recency, self.categories),
         }
         time_range = RECENCY_TO_TIME_RANGE.get(recency)
         if time_range:
             params["time_range"] = time_range
 
-        resp = await self.client.get(
-            f"{self.base_url}/search", params=params,
-            headers={"Accept": "application/json"},
-        )
+        async with self._sem:
+            resp = await self.client.get(
+                f"{self.base_url}/search", params=params,
+                headers={"Accept": "application/json"},
+                timeout=self.timeout,
+            )
         if resp.status_code == 403:
             raise SearxngError(
                 "SearXNG returned 403 for format=json — the instance must "
@@ -110,9 +142,15 @@ class Searcher:
         resp.raise_for_status()
         data = resp.json()
 
+        self.searches += 1
         unresponsive = data.get("unresponsive_engines") or []
+        for entry in unresponsive:
+            if isinstance(entry, (list, tuple)) and entry:
+                self.blocked_engines[str(entry[0])] = str(entry[-1])
         if unresponsive:
             log.info("searxng unresponsive engines for %r: %s", query, unresponsive)
+        if not data.get("results"):
+            self.empty_searches += 1
 
         cutoff = cutoff_for(recency)
         out: list[SearchResult] = []

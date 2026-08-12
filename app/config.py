@@ -38,6 +38,8 @@ ENV_MAP = {
     "llm_concurrency": "LLM_CONCURRENCY",
     "llm_timeout": "LLM_TIMEOUT",
     "results_per_query": "RESULTS_PER_QUERY",
+    "search_categories": "SEARCH_CATEGORIES",
+    "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
     "respect_robots": "RESPECT_ROBOTS",
     "allow_private_fetch": "ALLOW_PRIVATE_FETCH",
@@ -62,6 +64,7 @@ UI_EDITABLE = {
     "web_password",
     "searxng_url",
     "results_per_query",
+    "search_categories",
     "relevance_threshold",
     "respect_robots",
 }
@@ -100,6 +103,10 @@ class Settings:
     llm_concurrency: int = 4
     llm_timeout: int = 180
     results_per_query: int = 8
+    # SearXNG categories to query. general alone is four engines that all
+    # rate-limit; science and it add sources that do not.
+    search_categories: str = "general,science,it"
+    search_concurrency: int = 2
     relevance_threshold: int = 5
     # Off by default: this fetches a handful of pages a person could
     # open by hand, at one request per second per domain, with an

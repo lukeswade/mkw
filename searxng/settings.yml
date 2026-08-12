@@ -16,3 +16,61 @@ search:
   formats:
     - html
     - json
+  # One retry gives a transiently rate-limited engine a second chance before
+  # the whole query comes back empty.
+  max_page: 2
+
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 15.0
+  pool_connections: 100
+  pool_maxsize: 20
+
+# Engine mix matters more here than on a general-purpose instance. The stock
+# general category leans on Google/Brave/DuckDuckGo/Startpage, all of which
+# rate-limit or serve CAPTCHAs to home and datacenter IPs under research-volume
+# traffic — when they all trip at once a run silently finds nothing. The app
+# therefore searches general + science + it (see SEARCH_CATEGORIES), which
+# reaches engines that do not gate aggressively and are better sources for
+# research anyway: Crossref, OpenAlex, Semantic Scholar, arXiv, Stack Overflow,
+# GitHub, Hacker News.
+engines:
+  # --- resilient general-web engines ---
+  - name: mojeek
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: wikidata
+    disabled: false
+
+  # --- academic / primary sources ---
+  - name: arxiv
+    disabled: false
+  - name: crossref
+    disabled: false
+  - name: semantic scholar
+    disabled: false
+  - name: openalex
+    disabled: false
+
+  # --- technical ---
+  - name: github
+    disabled: false
+  - name: stackoverflow
+    disabled: false
+  - name: hackernews
+    disabled: false
+
+  # --- keep the gated ones, but let them fail fast rather than stall a round ---
+  - name: google
+    timeout: 5.0
+  - name: duckduckgo
+    timeout: 5.0
+  - name: brave
+    timeout: 5.0
+  - name: startpage
+    timeout: 5.0
