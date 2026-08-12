@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from app.llm import prompts
@@ -65,11 +66,36 @@ def clip_text(text: str) -> str:
             + text[-_TAIL_CHARS:])
 
 
+HEADER_CHARS = 1000
+
+
+def _keyword_pattern(keyword: str) -> re.Pattern | None:
+    """Whole-word matcher for one keyword.
+
+    Substring matching is wrong here: planner keywords are routinely short
+    tokens like "AI", "EV" or "LFP", and a plain find() matches them inside
+    said, chain, maintain, self… filling the excerpt budget with noise and
+    crowding out real hits. Boundaries are only added where the keyword
+    actually starts/ends with a word character, so phrases like "$/kWh" and
+    "C&I" still match.
+    """
+    kw = str(keyword).strip().lower()
+    if not kw:
+        return None
+    prefix = r"\b" if kw[0].isalnum() or kw[0] == "_" else ""
+    suffix = r"\b" if kw[-1].isalnum() or kw[-1] == "_" else ""
+    # collapse internal whitespace so "solid state" matches "solid\n state"
+    body = r"\s+".join(re.escape(part) for part in kw.split())
+    try:
+        return re.compile(prefix + body + suffix, re.IGNORECASE)
+    except re.error:
+        return None
+
+
 def select_excerpts(text: str, keywords: list[str], window: int = 1200, max_excerpts: int = 8, max_chars: int = 12000) -> str:
     if not text or not keywords:
         return ""
 
-    hay = text.lower()
     half = max(1, window // 2)
     max_hits_per_keyword = 20
     min_truncated_excerpt = 200
@@ -77,22 +103,21 @@ def select_excerpts(text: str, keywords: list[str], window: int = 1200, max_exce
 
     hits = []
     for k, kw in enumerate(keywords):
-        kw_lower = str(kw).strip().lower()
-        if not kw_lower:
+        pattern = _keyword_pattern(kw)
+        if pattern is None:
             continue
-        
-        start_idx = 0
-        count = 0
-        while count < max_hits_per_keyword:
-            i = hay.find(kw_lower, start_idx)
-            if i == -1:
+        for count, m in enumerate(pattern.finditer(text)):
+            if count >= max_hits_per_keyword:
                 break
-            hits.append({"pos": i, "end": i + len(kw_lower), "kw": k})
-            start_idx = i + len(kw_lower)
-            count += 1
-            
+            hits.append({"pos": m.start(), "end": m.end(), "kw": k})
+
     if not hits:
         return ""
+
+    # The top of a document carries the title, byline and publish date — the
+    # notes prompt is asked for published_date, so excerpting keyword windows
+    # alone quietly degrades date extraction. Always keep the header.
+    hits.append({"pos": 0, "end": min(HEADER_CHARS, len(text)), "kw": -1})
 
     hits.sort(key=lambda h: h["pos"])
     

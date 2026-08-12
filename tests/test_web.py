@@ -247,3 +247,18 @@ def test_delete_missing_run_is_404(data_dir, monkeypatch):
     app, _ = make_app(data_dir, monkeypatch)
     with TestClient(app) as client:
         assert client.delete("/runs/does-not-exist").status_code == 404
+
+
+def test_login_throttles_brute_force(data_dir, monkeypatch):
+    app, _ = make_app(data_dir, monkeypatch, web_password="hunter2")
+    with TestClient(app) as client:
+        for _ in range(5):
+            r = client.post("/login", data={"password": "wrong", "next": "/"})
+            assert r.status_code == 401
+        blocked = client.post("/login", data={"password": "wrong", "next": "/"})
+        assert blocked.status_code == 429
+        assert "Retry-After" in blocked.headers
+        # the correct password is refused too while locked out
+        assert client.post("/login",
+                           data={"password": "hunter2", "next": "/"}
+                           ).status_code == 429

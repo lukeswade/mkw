@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import os
 import secrets
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -54,8 +55,49 @@ def install_auth(app, cfg_loader, signer: TimestampSigner) -> None:
         return RedirectResponse(f"/login?next={quote(path)}", status_code=303)
 
 
+class LoginThrottle:
+    """Slow down password guessing.
+
+    A single shared password with no rate limit is trivially brute-forceable
+    once the UI is reachable from anywhere. In-memory is enough here: there is
+    exactly one process, and losing the counters on restart costs an attacker
+    far more time than it saves them.
+    """
+
+    FREE_ATTEMPTS = 5
+    LOCKOUT_SECONDS = 300
+    MAX_TRACKED = 1024
+
+    def __init__(self) -> None:
+        self._failures: dict[str, tuple[int, float]] = {}
+
+    def _key(self, request: Request) -> str:
+        return (request.headers.get("cf-connecting-ip")
+                or (request.client.host if request.client else "unknown"))
+
+    def retry_after(self, request: Request) -> int:
+        count, last = self._failures.get(self._key(request), (0, 0.0))
+        if count < self.FREE_ATTEMPTS:
+            return 0
+        # back off 2^n seconds past the free attempts, capped
+        delay = min(self.LOCKOUT_SECONDS, 2 ** (count - self.FREE_ATTEMPTS + 1))
+        remaining = int(last + delay - time.monotonic())
+        return max(0, remaining)
+
+    def record_failure(self, request: Request) -> None:
+        if len(self._failures) > self.MAX_TRACKED:
+            self._failures.clear()  # crude, but unbounded growth is worse
+        key = self._key(request)
+        count, _ = self._failures.get(key, (0, 0.0))
+        self._failures[key] = (count + 1, time.monotonic())
+
+    def reset(self, request: Request) -> None:
+        self._failures.pop(self._key(request), None)
+
+
 def build_login_router(templates, cfg_loader, signer: TimestampSigner) -> APIRouter:
     router = APIRouter()
+    throttle = LoginThrottle()
 
     @router.get("/login")
     async def login_page(request: Request, next: str = "/"):
@@ -66,7 +108,16 @@ def build_login_router(templates, cfg_loader, signer: TimestampSigner) -> APIRou
     async def login_submit(request: Request, password: str = Form(""),
                            next: str = Form("/")):
         cfg = cfg_loader()
+        wait = throttle.retry_after(request)
+        if wait:
+            return templates.TemplateResponse(
+                request, "login.html",
+                {"next": next,
+                 "error": f"Too many attempts. Try again in {wait}s."},
+                status_code=429, headers={"Retry-After": str(wait)})
+
         if cfg.web_password and hmac.compare_digest(password, cfg.web_password):
+            throttle.reset(request)
             target = next if next.startswith("/") and not next.startswith("//") else "/"
             resp = RedirectResponse(target, status_code=303)
             resp.set_cookie(
@@ -74,6 +125,7 @@ def build_login_router(templates, cfg_loader, signer: TimestampSigner) -> APIRou
                 max_age=MAX_AGE, httponly=True, samesite="lax",
             )
             return resp
+        throttle.record_failure(request)
         return templates.TemplateResponse(
             request, "login.html",
             {"next": next, "error": "Wrong password."}, status_code=401)

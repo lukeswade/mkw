@@ -16,6 +16,11 @@ from app.research.storage import RunStore
 
 TERMINAL_EVENTS = {"done"}
 
+# Live-only events. Persisting these would mean one open/write/close per
+# generated token and an events.jsonl that ProgressBus.attach re-reads in
+# full — for text that is already saved as overview.md when the run ends.
+EPHEMERAL_TYPES = {"stream"}
+
 
 def format_event(e: dict) -> str | None:
     """Human-readable one-liner for an event (CLI output and web log tab)."""
@@ -79,7 +84,8 @@ class ProgressBus:
         self._seq[run_id] += 1
         event = {"seq": self._seq[run_id], "ts": round(time.time(), 2),
                  "type": type_, **fields}
-        store.append_event(event)
+        if type_ not in EPHEMERAL_TYPES:
+            store.append_event(event)
         for q in list(self._subs.get(run_id, [])):
             q.put_nowait(event)
         return event
