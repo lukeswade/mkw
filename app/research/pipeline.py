@@ -49,9 +49,16 @@ def max_llm_calls_for_depth(depth: int) -> int:
     return 20 + 15 * depth
 
 
+# Below the keep threshold but not worthless — promoted only if the run would
+# otherwise return nothing at all.
+_WEAK_FLOOR = 2
+_WEAK_MAX = 4
+
+
 @dataclass
 class _RunState:
     findings: list[Finding] = field(default_factory=list)
+    weak: list[tuple[int, dict]] = field(default_factory=list)
     seen_urls: set[str] = field(default_factory=set)
     searched: list[str] = field(default_factory=list)
     state_md: str = ""
@@ -309,6 +316,20 @@ class Pipeline:
             if notes.relevance < getattr(self.cfg, "relevance_threshold",
                                          RELEVANCE_KEEP):
                 state.skipped += 1
+                # The notes call already ran, so this analysis is paid for.
+                # Hold on to anything with a pulse: if the whole run ends up
+                # empty, a thin answer beats a blank page — and returning
+                # nothing when nine documents were read is its own failure.
+                if notes.relevance >= _WEAK_FLOOR:
+                    state.weak.append((notes.relevance, {
+                        "url": fetched.final_url, "title": title,
+                        "domain": domain_of(fetched.final_url),
+                        "published": notes.published_date or detected_date,
+                        "relevance": notes.relevance, "summary": notes.summary,
+                        "notes_md": notes.notes_md,
+                        "key_facts": [f.model_dump() for f in notes.key_facts],
+                        "query": c.via_query,
+                    }))
                 self.bus.publish(run_id, "source_skipped", url=c.url,
                                  reason=f"relevance {notes.relevance}/10")
                 return
@@ -340,6 +361,24 @@ class Pipeline:
     async def _finalize(self, run_id, store, state, llm, query, the_plan,
                         recency, recency_desc, today, stop_reason,
                         searcher=None) -> None:
+        thin = False
+        if not state.findings and state.weak:
+            thin = True
+            for score, data in sorted(state.weak, key=lambda w: -w[0])[:_WEAK_MAX]:
+                idx = len(state.findings) + 1
+                f = Finding(idx=idx, **data)
+                state.findings.append(f)
+                f.path = store.write_finding(idx, f.title, finding_markdown(f))
+                self.repo.add_finding(
+                    run_id=run_id, idx=idx, url=f.url, title=f.title,
+                    domain=f.domain, published_date=f.published,
+                    relevance=f.relevance, path=f.path, summary=f.summary)
+            state.skipped -= len(state.findings)
+            self.bus.publish(
+                run_id, "log",
+                message=(f"nothing cleared the relevance bar; keeping the "
+                         f"{len(state.findings)} best partial matches so the "
+                         f"run returns something rather than nothing"))
         findings = state.findings
         store.write_sources(synthesizer.render_sources_md(findings))
 
@@ -351,6 +390,15 @@ class Pipeline:
                 recency_desc=recency_desc, today=today,
                 state_md=state.state_md, findings=findings,
                 bus=self.bus, run_id=run_id)
+            if thin:
+                overview = (
+                    "> **Thin result.** No source strongly matched this "
+                    "question, so the overview below is built from the best "
+                    "partial matches available. Treat it as a starting point: "
+                    "a narrower question, a broader recency window, or a retry "
+                    "once search engines recover will usually do better.\n\n"
+                    + overview)
+                stop_reason = f"{stop_reason} (no strong matches)"
             overview, removed = validate_citations(overview, len(findings))
             if removed:
                 self.bus.publish(run_id, "log",
