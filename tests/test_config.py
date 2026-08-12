@@ -12,17 +12,17 @@ def test_defaults(data_dir):
     assert s.llm_provider == "deepseek"
     assert s.resolved_base_url == "https://api.deepseek.com"
     assert s.results_per_query == 8
-    assert s.respect_robots is True
+    assert s.respect_robots is False
 
 
 def test_env_overrides_default(data_dir, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-env")
     monkeypatch.setenv("RESULTS_PER_QUERY", "5")
-    monkeypatch.setenv("RESPECT_ROBOTS", "false")
+    monkeypatch.setenv("RESPECT_ROBOTS", "true")
     s = load_settings(str(data_dir))
     assert s.deepseek_api_key == "sk-env"
     assert s.results_per_query == 5
-    assert s.respect_robots is False
+    assert s.respect_robots is True
 
 
 def test_settings_json_overrides_env(data_dir, monkeypatch):

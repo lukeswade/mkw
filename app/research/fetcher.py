@@ -4,7 +4,8 @@
   loopback, link-local, or reserved (config escape hatch: allow_private_fetch).
   DNS failure does NOT block — the request itself will fail naturally, and
   this keeps offline tests (mocked transports) working.
-- robots.txt honored when respect_robots is on (fetch failure → allow).
+- robots.txt honored only when respect_robots is enabled (off by
+  default; a fetch failure still means allow).
 - Per-domain concurrency of 2 plus a minimum interval between hits.
 - Manual redirect following so every hop is SSRF-checked.
 - Streaming reads with a size cap.

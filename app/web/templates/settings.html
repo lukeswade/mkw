@@ -63,6 +63,9 @@
       <input type="checkbox" name="respect_robots" {{ 'checked' if cfg.respect_robots else '' }}>
       Respect robots.txt when fetching pages
     </label>
+    <p class="hint">Off by default. This reads a handful of pages you
+      could open yourself, one request per second per domain. Enable it
+      if you would rather honour crawler directives.</p>
     <div class="test-row">
       <button type="button" hx-post="/settings/test-searxng" hx-target="#sx-test" class="secondary outline">Test SearXNG</button>
       <span id="sx-test"></span>

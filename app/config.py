@@ -101,7 +101,11 @@ class Settings:
     llm_timeout: int = 180
     results_per_query: int = 8
     relevance_threshold: int = 5
-    respect_robots: bool = True
+    # Off by default: this fetches a handful of pages a person could
+    # open by hand, at one request per second per domain, with an
+    # identifiable user agent. Turn it on if you want the crawler
+    # convention enforced anyway.
+    respect_robots: bool = False
     allow_private_fetch: bool = False
     user_agent: str = "deep-research/0.1 (personal research agent)"
 

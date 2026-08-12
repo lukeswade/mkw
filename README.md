@@ -245,8 +245,11 @@ building one never clobbers the other.
   snippets are escaped before highlighting — page content can't inject markup
   into your UI. Fetched text is framed as untrusted data in every prompt.
 - The fetcher refuses private, loopback, and link-local addresses (set
-  `ALLOW_PRIVATE_FETCH=true` if you genuinely need intranet sources) and
-  honours robots.txt by default.
+  `ALLOW_PRIVATE_FETCH=true` if you genuinely need intranet sources),
+  identifies itself with a real user agent, and rate-limits itself to one
+  request per second per domain. robots.txt is **not** honoured by
+  default — this reads the same handful of pages you would open by hand
+  rather than crawling a site. Set `RESPECT_ROBOTS=true` to enforce it.
 - Run files are served through a filename allowlist plus a containment check,
   so a run id can't be used to read outside its own directory.
 
