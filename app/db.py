@@ -11,6 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+# Sentinels for FTS highlighting — control characters, so they cannot occur in
+# scraped page text and cannot be confused with markup.
+FTS_MARK_OPEN = "\x02"
+FTS_MARK_CLOSE = "\x03"
+
+
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -19,11 +25,22 @@ def _schema() -> str:
     return (Path(__file__).with_name("schema.sql")).read_text()
 
 
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str,
+                           decl: str) -> None:
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 # One entry per schema version; index i migrates user_version i → i+1.
-def _migrations() -> list[str]:
+# Each step must be idempotent: schema.sql already contains every column, so a
+# fresh database runs step 0 (which creates them) AND every later step. Steps
+# that add columns must therefore check before adding.
+def _migrations() -> list:
     return [
-        _schema(),
-        "ALTER TABLE runs ADD COLUMN evergreen BOOLEAN NOT NULL DEFAULT 0;"
+        lambda conn: conn.executescript(_schema()),
+        lambda conn: _add_column_if_missing(
+            conn, "runs", "evergreen", "BOOLEAN NOT NULL DEFAULT 0"),
     ]
 
 
@@ -42,7 +59,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     migrations = _migrations()
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     for i in range(version, len(migrations)):
-        conn.executescript(migrations[i])
+        migrations[i](conn)
         conn.execute(f"PRAGMA user_version = {i + 1}")
     conn.commit()
 
@@ -213,9 +230,14 @@ class Repo:
         terms = " ".join(f'"{t}"' for t in query.replace('"', " ").split() if t)
         if not terms:
             return []
+        # Highlight with control-char sentinels, never raw HTML: the indexed
+        # body is text lifted from fetched pages, and sqlite does not escape
+        # it. app.web.markdown.highlight_snippet turns these into <mark> after
+        # the surrounding text has been escaped.
         return self.conn.execute(
             "SELECT run_id, kind, title,"
-            " snippet(fts, 3, '<mark>', '</mark>', ' … ', 16) AS snip"
+            f" snippet(fts, 3, '{FTS_MARK_OPEN}', '{FTS_MARK_CLOSE}',"
+            " ' … ', 16) AS snip"
             " FROM fts WHERE fts MATCH ? ORDER BY rank LIMIT ?",
             (terms, limit),
         ).fetchall()

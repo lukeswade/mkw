@@ -6,6 +6,8 @@ import logging
 
 from fastapi import APIRouter, Request
 
+from app.web.markdown import highlight_snippet
+
 log = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -40,7 +42,8 @@ async def library(request: Request, q: str = "", mode: str = "keyword"):
         for hit in repo.fts_search(q, limit=30):
             row = repo.get_run(hit["run_id"])
             if row is not None:
-                results.append({"run": row, "snippet": hit["snip"],
+                results.append({"run": row,
+                                "snippet": highlight_snippet(hit["snip"]),
                                 "kind": hit["kind"], "title": hit["title"]})
         ctx["results"] = results
 

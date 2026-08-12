@@ -8,7 +8,8 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (FileResponse, RedirectResponse, Response,
+                               StreamingResponse)
 from pydantic import ValidationError
 
 from app.models import RunParams
@@ -233,15 +234,42 @@ async def run_file(request: Request, run_id: str, name: str,
 
 @router.delete("/runs/{run_id}")
 async def delete_run(request: Request, run_id: str):
+    """Remove a run from every store it touches.
+
+    Order matters: stop the pipeline first, or it keeps writing into a
+    directory we are about to remove.
+    """
     row = _row_or_404(request, run_id)
     cfg = request.app.state.cfg_loader()
-    run_dir = (cfg.research_dir / row["dir"]).resolve()
-    
-    # Delete from DB
+    orch = request.app.state.orch
+
+    if row["status"] in ("queued", "running"):
+        orch.cancel(run_id)
+        for _ in range(50):  # give the task ~5s to unwind before we delete
+            await asyncio.sleep(0.1)
+            if run_id not in orch.active:
+                break
+
+    research_root = cfg.research_dir.resolve()
+    run_dir = (research_root / row["dir"]).resolve()
+
+    # Vectors are a separate store with no foreign key to cascade from; if this
+    # is skipped the run keeps surfacing in Ask and semantic search.
+    rag = request.app.state.rag
+    if rag is not None:
+        try:
+            rag.index.delete_run(run_id)
+        except Exception:
+            log.exception("could not drop vectors for %s", run_id)
+
+    # DB row; findings/run_links cascade, fts is cleaned inside delete_run.
     request.app.state.repo.delete_run(run_id)
-    
-    # Delete files
-    if run_dir.exists() and run_dir.is_dir():
-        shutil.rmtree(run_dir)
-        
+    request.app.state.bus.detach(run_id)
+
+    if run_dir.is_dir() and run_dir.is_relative_to(research_root) \
+            and run_dir != research_root:
+        shutil.rmtree(run_dir, ignore_errors=True)
+    else:
+        log.error("refusing to delete %s — outside %s", run_dir, research_root)
+
     return Response(status_code=200, headers={"HX-Redirect": "/library"})

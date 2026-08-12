@@ -7,7 +7,7 @@ from app.llm import prompts
 from app.llm.client import LLM, est_tokens
 from app.llm.json_utils import LLMJsonError
 from app.models import GapOut
-from app.research.notes import Finding
+from app.research.notes import Finding, render_facts
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def render_round_findings(findings: list[Finding]) -> str:
         return "(no new relevant sources this round)"
     blocks = []
     for f in findings:
-        facts = "\n".join(f"  - {fact}" for fact in f.key_facts[:6])
+        facts = render_facts(f.key_facts, indent="  ", quotes=False, limit=6)
         blocks.append(f"{f.citation_line()}\n  {f.summary}\n{facts}".rstrip())
     return "\n".join(blocks)
 

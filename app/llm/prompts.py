@@ -66,20 +66,21 @@ Produce a JSON object with exactly these keys:
 
 IMPORTANT: You must output ONLY valid, parseable JSON. Ensure all strings (especially in notes_md and quotes) are properly JSON-escaped (e.g. newlines as \\n, quotes as \\"). Do not wrap the JSON in markdown fences.
 
-Example structure:
-{
+Example structure (braces are doubled here only because this template is
+rendered with str.format — the model sees single braces):
+{{
   "relevance": 8,
   "published_date": "2026-07-15",
   "summary": "...",
   "notes_md": "...",
   "key_facts": [
-    {
+    {{
       "claim": "...",
       "evidence_quote": "...",
       "confidence": 9
-    }
+    }}
   ]
-}"""
+}}"""
 
 GAP = """You are the gap-analysis stage of an automated deep-research pipeline. \
 Search round {round} of max {depth} just finished.

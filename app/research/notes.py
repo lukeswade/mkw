@@ -37,6 +37,27 @@ class Finding:
         return f"[{self.idx}] {self.title} — {self.domain} ({date})"
 
 
+def render_facts(facts: list[dict], *, indent: str = "", quotes: bool = True,
+                 limit: int | None = None) -> str:
+    """Markdown bullets for extracted facts.
+
+    Shared by the finding file, the gap prompt, and synthesis so a change to
+    the Fact shape can't silently leave one consumer printing dict reprs.
+    """
+    lines: list[str] = []
+    for fact in facts[:limit]:
+        claim = str(fact.get("claim", "")).strip()
+        if not claim:
+            continue
+        conf = fact.get("confidence")
+        suffix = f" (confidence {conf}/10)" if conf is not None else ""
+        lines.append(f"{indent}- {claim}{suffix}")
+        quote = (fact.get("evidence_quote") or "").strip() if quotes else ""
+        if quote:
+            lines.append(f'{indent}  > "{quote}"')
+    return "\n".join(lines)
+
+
 def clip_text(text: str) -> str:
     if len(text) <= _HEAD_CHARS + _TAIL_CHARS:
         return text
@@ -141,18 +162,7 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
 
 
 def finding_markdown(f: Finding) -> str:
-    facts_lines = []
-    for fact in f.key_facts:
-        claim = fact.get("claim", "")
-        quote = fact.get("evidence_quote")
-        conf = fact.get("confidence", 5)
-        
-        line = f"- **{claim}** (Confidence: {conf}/10)"
-        if quote:
-            line += f"\\n  > \"{quote}\""
-        facts_lines.append(line)
-        
-    facts = "\\n".join(facts_lines) or "_none extracted_"
+    facts = render_facts(f.key_facts) or "_none extracted_"
     return f"""# [{f.idx}] {f.title}
 
 - **URL:** {f.url}

@@ -8,7 +8,7 @@ from app.llm import prompts
 from app.llm.client import LLM, est_tokens
 from app.llm.json_utils import LLMJsonError
 from app.models import FollowUpsOut, RECENCY_LABELS
-from app.research.notes import Finding
+from app.research.notes import Finding, render_facts
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +17,13 @@ _BATCH_BUDGET = 30_000         # est tokens per map batch
 
 
 def _note_block(f: Finding) -> str:
-    return f"{f.citation_line()}\n    {f.url}\n{f.notes_md}\n"
+    block = f"{f.citation_line()}\n    {f.url}\n{f.notes_md}\n"
+    # Verbatim evidence is the point of extracting quotes — synthesis has to
+    # see them or the claims it writes can't be grounded in the source wording.
+    evidence = render_facts(f.key_facts, indent="  ", quotes=True, limit=6)
+    if evidence:
+        block += f"  Extracted facts and verbatim evidence:\n{evidence}\n"
+    return block
 
 
 async def synthesize(llm: LLM, *, query: str, title: str, brief: str,

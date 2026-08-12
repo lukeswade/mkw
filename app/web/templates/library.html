@@ -21,7 +21,9 @@
     <span class="chip status-{{ hit.run['status'] }}">{{ hit.run['status'] }}</span>
     <span class="hit-run">{{ hit.run['title'] or hit.run['query'] }}</span>
     <span class="hit-kind">{{ hit.kind }}{% if hit.title and hit.kind == 'finding' %}: {{ hit.title }}{% endif %}</span>
-    <span class="hit-snippet">{{ hit.snippet | safe if mode == 'keyword' else hit.snippet }}</span>
+    {# keyword snippets arrive pre-escaped as Markup from highlight_snippet;
+       semantic snippets are plain text and get autoescaped here #}
+    <span class="hit-snippet">{{ hit.snippet }}</span>
     {% if hit.score is defined %}<span class="hit-score">similarity {{ '%.2f' | format(hit.score) }}</span>{% endif %}
   </a>
   {% else %}

@@ -68,7 +68,12 @@ def script(gap_rounds: list[dict]) -> dict:
                      "subqueries": ["q1", "q2"]}],
         "notes": [{"relevance": 8, "summary": "Useful source about X.",
                    "notes_md": "Detailed flibbertigibbet notes about X.",
-                   "key_facts": ["Fact one.", "Fact two."],
+                   "key_facts": [
+                       {"claim": "Fact one.", "evidence_quote": "quoted one.",
+                        "confidence": 9},
+                       {"claim": "Fact two.", "evidence_quote": None,
+                        "confidence": 6},
+                   ],
                    "published_date": None}],
         "gap": gap_rounds,
         "synth": ["# Test Research\n\n## TL;DR\n\n- Key point [1][2]\n\n"

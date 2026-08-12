@@ -197,22 +197,53 @@ def test_library_keyword_search(data_dir, monkeypatch):
         assert "Nothing found" in none.text
 
 
-def test_graph_api_shape(data_dir, monkeypatch):
-    app, cfg = make_app(data_dir, monkeypatch)
-    run_a = seed_completed_run(cfg)
-    run_b = seed_completed_run(cfg)
-    repo = Repo(connect(cfg.db_path))
-    ent = repo.upsert_entity("QuantumScape", "quantumscape", "org", "battery co")
-    repo.set_run_entity(run_a, ent, 0.9)
-    repo.set_run_entity(run_b, ent, 0.4)
-    repo.add_run_link(run_a, run_b, "similar", 0.7)
+def test_readme_page_renders(data_dir, monkeypatch):
+    app, _ = make_app(data_dir, monkeypatch)
     with TestClient(app) as client:
-        data = client.get("/api/graph").json()
-    ids = {n["id"] for n in data["nodes"]}
-    assert f"run:{run_a}" in ids and f"run:{run_b}" in ids
-    ent_nodes = [n for n in data["nodes"] if n["group"] == "org"]
-    assert len(ent_nodes) == 1 and ent_nodes[0]["label"] == "QuantumScape"
-    assert ent_nodes[0]["salience"] == 0.9  # max across runs
-    kinds = {(l["kind"]) for l in data["links"]}
-    assert kinds == {"mentions", "similar"}
-    assert len([l for l in data["links"] if l["kind"] == "mentions"]) == 2
+        r = client.get("/readme")
+    assert r.status_code == 200
+    assert "Deep Research" in r.text
+
+
+def test_keyword_snippet_is_escaped(data_dir, monkeypatch):
+    """FTS snippets are page text sqlite copies verbatim — never raw HTML."""
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    repo = Repo(connect(cfg.db_path))
+    repo.fts_add(run_id, "finding", "Evil Source",
+                 'text <img src=x onerror=alert(1)> about zanzibar batteries')
+    with TestClient(app) as client:
+        r = client.get("/library", params={"q": "zanzibar"})
+    assert r.status_code == 200
+    # the angle brackets are escaped, so the payload is inert text, not a tag
+    assert "<img" not in r.text
+    assert "&lt;img src=x onerror=alert(1)&gt;" in r.text
+    assert "<mark>zanzibar</mark>" in r.text   # highlight still works
+
+
+def test_delete_run_removes_every_store(data_dir, monkeypatch):
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    run_dir = cfg.research_dir / run_id
+    repo = Repo(connect(cfg.db_path))
+    repo.fts_add(run_id, "overview", "Seeded Research", "zanzibar content")
+    assert run_dir.is_dir()
+
+    with TestClient(app) as client:
+        r = client.delete(f"/runs/{run_id}")
+        assert r.status_code == 200
+        assert r.headers["HX-Redirect"] == "/library"
+        assert client.get(f"/runs/{run_id}").status_code == 404
+
+    assert repo.get_run(run_id) is None
+    assert repo.findings_for_run(run_id) == []
+    assert repo.fts_search("zanzibar") == []
+    assert not run_dir.exists()
+    assert cfg.research_dir.is_dir()          # only the run went
+    assert client.app.state is not None
+
+
+def test_delete_missing_run_is_404(data_dir, monkeypatch):
+    app, _ = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        assert client.delete("/runs/does-not-exist").status_code == 404

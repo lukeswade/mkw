@@ -6,6 +6,9 @@ services:
     build:
       context: .
       target: dev
+    # Distinct tag: sharing `mkw-app` with the prod target means a prod build
+    # silently replaces the test image and pytest disappears.
+    image: mkw-app-dev
     volumes:
       - ./data:/data
       - ./app:/srv/app/app

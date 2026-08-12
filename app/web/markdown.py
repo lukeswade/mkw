@@ -9,6 +9,9 @@ from __future__ import annotations
 import re
 
 from markdown_it import MarkdownIt
+from markupsafe import Markup, escape
+
+from app.db import FTS_MARK_CLOSE, FTS_MARK_OPEN
 
 _md = MarkdownIt("gfm-like", options_update={"html": False, "linkify": True})
 
@@ -18,6 +21,17 @@ _CITE_RE = re.compile(r"\[(\d{1,3})\](?!\(|\[)")
 
 def render(md_text: str) -> str:
     return _md.render(md_text or "")
+
+
+def highlight_snippet(snippet: str) -> Markup:
+    """Make an FTS snippet safe to render.
+
+    The snippet is page text sqlite copied verbatim, so it is escaped first;
+    only then are the control-char sentinels replaced with real <mark> tags.
+    """
+    safe = str(escape(snippet or ""))
+    return Markup(safe.replace(FTS_MARK_OPEN, "<mark>")
+                      .replace(FTS_MARK_CLOSE, "</mark>"))
 
 
 def render_overview(md_text: str, n_sources: int) -> str:
