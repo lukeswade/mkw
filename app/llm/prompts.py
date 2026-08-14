@@ -55,7 +55,7 @@ Detected publish date: {detected_date}
 ---
 
 Produce a JSON object with exactly these keys:
-- "relevance": integer 0-10 — usefulness of this source for the research brief (0 = off-topic/ad/boilerplate, 10 = core source). Penalize content clearly outside the recency focus.
+- "relevance": integer 0-10 — how much useful material this source contributes to ANY part of the research brief. Score contribution, not completeness: a source that solidly covers one sub-topic deserves 5-7 even if it ignores everything else in the brief. 0-1 = nothing usable (ads, boilerplate, wrong topic); 2-3 = tangential background only; 4-6 = real material on part of the brief; 7-10 = substantial material on core questions. Penalize content clearly outside the recency focus.
 - "published_date": "YYYY-MM-DD" if the document states its publication date, else null
 - "summary": 1-2 sentences on what this source contributes
 - "notes_md": markdown notes (max 350 words) capturing the relevant facts, numbers, direct quotes (in quotation marks), names, and claims. Information-dense, concrete, no preamble.

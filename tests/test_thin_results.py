@@ -56,7 +56,7 @@ async def _run(cfg, relevance):
 
 @respx.mock
 async def test_weak_sources_are_promoted_when_nothing_clears_the_bar(data_dir):
-    cfg = make_cfg(data_dir)                      # threshold is 5
+    cfg = make_cfg(data_dir)                      # default threshold is 4
     repo, run_id, store = await _run(cfg, relevance=3)
 
     findings = repo.findings_for_run(run_id)

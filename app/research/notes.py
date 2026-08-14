@@ -16,7 +16,11 @@ log = logging.getLogger(__name__)
 _HEAD_CHARS = 14_000
 _TAIL_CHARS = 4_000
 
-RELEVANCE_KEEP = 5
+# Sources at or above this score are kept. 4 = "real material on part of the
+# brief" under the notes rubric — demanding briefs made the old bar of 5 throw
+# away chip datasheets and comparison guides that answered a third of the
+# question, leaving runs empty.
+RELEVANCE_KEEP = 4
 
 
 @dataclass

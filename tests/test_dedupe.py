@@ -45,3 +45,32 @@ def test_rank_diverse_dedupes_and_caps_domains():
 def test_rank_diverse_limit():
     results = [_r(f"https://d{i}.com/x") for i in range(10)]
     assert len(rank_diverse(results, set(), per_domain=2, limit=4)) == 4
+
+
+def test_lexical_overlap_ranks_filler_below_real_matches():
+    """'GitHub Desktop download' burned a full local-model notes call before
+    scoring 0/10 for a LoRa query. Overlap ranking keeps that from repeating."""
+    from app.research.dedupe import lexical_overlap
+
+    q = "SX1276 LoRa transceiver power consumption deep sleep"
+    on_topic = lexical_overlap(q, "SX1262 vs SX1276 LoRa module comparison "
+                                  "and power consumption guide")
+    filler = lexical_overlap(q, "GitHub Desktop | Download for macOS")
+    assert on_topic > 0.4
+    assert filler == 0.0
+    assert on_topic > filler
+
+
+def test_lexical_overlap_ignores_stopwords_and_short_tokens():
+    from app.research.dedupe import lexical_overlap
+
+    # 'the', 'best', 'for', years — none of these should create false matches
+    assert lexical_overlap("the best guide for 2026", "Best 2026 guide") == 0.0
+    assert lexical_overlap("", "anything") == 0.0
+    assert lexical_overlap("solar charging", "") == 0.0
+
+
+def test_lexical_overlap_is_case_insensitive():
+    from app.research.dedupe import lexical_overlap
+
+    assert lexical_overlap("ESP32 LoRa", "esp32 lora field report") == 1.0

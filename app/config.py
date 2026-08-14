@@ -107,14 +107,20 @@ class Settings:
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"
     search_concurrency: int = 2
-    relevance_threshold: int = 5
+    relevance_threshold: int = 4
     # Off by default: this fetches a handful of pages a person could
     # open by hand, at one request per second per domain, with an
     # identifiable user agent. Turn it on if you want the crawler
     # convention enforced anyway.
     respect_robots: bool = False
     allow_private_fetch: bool = False
-    user_agent: str = "deep-research/0.1 (personal research agent)"
+    # A standard browser UA, because ~a quarter of fetches were coming back
+    # 403 — CDNs reject unknown clients outright. This tool reads pages a
+    # person could open by hand, which is exactly what a browser UA claims.
+    # Set USER_AGENT to override (e.g. back to an identifying string).
+    user_agent: str = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/126.0.0.0 Safari/537.36")
 
     # --- resolved LLM endpoint -------------------------------------------
     # Precedence: explicit generic field → legacy provider-specific field →

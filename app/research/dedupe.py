@@ -1,6 +1,7 @@
 """URL canonicalization, cross-round dedupe, and domain-diversity ranking."""
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Iterable, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -33,6 +34,32 @@ def canonicalize(url: str) -> str:
 def domain_of(url: str) -> str:
     host = urlsplit(url).netloc.lower().rsplit("@", 1)[-1].split(":")[0]
     return host.removeprefix("www.")
+
+
+_STOPWORDS = frozenset(
+    "the and for with from that this what which how are was were been being "
+    "have has had can could should would will may might must about into over "
+    "under between best top guide 2024 2025 2026 2027".split())
+
+
+def _content_tokens(text: str) -> set[str]:
+    return {t for t in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if len(t) >= 3 and t not in _STOPWORDS}
+
+
+def lexical_overlap(query: str, text: str) -> float:
+    """Fraction of the query's content words present in `text`.
+
+    Deliberately crude — this ranks which candidates are worth a fetch and a
+    full LLM notes call, it does not judge them. Its job is to push 'GitHub
+    Desktop download' below 'SX1262 vs SX1276 comparison' for a LoRa query,
+    since every junk candidate that gets through costs ~30-60s of local-model
+    time before scoring 0/10.
+    """
+    query_tokens = _content_tokens(query)
+    if not query_tokens:
+        return 0.0
+    return len(query_tokens & _content_tokens(text)) / len(query_tokens)
 
 
 def interleave(lists: Iterable[list[T]]) -> list[T]:

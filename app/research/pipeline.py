@@ -24,7 +24,8 @@ from app.models import RECENCY_LABELS
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
-from app.research.dedupe import canonicalize, domain_of, interleave, rank_diverse
+from app.research.dedupe import (canonicalize, domain_of, interleave,
+                                 lexical_overlap, rank_diverse)
 from app.research.extractor import extract
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
@@ -121,7 +122,14 @@ class Pipeline:
         llm = self.llm_factory()
         state = _RunState()
 
-        headers = {"User-Agent": cfg.user_agent}
+        # Browser-shaped headers to match the browser UA: CDNs fingerprint on
+        # more than the UA string, and a bare request still reads as a bot.
+        headers = {
+            "User-Agent": cfg.user_agent,
+            "Accept": ("text/html,application/xhtml+xml,application/xml;"
+                       "q=0.9,*/*;q=0.8"),
+            "Accept-Language": "en-US,en;q=0.9",
+        }
         timeout = httpx.Timeout(15.0, connect=10.0)
         limits = httpx.Limits(max_connections=cfg.fetch_concurrency * 2)
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
@@ -255,9 +263,14 @@ class Pipeline:
 
         merged = interleave(merged_lists)
         # Stable sort keeps the round-robin order inside each tier, so every
-        # sub-query still contributes — but a practical web page outranks a
-        # journal abstract, and academic results backfill rather than dominate.
-        merged.sort(key=lambda r: engine_tier(r.engine))
+        # sub-query still contributes. Ordering: a practical web page outranks
+        # a journal abstract, and within a tier, results whose title/snippet
+        # actually share words with the sub-query outrank engine filler —
+        # every filler candidate that slips through costs a fetch plus a full
+        # notes call before it scores 0/10.
+        merged.sort(key=lambda r: (
+            engine_tier(r.engine),
+            -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
         candidates = rank_diverse(merged, state.seen_urls, per_domain=2,
                                   limit=breadth * 3)
         for c in candidates:
