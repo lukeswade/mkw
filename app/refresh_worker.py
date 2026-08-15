@@ -31,6 +31,7 @@ async def refresh_due_runs(orchestrator, repo) -> int:
             parent_run_id=row["id"],
             origin=row["origin"] or "web",
             origin_chat_id=row["origin_chat_id"],
+            created_by=row["created_by"] or "",
         )
         new_id = orchestrator.enqueue(params)
         log.info("evergreen refresh %s queued for %s", new_id, row["id"])

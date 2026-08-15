@@ -316,3 +316,39 @@ def test_evergreen_star_in_lists(data_dir, monkeypatch):
         r = client.post(f"/runs/{run_id}/evergreen?view=star")
         assert "☆" in r.text
         assert repo.get_run(run_id)["evergreen"] == 0
+
+
+def test_run_attribution_tags(data_dir, monkeypatch):
+    """Tunneled runs carry the Cloudflare Access identity; LAN runs carry the
+    configurable local label; retries inherit whoever pressed retry."""
+    app, cfg = make_app(data_dir, monkeypatch, lan_user_label="Luke")
+    repo = Repo(connect(cfg.db_path))
+    with TestClient(app) as client:
+        # via the tunnel: Access injects the authenticated email
+        r = client.post("/runs", data={"query": "a tunneled research question",
+                                       "depth": 2, "recency": "all"},
+                        headers={"Cf-Access-Authenticated-User-Email":
+                                 "matt.wade@example.com"},
+                        follow_redirects=False)
+        tunneled = r.headers["location"].split("/runs/")[1]
+        assert repo.get_run(tunneled)["created_by"] == "matt.wade"
+
+        # from the LAN: no header, configured label applies
+        r = client.post("/runs", data={"query": "a local research question",
+                                       "depth": 2, "recency": "all"},
+                        follow_redirects=False)
+        local = r.headers["location"].split("/runs/")[1]
+        assert repo.get_run(local)["created_by"] == "Luke"
+
+        # tags render in the list views, coloured per user
+        home = client.get("/")
+        assert 'class="user-tag"' in home.text
+        assert ">matt.wade</span>" in home.text
+        assert ">Luke</span>" in home.text
+        assert "--hue:" in home.text
+
+        # a retry belongs to whoever pressed retry, not the original owner
+        repo.update_run(tunneled, status="completed")
+        r = client.post(f"/runs/{tunneled}/retry", follow_redirects=False)
+        retried = r.headers["location"].split("/runs/")[1]
+        assert repo.get_run(retried)["created_by"] == "Luke"

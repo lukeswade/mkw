@@ -32,6 +32,7 @@ class RunParams(BaseModel):
     parent_run_id: str | None = None
     origin_chat_id: int | None = None
     evergreen: bool = False
+    created_by: str = Field(default="", max_length=120)
 
     @field_validator("query")
     @classmethod

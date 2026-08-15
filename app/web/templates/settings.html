@@ -104,6 +104,12 @@
              placeholder="{{ masked.web_password or 'no password set' }}">
     </label>
     <label><input type="checkbox" name="web_password_clear"> Remove the password entirely</label>
+    <label>LAN user label
+      <input type="text" name="lan_user_label" value="{{ cfg.lan_user_label }}" placeholder="LAN">
+    </label>
+    <p class="hint">Runs started through the Cloudflare tunnel are tagged with
+      the signed-in user's Access identity automatically. Runs from the local
+      network have no identity to read — they get this label instead.</p>
   </article>
 
   <button type="submit" class="save-btn">Save settings</button>

@@ -41,6 +41,20 @@ def _row_or_404(request: Request, run_id: str):
     return row
 
 
+def _initiator(request: Request) -> str:
+    """Who pressed the button.
+
+    Behind the Cloudflare tunnel, Access injects the authenticated user's
+    email (and strips any client attempt to spoof it). A request without the
+    header came over the LAN, where the label is configurable — a household
+    box knows who its local user is better than we do.
+    """
+    email = request.headers.get("cf-access-authenticated-user-email", "").strip()
+    if email:
+        return email.split("@", 1)[0][:120]
+    return request.app.state.cfg_loader().lan_user_label
+
+
 def _related_links(repo, run_id: str,
                    exclude: str | None = None) -> list[tuple[str, str, str]]:
     """One entry per related run. The parent is excluded (the header already
@@ -164,7 +178,8 @@ async def create_run(request: Request, query: str = Form(...),
                      parent_run_id: str = Form("")):
     try:
         params = RunParams(query=query, depth=depth, recency=recency,
-                           origin="web", parent_run_id=parent_run_id or None)
+                           origin="web", parent_run_id=parent_run_id or None,
+                           created_by=_initiator(request))
     except ValidationError as e:
         ctx = _index_context(request, depth=depth if 0 <= depth <= 10 else 3)
         ctx["error"] = "; ".join(err["msg"] for err in e.errors())
@@ -287,7 +302,7 @@ async def retry_run(request: Request, run_id: str):
     row = _row_or_404(request, run_id)
     params = RunParams(query=row["query"], depth=row["depth"],
                        recency=row["recency"], origin="web",
-                       parent_run_id=run_id)
+                       parent_run_id=run_id, created_by=_initiator(request))
     new_id = request.app.state.orch.enqueue(params)
     return RedirectResponse(f"/runs/{new_id}", status_code=303)
 

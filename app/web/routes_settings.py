@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 _TEXT_FIELDS = ("llm_provider", "llm_base_url", "llm_model", "fast_model",
-                "telegram_allowed_user_ids", "searxng_url")
+                "telegram_allowed_user_ids", "searxng_url", "lan_user_label")
 _SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password")
 
 

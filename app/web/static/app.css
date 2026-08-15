@@ -354,6 +354,10 @@ input[type="checkbox"] {
 }
 .new-run .controls .go {
   flex: 0 0 auto;
+  /* Pico defaults buttons to width:100%, which shoved this onto its own
+     full-width line; depth + recency + start comfortably share one row */
+  width: auto;
+  align-self: flex-end;
   font-weight: 600;
   font-size: var(--text-base);
   padding: 0.55rem 1.25rem;
@@ -1226,3 +1230,17 @@ input[type="checkbox"] {
   text-decoration: none;
 }
 .run-actions .export-btn:hover { color: var(--text-primary); border-color: var(--text-faint); }
+
+
+/* ---- Initiator tag in list rows ---- */
+.user-tag {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72em;
+  line-height: 1.5;
+  background: hsl(var(--hue, 160) 45% 22% / 0.55);
+  color: hsl(var(--hue, 160) 65% 72%);
+  border: 1px solid hsl(var(--hue, 160) 50% 40% / 0.5);
+  vertical-align: baseline;
+}

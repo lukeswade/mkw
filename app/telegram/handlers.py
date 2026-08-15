@@ -275,12 +275,15 @@ async def confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await cq.edit_message_text("Cancelled.")
         return ConversationHandler.END
     orch, repo, _bus, _cfg = _deps(context)
+    user = update.effective_user
     params = RunParams(
         query=context.user_data["query"],
         depth=context.user_data["depth"],
         recency=context.user_data["recency"],
         origin="telegram",
-        origin_chat_id=update.effective_chat.id)
+        origin_chat_id=update.effective_chat.id,
+        created_by=(user.first_name or user.username or "telegram")[:120]
+        if user else "telegram")
     run_id = orch.enqueue(params)
     await cq.edit_message_text("Research started.")
     spawn_watcher(context.application, update.effective_chat.id, run_id)

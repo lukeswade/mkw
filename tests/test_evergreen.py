@@ -109,3 +109,11 @@ def test_toggle_endpoint_flips_the_flag(data_dir, monkeypatch):
         assert repo.get_run(run_id)["evergreen"] == 0
 
         assert client.post("/runs/missing/evergreen").status_code == 404
+
+
+async def test_refresh_inherits_the_owner(repo):
+    parent = _evergreen_run(repo)
+    repo.update_run(parent, created_by="matt.wade")
+    orch = FakeOrch(repo)
+    await refresh_due_runs(orch, repo)
+    assert orch.enqueued[0].created_by == "matt.wade"

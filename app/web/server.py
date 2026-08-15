@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import zlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -67,6 +68,10 @@ def _build_templates() -> Jinja2Templates:
         asset=_asset_url,
     )
     templates.env.filters["fromjson"] = lambda s: json.loads(s) if s else {}
+    # Stable colour per initiator name. crc32, not hash(): python salts hash()
+    # per process, which would recolour everyone on every restart.
+    templates.env.filters["user_hue"] = (
+        lambda name: zlib.crc32(str(name).lower().encode()) % 360)
     return templates
 
 

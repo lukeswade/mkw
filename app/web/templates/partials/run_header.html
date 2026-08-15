@@ -25,6 +25,7 @@
     <span class="chip">depth {{ row['depth'] }}</span>
     <span class="chip">{{ RECENCY_LABELS[row['recency']] | lower }}</span>
     <span class="chip">via {{ row['origin'] }}</span>
+    {% if row['created_by'] %}<span class="user-tag" style="--hue: {{ row['created_by'] | user_hue }}" title="started by {{ row['created_by'] }}">{{ row['created_by'] }}</span>{% endif %}
     {% if row['evergreen'] %}<span class="chip chip-evergreen">auto-refreshing daily</span>{% endif %}
     {% if row['stop_reason'] %}<span class="chip subtle">{{ row['stop_reason'] }}</span>{% endif %}
   </div>

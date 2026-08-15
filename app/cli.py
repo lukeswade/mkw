@@ -52,7 +52,7 @@ async def _cmd_run(args) -> int:
     bus = ProgressBus()
     orch = Orchestrator(load_settings, repo, bus, rag=_build_rag(cfg))
     params = RunParams(query=args.query, depth=args.depth,
-                       recency=args.recency, origin="cli")
+                       recency=args.recency, origin="cli", created_by="CLI")
     run_id = orch.enqueue(params)
     row = repo.get_run(run_id)
     store = RunStore(cfg.research_dir / row["dir"])

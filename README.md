@@ -200,6 +200,11 @@ Set `WEB_PASSWORD` as well. Access is the lock on the door; the app password is
 the lock on the room, and it's what protects you if a tunnel ever points at a
 hostname whose policy you forgot to attach.
 
+Runs are attributed to whoever started them: tunneled requests are tagged with
+the signed-in Cloudflare Access identity, local ones with `LAN_USER_LABEL`,
+and Telegram runs with the sender's name — so a shared instance shows who
+researched what.
+
 ---
 
 ## Development

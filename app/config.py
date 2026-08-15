@@ -32,6 +32,7 @@ ENV_MAP = {
     "telegram_bot_token": "TELEGRAM_BOT_TOKEN",
     "telegram_allowed_user_ids": "TELEGRAM_ALLOWED_USER_IDS",
     "web_password": "WEB_PASSWORD",
+    "lan_user_label": "LAN_USER_LABEL",
     "searxng_url": "SEARXNG_URL",
     "data_dir": "DATA_DIR",
     "fetch_concurrency": "FETCH_CONCURRENCY",
@@ -64,6 +65,7 @@ UI_EDITABLE = {
     "telegram_bot_token",
     "telegram_allowed_user_ids",
     "web_password",
+    "lan_user_label",
     "searxng_url",
     "results_per_query",
     "search_categories",
@@ -101,6 +103,9 @@ class Settings:
     telegram_bot_token: str = ""
     telegram_allowed_user_ids: str = ""
     web_password: str = ""
+    # Shown on runs started from the LAN, where there is no Cloudflare
+    # Access identity to read. Set it to your name.
+    lan_user_label: str = "LAN"
     searxng_url: str = "http://searxng:8080"
     data_dir: str = "./data"
     fetch_concurrency: int = 8

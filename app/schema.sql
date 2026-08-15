@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS runs (
   stop_reason    TEXT,
   stats_json     TEXT,
   evergreen      BOOLEAN NOT NULL DEFAULT 0,
+  created_by     TEXT,
   created_at     TEXT NOT NULL,
   started_at     TEXT,
   finished_at    TEXT

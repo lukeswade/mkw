@@ -40,7 +40,7 @@
           <span class="run-title">{{ r['title'] or r['query'] }}</span>
           <span class="run-meta">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
             {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
-            · {{ r['created_at'][:16].replace('T', ' ') }}</span>
+            · {{ r['created_at'][:16].replace('T', ' ') }}        {%- if r['created_by'] %} <span class="user-tag" style="--hue: {{ r['created_by'] | user_hue }}" title="started by {{ r['created_by'] }}">{{ r['created_by'] }}</span>{% endif %}</span>
         </div>
       </a>
       {% if r['status'] == 'completed' %}{% include "partials/evergreen_star.html" %}{% endif %}

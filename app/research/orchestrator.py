@@ -44,6 +44,7 @@ class Orchestrator:
             "depth": params.depth,
             "recency": params.recency,
             "origin": params.origin,
+            "created_by": params.created_by,
             "parent_run_id": params.parent_run_id,
             "status": "queued",
             "created_at": utcnow(),
@@ -52,7 +53,8 @@ class Orchestrator:
             run_id=run_id, query=params.query, depth=params.depth,
             recency=params.recency, dir=run_id, origin=params.origin,
             parent_run_id=params.parent_run_id,
-            origin_chat_id=params.origin_chat_id, evergreen=params.evergreen)
+            origin_chat_id=params.origin_chat_id, evergreen=params.evergreen,
+            created_by=params.created_by)
         if params.parent_run_id and self.repo.get_run(params.parent_run_id):
             self.repo.add_run_link(params.parent_run_id, run_id, "followup", None)
         self.bus.attach(store)

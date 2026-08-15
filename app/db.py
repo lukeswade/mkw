@@ -46,6 +46,10 @@ def _migrations() -> list:
         lambda conn: conn.executescript(
             "DROP TABLE IF EXISTS run_entities;"
             "DROP TABLE IF EXISTS entities;"),
+        # Who started the run: a Cloudflare Access email, the LAN label,
+        # a Telegram name, or "CLI". Old rows stay NULL and show no tag.
+        lambda conn: _add_column_if_missing(
+            conn, "runs", "created_by", "TEXT"),
     ]
 
 
@@ -72,7 +76,7 @@ def migrate(conn: sqlite3.Connection) -> None:
 _RUN_COLS = {
     "query", "title", "depth", "recency", "status", "dir", "parent_run_id",
     "origin", "origin_chat_id", "error", "stop_reason", "stats_json",
-    "evergreen", "created_at", "started_at", "finished_at",
+    "evergreen", "created_by", "created_at", "started_at", "finished_at",
 }
 
 
@@ -85,13 +89,15 @@ class Repo:
     # ---- runs -------------------------------------------------------------
     def create_run(self, *, run_id: str, query: str, depth: int, recency: str,
                    dir: str, origin: str = "web", parent_run_id: str | None = None,
-                   origin_chat_id: int | None = None, status: str = "queued", evergreen: bool = False) -> None:
+                   origin_chat_id: int | None = None, status: str = "queued",
+                   evergreen: bool = False, created_by: str = "") -> None:
         self.conn.execute(
             "INSERT INTO runs (id, query, depth, recency, status, dir, origin,"
-            " parent_run_id, origin_chat_id, evergreen, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " parent_run_id, origin_chat_id, evergreen, created_by, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, query, depth, recency, status, dir, origin,
-             parent_run_id, origin_chat_id, evergreen, utcnow()),
+             parent_run_id, origin_chat_id, evergreen, created_by or None,
+             utcnow()),
         )
         self.conn.commit()
 
