@@ -1,0 +1,7 @@
+{# Self-swapping evergreen toggle for list rows. #}
+<button class="evergreen-star{{ ' is-on' if r['evergreen'] else '' }}"
+        hx-post="/runs/{{ r['id'] }}/evergreen?view=star"
+        hx-target="this" hx-swap="outerHTML"
+        title="{{ 'Stop refreshing this research daily' if r['evergreen'] else 'Re-research this topic daily and link the updates' }}">
+  {{- '★' if r['evergreen'] else '☆' -}}
+</button>

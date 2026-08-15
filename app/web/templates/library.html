@@ -43,6 +43,7 @@
             · {{ r['created_at'][:16].replace('T', ' ') }}</span>
         </div>
       </a>
+      {% if r['status'] == 'completed' %}{% include "partials/evergreen_star.html" %}{% endif %}
       <button class="delete-btn outline" 
               hx-delete="/runs/{{ r['id'] }}" 
               hx-confirm="Are you sure you want to delete this run?"

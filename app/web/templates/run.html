@@ -15,8 +15,7 @@
 
 <nav class="tabs" role="tablist">
   <button class="active" data-tab="overview">Overview</button>
-  <button data-tab="findings">Findings <span class="count">{{ findings | length }}</span></button>
-  <button data-tab="sources">Sources</button>
+  <button data-tab="sources">Sources <span class="count">{{ findings | length }}</span></button>
   <button data-tab="further">Further research <span class="count">{{ followups | length }}</span></button>
   <button data-tab="log">Log</button>
 </nav>
@@ -36,7 +35,7 @@
   {% endif %}
 </section>
 
-<section class="tab-panel" id="tab-findings">
+<section class="tab-panel" id="tab-sources">
   {% for card in finding_cards %}
   <details class="finding-card">
     <summary>
@@ -51,29 +50,9 @@
   {% else %}
   <p class="empty-note">No sources were kept for this run.</p>
   {% endfor %}
-</section>
-
-<section class="tab-panel" id="tab-sources">
-  {% if findings %}
-  <table class="src-table">
-    <thead><tr><th>#</th><th>Source</th><th>Domain</th><th>Published</th><th>Relevance</th></tr></thead>
-    <tbody>
-      {% for f in findings %}
-      <tr>
-        <td>{{ f['idx'] }}</td>
-        <td><a href="{{ f['url'] }}" target="_blank" rel="noopener noreferrer">{{ f['title'] }}</a></td>
-        <td>{{ f['domain'] }}</td>
-        <td>{{ f['published_date'] or 'undated' }}</td>
-        <td>{{ f['relevance'] | int }}/10</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty-note">No sources.</p>
-  {% endif %}
   <h3>Files</h3>
   <p class="file-links">
+    <a href="/runs/{{ run_id }}/export.pdf">export.pdf</a> ·
     {% for name in files %}
     <a href="/runs/{{ run_id }}/file/{{ name }}?download=1">{{ name }}</a>{% if not loop.last %} · {% endif %}
     {% endfor %}

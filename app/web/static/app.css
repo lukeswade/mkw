@@ -519,8 +519,14 @@ input[type="checkbox"] {
   gap: 0;
   border-bottom: 1px solid var(--border-subtle);
   margin: 1.75rem 0 0;
+  /* horizontal scroll on narrow screens, but never a visible scrollbar —
+     the active-tab underline overlapping the border was spawning a stray
+     vertical one on desktop */
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
+.tabs::-webkit-scrollbar { display: none; }
 .tabs button {
   background: transparent;
   border: none;
@@ -1176,3 +1182,47 @@ input[type="checkbox"] {
 /* ---- Ask → research handoff ---- */
 .ask-research-form { margin: 0.9rem 0 0; }
 .ask-research-form button { width: auto; font-size: var(--text-sm); }
+
+
+/* ---- Original question on the run page ---- */
+.orig-query {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-style: italic;
+  margin: 0.15rem 0 0.4rem;
+}
+
+/* ---- Evergreen star in list rows ---- */
+.run-item-wrap .evergreen-star {
+  background: transparent;
+  color: var(--text-faint);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  min-width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  margin: 0;
+  transition: color .15s ease, border-color .15s ease;
+}
+.run-item-wrap .evergreen-star:hover { color: var(--accent, #6ee7b7); border-color: var(--border); }
+.run-item-wrap .evergreen-star.is-on { color: var(--accent, #6ee7b7); }
+
+/* ---- Export button in the run header ---- */
+.run-actions .export-btn {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+.run-actions .export-btn:hover { color: var(--text-primary); border-color: var(--text-faint); }

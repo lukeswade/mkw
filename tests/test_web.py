@@ -261,3 +261,58 @@ def test_login_throttles_brute_force(data_dir, monkeypatch):
         assert client.post("/login",
                            data={"password": "hunter2", "next": "/"}
                            ).status_code == 429
+
+
+def test_pdf_export(data_dir, monkeypatch):
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    with TestClient(app) as client:
+        r = client.get(f"/runs/{run_id}/export.pdf")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content[:5] == b"%PDF-"
+    assert run_id in r.headers["content-disposition"]
+
+    import pymupdf
+    doc = pymupdf.open(stream=r.content, filetype="pdf")
+    text = "".join(page.get_text() for page in doc)
+    assert "Seeded Research" in text            # title
+    assert "seeded research run" in text        # the original question
+    assert "example.com" in text                # bibliography made it in
+
+
+def test_run_page_shows_original_query_and_merged_tabs(data_dir, monkeypatch):
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    with TestClient(app) as client:
+        r = client.get(f"/runs/{run_id}")
+    assert "seeded research run" in r.text      # the question, verbatim
+    # one Sources tab with the rich cards — no separate Findings tab
+    assert 'data-tab="sources"' in r.text
+    assert 'data-tab="findings"' not in r.text
+    assert r.text.count('class="tab-panel') == 4
+    assert "export.pdf" in r.text               # export reachable from files
+    assert "Export PDF" in r.text               # ...and from the header
+
+
+def test_evergreen_star_in_lists(data_dir, monkeypatch):
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    repo = Repo(connect(cfg.db_path))
+    with TestClient(app) as client:
+        home = client.get("/")
+        assert "evergreen-star" in home.text
+        assert "☆" in home.text                  # off state
+
+        # toggling from a list swaps just the star, not a page header
+        r = client.post(f"/runs/{run_id}/evergreen?view=star")
+        assert r.status_code == 200
+        assert "★" in r.text and "run-header" not in r.text
+        assert repo.get_run(run_id)["evergreen"] == 1
+
+        lib = client.get("/library")
+        assert "★" in lib.text                   # on state visible in library
+
+        r = client.post(f"/runs/{run_id}/evergreen?view=star")
+        assert "☆" in r.text
+        assert repo.get_run(run_id)["evergreen"] == 0

@@ -16,6 +16,7 @@ from app.models import RunParams
 from app.research.estimate import estimate_run
 from app.research.progress import format_event
 from app.research.storage import SERVABLE_RE, RunStore
+from app.web.export import PdfExportError, build_run_html, render_pdf
 from app.web.markdown import render, render_overview
 
 log = logging.getLogger(__name__)
@@ -40,18 +41,27 @@ def _row_or_404(request: Request, run_id: str):
     return row
 
 
-def _related_links(repo, run_id: str) -> list[tuple[str, str, str]]:
-    related = []
+def _related_links(repo, run_id: str,
+                   exclude: str | None = None) -> list[tuple[str, str, str]]:
+    """One entry per related run. The parent is excluded (the header already
+    says "follows up on"), and a run linked both as follow-up and as similar
+    appears once, with the more specific label winning."""
+    related: dict[str, tuple[str, str, str]] = {}
     for l in repo.links_for_run(run_id):
         if l["kind"] == "followup" and l["src_run_id"] == run_id:
-            related.append(("follow-up", l["dst_run_id"], l["dst_title"]))
+            entry = ("follow-up", l["dst_run_id"], l["dst_title"])
         elif l["kind"] == "followup":
-            related.append(("follows up on", l["src_run_id"], l["src_title"]))
+            entry = ("follows up on", l["src_run_id"], l["src_title"])
         elif l["src_run_id"] == run_id:
-            related.append(("related", l["dst_run_id"], l["dst_title"]))
+            entry = ("related", l["dst_run_id"], l["dst_title"])
         else:
-            related.append(("related", l["src_run_id"], l["src_title"]))
-    return related
+            entry = ("related", l["src_run_id"], l["src_title"])
+        rid = entry[1]
+        if rid == exclude or rid == run_id:
+            continue
+        if rid not in related or related[rid][0] == "related":
+            related[rid] = entry
+    return list(related.values())
 
 
 def _run_header_context(request: Request, run_id: str) -> dict:
@@ -63,8 +73,19 @@ def _run_header_context(request: Request, run_id: str) -> dict:
         "row": row,
         "run_id": run_id,
         "parent": repo.get_run(row["parent_run_id"]) if row["parent_run_id"] else None,
-        "related": _related_links(repo, run_id),
+        "related": _related_links(repo, run_id, exclude=row["parent_run_id"]),
     }
+
+
+def _finding_cards(store: RunStore, findings) -> list[dict]:
+    cards = []
+    for f in findings:
+        body = ""
+        p = store.dir / f["path"]
+        if p.is_file():
+            body = render(p.read_text(encoding="utf-8"))
+        cards.append({"row": f, "html": body})
+    return cards
 
 
 def _runs_context(request: Request, limit: int = 20) -> dict:
@@ -177,17 +198,11 @@ async def run_page(request: Request, run_id: str):
     findings = repo.findings_for_run(run_id)
     overview_md = (store.overview_path.read_text(encoding="utf-8")
                    if store.overview_path.exists() else "")
-    finding_cards = []
-    for f in findings:
-        body = ""
-        p = store.dir / f["path"]
-        if p.is_file():
-            body = render(p.read_text(encoding="utf-8"))
-        finding_cards.append({"row": f, "html": body})
+    finding_cards = _finding_cards(store, findings)
 
     log_lines = [line for e in store.read_events()
                  if (line := format_event(e))]
-    related = _related_links(repo, run_id)
+    related = _related_links(repo, run_id, exclude=row["parent_run_id"])
 
     ctx.update({
         "overview_html": render_overview(overview_md, len(findings)),
@@ -252,10 +267,15 @@ async def cancel_run(request: Request, run_id: str):
 
 
 @router.post("/runs/{run_id}/evergreen")
-async def toggle_evergreen(request: Request, run_id: str):
+async def toggle_evergreen(request: Request, run_id: str, view: str = ""):
     repo = request.app.state.repo
     row = _row_or_404(request, run_id)
     repo.update_run(run_id, evergreen=not bool(row["evergreen"]))
+    if view == "star":
+        # list views swap just the star button in place
+        return _tpl(request).TemplateResponse(
+            request, "partials/evergreen_star.html",
+            {"r": repo.get_run(run_id)})
     if request.headers.get("hx-request"):
         return _tpl(request).TemplateResponse(
             request, "partials/run_header.html", _run_header_context(request, run_id))
@@ -270,6 +290,34 @@ async def retry_run(request: Request, run_id: str):
                        parent_run_id=run_id)
     new_id = request.app.state.orch.enqueue(params)
     return RedirectResponse(f"/runs/{new_id}", status_code=303)
+
+
+@router.get("/runs/{run_id}/export.pdf")
+async def export_pdf(request: Request, run_id: str):
+    """The whole run — question, overview, bibliography, source notes — as
+    one PDF, generated with the already-present pymupdf. Nothing to install,
+    works offline, survives outside the tool."""
+    row = _row_or_404(request, run_id)
+    repo = request.app.state.repo
+    store = _store(request, row)
+    findings = repo.findings_for_run(run_id)
+    overview_md = (store.overview_path.read_text(encoding="utf-8")
+                   if store.overview_path.exists() else "")
+    finished = (row["finished_at"] or row["created_at"] or "")[:10]
+    meta_line = (f"depth {row['depth']} · {row['recency']} · "
+                 f"{len(findings)} sources · {row['status']} {finished} · "
+                 f"generated by Deep Research")
+    html = build_run_html(
+        title=row["title"] or row["query"], query=row["query"],
+        meta_line=meta_line,
+        overview_html=render_overview(overview_md, len(findings)),
+        findings=findings, cards=_finding_cards(store, findings))
+    try:
+        pdf = render_pdf(html)
+    except PdfExportError as e:
+        raise HTTPException(500, f"PDF export failed: {e}")
+    return Response(pdf, media_type="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{run_id}.pdf"'})
 
 
 @router.get("/runs/{run_id}/file/{name:path}")
