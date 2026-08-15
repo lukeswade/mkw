@@ -140,12 +140,23 @@ Every run directory contains `overview.md` (the cited synthesis),
 log, `meta.json`, and `events.jsonl`. The "Further research" tab turns each
 suggestion into a one-click follow-up run.
 
+**Citation chasing.** When a source makes the cut, its most relevant outbound
+references become candidates in the same run — the links a good page chooses
+are often better than anything a search engine returns, and unreachable
+through one. Chased findings show their provenance ("cited by [3]"). Turn it
+off in Settings if you want engine results only.
+
 **Ask** answers questions from everything you've researched so far, citing the
-runs it drew on. New runs automatically build on related earlier research.
+runs it drew on — and every answer offers a one-click "Research this deeper"
+handoff into a full run. New runs automatically build on related earlier
+research, and as you type a query the form points out if something similar is
+already in your library.
 
 **Evergreen** — the ☆ button on a finished run. The topic is re-researched
 once a day against a recent window, and each refresh appears as a linked child
-run. Toggle it off with the same button.
+run whose overview leads with **"What's new since the last look"** — the same
+delta treatment applies to any follow-up or retry, so you read the changes,
+not a rerun of what you already know. Toggle it off with the same button.
 
 ### Telegram (optional)
 

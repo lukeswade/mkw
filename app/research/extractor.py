@@ -83,3 +83,31 @@ def extract(fetched: Fetched) -> Extracted | None:
     if fetched.content_type == "application/pdf":
         return _extract_pdf(fetched)
     return _extract_html(fetched)
+
+
+def extract_links(fetched: Fetched, limit: int = 150) -> list[tuple[str, str]]:
+    """(absolute_url, anchor_text) pairs from an HTML page.
+
+    Feeds citation chasing: the references a good source links to are often
+    better than anything a search engine returns, and unreachable through one.
+    """
+    if fetched.content_type == "application/pdf":
+        return []
+    try:
+        import lxml.html
+        doc = lxml.html.fromstring(_decode(fetched))
+        doc.make_links_absolute(fetched.final_url, resolve_base_href=True)
+    except Exception:
+        log.debug("link extraction failed on %s", fetched.final_url,
+                  exc_info=True)
+        return []
+    out: list[tuple[str, str]] = []
+    for a in doc.xpath("//a[@href]"):
+        href = (a.get("href") or "").strip()
+        if not href.startswith(("http://", "https://")):
+            continue
+        text = " ".join((a.text_content() or "").split())[:200]
+        out.append((href, text))
+        if len(out) >= limit:
+            break
+    return out

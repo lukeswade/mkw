@@ -41,6 +41,8 @@ ENV_MAP = {
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
+    "reference_chasing": "REFERENCE_CHASING",
+    "blocked_domains": "BLOCKED_DOMAINS",
     "respect_robots": "RESPECT_ROBOTS",
     "allow_private_fetch": "ALLOW_PRIVATE_FETCH",
     "user_agent": "USER_AGENT",
@@ -66,6 +68,8 @@ UI_EDITABLE = {
     "results_per_query",
     "search_categories",
     "relevance_threshold",
+    "reference_chasing",
+    "blocked_domains",
     "respect_robots",
 }
 
@@ -108,6 +112,12 @@ class Settings:
     search_categories: str = "general,science"
     search_concurrency: int = 2
     relevance_threshold: int = 4
+    # Fetch the most promising references cited by kept sources (one hop,
+    # capped per round). The links a good source chooses are often better
+    # than anything a search engine returns.
+    reference_chasing: bool = True
+    # Comma-separated domains never worth fetching for you (e.g. pinterest.com)
+    blocked_domains: str = ""
     # Off by default: this fetches a handful of pages a person could
     # open by hand, at one request per second per domain, with an
     # identifiable user agent. Turn it on if you want the crawler

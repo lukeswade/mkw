@@ -1,5 +1,13 @@
 {% if error %}
 <p class="banner banner-failed">{{ error }}</p>
+{% if question %}
+<form method="post" action="/runs" class="ask-research-form">
+  <input type="hidden" name="query" value="{{ question }}">
+  <input type="hidden" name="depth" value="3">
+  <input type="hidden" name="recency" value="all">
+  <button type="submit" class="secondary outline">Run deep research on this instead →</button>
+</form>
+{% endif %}
 {% else %}
 <article class="card">
   <div class="prose">{{ answer_html | safe }}</div>
@@ -10,6 +18,16 @@
     <li><a href="/runs/{{ s.run_id }}">{{ s.title }}</a> <small>similarity {{ '%.2f' | format(s.score) }}</small></li>
     {% endfor %}
   </ul>
+  {% endif %}
+  {% if question %}
+  {# Ask answers only from the existing corpus — the natural next step when
+     that isn't enough is a real run, one click away with the question kept. #}
+  <form method="post" action="/runs" class="ask-research-form">
+    <input type="hidden" name="query" value="{{ question }}">
+    <input type="hidden" name="depth" value="3">
+    <input type="hidden" name="recency" value="all">
+    <button type="submit" class="secondary outline">Research this deeper →</button>
+  </form>
   {% endif %}
 </article>
 {% endif %}

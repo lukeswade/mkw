@@ -134,3 +134,30 @@ def test_parse_finding_md():
                       "domain": "x.y", "published_date": None, "relevance": 6.0,
                       "summary": "The summary."}
     assert _parse_finding_md("no header here") is None
+
+
+async def test_similar_hint_partial(cfg, monkeypatch):
+    """Typing a query you've already researched should surface the run."""
+    from fastapi.testclient import TestClient
+    from tests.test_web import make_app
+
+    repo = Repo(connect(cfg.db_path))
+    svc = RagService(cfg, llm_factory=lambda: FakeLLM({}))
+    run_id = seed_run(cfg, repo, "solid state battery manufacturing",
+                      "Solid State Batteries", BATTERY_TEXT)
+    await svc.index_run(repo, run_id)
+
+    monkeypatch.setenv("DATA_DIR", str(cfg.data_path))
+    app = __import__("app.web.server", fromlist=["create_app"]).create_app(
+        enable_worker=False, enable_bot=False)
+    with TestClient(app) as client:
+        hit = client.get("/partials/similar", params={
+            "query": "sulfide electrolyte manufacturing yields for batteries"})
+        assert "Solid State Batteries" in hit.text
+
+        miss = client.get("/partials/similar", params={
+            "query": "medieval French poetry and its rhyme schemes"})
+        assert "Solid State Batteries" not in miss.text
+
+        short = client.get("/partials/similar", params={"query": "hi"})
+        assert "similar-hint" not in short.text

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -26,13 +28,13 @@ from app.research import planner as planner_stage
 from app.research import synthesizer
 from app.research.dedupe import (canonicalize, domain_of, interleave,
                                  lexical_overlap, rank_diverse)
-from app.research.extractor import extract
+from app.research.extractor import extract, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
                                 take_notes)
 from app.research.progress import ProgressBus
-from app.research.searcher import (Searcher, SearxngError, cutoff_for,
-                                   engine_tier)
+from app.research.searcher import (Searcher, SearchResult, SearxngError,
+                                   cutoff_for, engine_tier)
 from app.research.storage import RunStore, validate_citations
 
 log = logging.getLogger(__name__)
@@ -55,6 +57,46 @@ def max_llm_calls_for_depth(depth: int) -> int:
 _WEAK_FLOOR = 2
 _WEAK_MAX = 4
 
+# Citation chasing: at most this many cited references are fetched per round.
+_REFS_PER_ROUND = 4
+
+# Link targets that are never worth a fetch: social shares and video, which
+# either have no extractable text or are pure engagement chrome.
+_REF_SKIP_DOMAINS = frozenset({
+    "twitter.com", "x.com", "facebook.com", "linkedin.com", "instagram.com",
+    "reddit.com", "youtube.com", "youtu.be", "pinterest.com", "t.me",
+    "tiktok.com", "medium.com/m",
+})
+
+
+def select_references(links: list[tuple[str, str]], *, source_url: str,
+                      context: str, seen: set[str],
+                      per_source: int = 3) -> list[tuple[str, str]]:
+    """Rank a page's outbound links by how much they smell like citations.
+
+    Same-domain links are navigation, not references; a link only qualifies
+    if its anchor text or URL path shares content words with the research
+    context — that is what separates 'further reading' from footer chrome.
+    """
+    source_domain = domain_of(source_url)
+    scored: list[tuple[float, str, str]] = []
+    picked_urls: set[str] = set()
+    for url, anchor in links:
+        domain = domain_of(url)
+        if domain == source_domain or domain in _REF_SKIP_DOMAINS:
+            continue
+        canonical = canonicalize(url)
+        if canonical in seen or canonical in picked_urls:
+            continue
+        path_words = re.sub(r"[/_\-.]", " ", urlsplit(url).path)
+        score = lexical_overlap(context, f"{anchor} {path_words}")
+        if score <= 0:
+            continue
+        picked_urls.add(canonical)
+        scored.append((score, url, anchor))
+    scored.sort(key=lambda t: -t[0])
+    return [(url, anchor) for _s, url, anchor in scored[:per_source]]
+
 
 @dataclass
 class _RunState:
@@ -76,6 +118,12 @@ class Pipeline:
         self.rag = rag  # knowledge-layer hooks (M3); None → skipped
         self.llm_factory = llm_factory or (lambda: LLM(cfg))
         self.cancel_requested = False
+
+    def _blocked_domains(self) -> frozenset[str]:
+        raw = getattr(self.cfg, "blocked_domains", "") or ""
+        return frozenset(
+            d.strip().lower().removeprefix("www.")
+            for d in raw.replace(";", ",").split(",") if d.strip())
 
     # ---- entry point -----------------------------------------------------------
     async def execute(self, run_id: str) -> None:
@@ -191,8 +239,9 @@ class Pipeline:
                                  depth=depth, queries=queries)
 
                 kept = await self._round(run_id, store, state, searcher, fetcher,
-                                         llm, the_plan.brief, recency_desc, today,
-                                         recency, queries, breadth, current_keywords)
+                                         llm, query, the_plan.brief,
+                                         recency_desc, today, recency, queries,
+                                         breadth, current_keywords)
                 state.searched.extend(queries)
 
                 if len(state.findings) >= max_docs_for_depth(depth):
@@ -235,15 +284,17 @@ class Pipeline:
             self._check_cancel()
             await self._finalize(run_id, store, state, llm, query, the_plan,
                                  recency, recency_desc, today, stop_reason,
-                                 searcher=searcher)
+                                 searcher=searcher,
+                                 previous_overview=self._parent_overview(row))
 
     # ---- one search round ------------------------------------------------------------
     async def _round(self, run_id, store, state, searcher, fetcher, llm,
-                     brief, recency_desc, today, recency, queries, breadth, keywords) -> list[Finding]:
+                     query, brief, recency_desc, today, recency, queries,
+                     breadth, keywords) -> list[Finding]:
         results_lists = await asyncio.gather(
             *(searcher.search(q, recency) for q in queries),
             return_exceptions=True)
-        merged_lists, errors = [], []
+        merged_lists, errors, pairs = [], [], []
         for q, res in zip(queries, results_lists):
             if isinstance(res, BaseException):
                 errors.append(res)
@@ -257,24 +308,54 @@ class Pipeline:
                 for r in res:
                     r.via_query = q
                 merged_lists.append(res)
+                pairs.append((q, res))
         if errors and not merged_lists:
             raise errors[0] if isinstance(errors[0], SearxngError) else RuntimeError(
                 f"all searches failed: {errors[0]}")
 
+        def pick(pool: list, limit: int) -> list:
+            # Stable sort keeps round-robin order inside each tier, so every
+            # sub-query still contributes. Ordering: a practical web page
+            # outranks a journal abstract; within a tier, results whose
+            # title/snippet share words with their sub-query outrank engine
+            # filler — every filler candidate that slips through costs a fetch
+            # plus a full notes call before it scores 0/10.
+            pool = [r for r in pool
+                    if domain_of(r.url) not in self._blocked_domains()]
+            pool.sort(key=lambda r: (
+                engine_tier(r.engine),
+                -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
+            chosen = rank_diverse(pool, state.seen_urls, per_domain=2,
+                                  limit=limit)
+            for c in chosen:
+                state.seen_urls.add(canonicalize(c.url))
+            return chosen
+
         merged = interleave(merged_lists)
-        # Stable sort keeps the round-robin order inside each tier, so every
-        # sub-query still contributes. Ordering: a practical web page outranks
-        # a journal abstract, and within a tier, results whose title/snippet
-        # actually share words with the sub-query outrank engine filler —
-        # every filler candidate that slips through costs a fetch plus a full
-        # notes call before it scores 0/10.
-        merged.sort(key=lambda r: (
-            engine_tier(r.engine),
-            -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
-        candidates = rank_diverse(merged, state.seen_urls, per_domain=2,
-                                  limit=breadth * 3)
-        for c in candidates:
-            state.seen_urls.add(canonicalize(c.url))
+        candidates = pick(merged, breadth * 3)
+
+        # Starved round: most results were duplicates or already seen. Pull
+        # page 2 from the most productive queries before giving up — cheaper
+        # than a dry round, which burns one of the run's two dry-round lives.
+        if len(candidates) < breadth and pairs:
+            extra = []
+            for q, _res in sorted(pairs, key=lambda pr: -len(pr[1]))[:2]:
+                try:
+                    more = await searcher.search(q, recency, pageno=2)
+                    for r in more:
+                        r.via_query = q
+                    extra.extend(more)
+                except Exception as e:
+                    log.debug("page-2 backfill failed for %r: %s", q, e)
+            if extra:
+                backfill = pick(extra, breadth * 3 - len(candidates))
+                if backfill:
+                    self.bus.publish(run_id, "log",
+                                     message=(f"round was starved — pulled "
+                                              f"{len(backfill)} more candidates "
+                                              f"from page 2"))
+                    candidates.extend(backfill)
+
         total_results = sum(len(l) for l in merged_lists)
         self.bus.publish(run_id, "searched", results=total_results,
                          candidates=len(candidates))
@@ -289,8 +370,9 @@ class Pipeline:
 
         cutoff = cutoff_for(recency)
         kept: list[Finding] = []
+        references: list[SearchResult] = []
 
-        async def process(c) -> None:
+        async def process(c, harvest_refs: bool = True) -> None:
             if self.cancel_requested:
                 return
             try:
@@ -367,13 +449,51 @@ class Pipeline:
             self.bus.publish(run_id, "finding", idx=idx, title=finding.title,
                              domain=finding.domain, relevance=finding.relevance)
 
+            # Citation chasing: the references a good source links to are
+            # often better than anything a search engine returns, and
+            # unreachable through one. Harvested here, fetched in a second
+            # wave below (which does not harvest again — one hop per round).
+            if harvest_refs and self.cfg.reference_chasing:
+                for url, anchor in select_references(
+                        extract_links(fetched), source_url=fetched.final_url,
+                        context=f"{query} {brief} {c.via_query}",
+                        seen=state.seen_urls):
+                    references.append(SearchResult(
+                        url=url, title=anchor or url, snippet=anchor,
+                        engine="reference", published=None, score=0.0,
+                        via_query=f"cited by [{idx}] {finding.domain}"))
+
         await asyncio.gather(*(process(c) for c in candidates))
+
+        if references and not self.cancel_requested:
+            chase = pick(references, _REFS_PER_ROUND)
+            if chase:
+                self.bus.publish(
+                    run_id, "log",
+                    message=(f"chasing {len(chase)} reference(s) cited by "
+                             f"kept sources"))
+                await asyncio.gather(
+                    *(process(c, harvest_refs=False) for c in chase))
         return kept
 
     # ---- finalization ---------------------------------------------------------------
+    def _parent_overview(self, row) -> str:
+        """The parent run's overview, for delta-focused synthesis."""
+        parent_id = row["parent_run_id"]
+        if not parent_id:
+            return ""
+        parent = self.repo.get_run(parent_id)
+        if parent is None:
+            return ""
+        path = self.cfg.research_dir / parent["dir"] / "overview.md"
+        try:
+            return path.read_text(encoding="utf-8") if path.is_file() else ""
+        except OSError:
+            return ""
+
     async def _finalize(self, run_id, store, state, llm, query, the_plan,
                         recency, recency_desc, today, stop_reason,
-                        searcher=None) -> None:
+                        searcher=None, previous_overview: str = "") -> None:
         thin = False
         if not state.findings and state.weak:
             thin = True
@@ -402,7 +522,8 @@ class Pipeline:
                 llm, query=query, title=the_plan.title, brief=the_plan.brief,
                 recency_desc=recency_desc, today=today,
                 state_md=state.state_md, findings=findings,
-                bus=self.bus, run_id=run_id)
+                bus=self.bus, run_id=run_id,
+                previous_overview=previous_overview)
             if thin:
                 overview = (
                     "> **Thin result.** No source strongly matched this "

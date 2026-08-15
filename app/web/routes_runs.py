@@ -95,6 +95,33 @@ async def index(request: Request):
                                           _index_context(request))
 
 
+@router.get("/partials/similar")
+async def similar_partial(request: Request, query: str = ""):
+    """As-you-type hint: you may have already researched this.
+
+    A depth-5 run is half an hour of GPU time — worth one embedding lookup
+    to mention the answer might already be in the library.
+    """
+    rag = request.app.state.rag
+    repo = request.app.state.repo
+    matches: list[dict] = []
+    if rag is not None and len(query.strip()) >= 12:
+        try:
+            best: dict[str, float] = {}
+            for hit in await rag.semantic_search(query.strip(), limit=8):
+                rid = hit["run_id"]
+                best[rid] = max(best.get(rid, 0.0), hit["score"])
+            for rid, score in sorted(best.items(), key=lambda t: -t[1])[:2]:
+                row = repo.get_run(rid)
+                if row is not None and row["status"] == "completed" \
+                        and score >= 0.62:
+                    matches.append({"run": row, "score": score})
+        except Exception:
+            log.debug("similar lookup failed", exc_info=True)
+    return _tpl(request).TemplateResponse(
+        request, "partials/similar_hint.html", {"matches": matches})
+
+
 @router.get("/partials/estimate")
 async def estimate_partial(request: Request, depth: int = 3):
     """Live pre-flight estimate as the depth slider moves."""

@@ -134,6 +134,23 @@ Write a thorough markdown research overview:
 Write only the markdown document itself, no preamble and no bibliography \
 (the bibliography is generated separately)."""
 
+SYNTH_DELTA_BLOCK = """
+This run UPDATES earlier research on the same topic. The previous overview is
+below for comparison — the reader has already seen it.
+
+Previous overview:
+---
+{previous_overview}
+---
+
+Because of this, structure the document differently:
+- Directly after the TL;DR, add a "## What's new since the last look" section:
+  new developments, numbers that changed, corrections to the earlier overview,
+  and which earlier conclusions still hold. Be specific about what changed.
+- The remaining sections should still stand alone, but do not re-explain at
+  length what the previous overview already covered well — reference and build.
+"""
+
 SYNTH_PARTIAL = """You are compressing a subset of research notes for a later \
 synthesis stage.
 

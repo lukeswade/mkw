@@ -1,0 +1,9 @@
+{% if matches %}
+<div class="similar-hint">
+  <span class="similar-label">Already in your library:</span>
+  {% for m in matches %}
+  <a href="/runs/{{ m.run['id'] }}" target="_blank" rel="noopener">{{ m.run['title'] or m.run['query'] }}</a>
+  <small>({{ '%.0f' | format(m.score * 100) }}% match)</small>{% if not loop.last %} · {% endif %}
+  {% endfor %}
+</div>
+{% endif %}

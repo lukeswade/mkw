@@ -16,7 +16,10 @@
   {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
   <form method="post" action="/runs" class="new-run card">
     <textarea name="query" rows="3" required minlength="3" autofocus
+      hx-get="/partials/similar" hx-trigger="keyup changed delay:700ms"
+      hx-target="#similar-hint" hx-swap="innerHTML"
       placeholder="e.g. State of solid-state battery manufacturing — who is closest to mass production and what are the remaining blockers?">{{ prefill.query if prefill else "" }}</textarea>
+    <div id="similar-hint"></div>
     <div class="controls">
       <label class="depth-label">Depth <output id="depth-val">{{ prefill.depth if prefill else 3 }}</output>
         <input type="range" name="depth" id="depth-range" min="0" max="10"

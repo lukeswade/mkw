@@ -60,6 +60,17 @@
       </label>
     </div>
     <label>
+      <input type="checkbox" name="reference_chasing" {{ 'checked' if cfg.reference_chasing else '' }}>
+      Follow references cited by kept sources
+    </label>
+    <p class="hint">When a source makes the cut, its most relevant outbound
+      links become candidates too — the references a good page chooses are
+      often better than anything a search engine returns.</p>
+    <label>Blocked domains <small>(comma-separated, never fetched)</small>
+      <input type="text" name="blocked_domains" value="{{ cfg.blocked_domains }}"
+             placeholder="e.g. pinterest.com, quora.com">
+    </label>
+    <label>
       <input type="checkbox" name="respect_robots" {{ 'checked' if cfg.respect_robots else '' }}>
       Respect robots.txt when fetching pages
     </label>

@@ -1158,3 +1158,21 @@ input[type="checkbox"] {
   color: var(--text-faint);
 }
 @keyframes cursor-blink { 50% { opacity: 0; } }
+
+/* ---- Similar-research hint (new-run form) ---- */
+.similar-hint {
+  margin: 0.45rem 0 0;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid rgba(110, 231, 183, 0.28);
+  border-radius: 8px;
+  background: rgba(110, 231, 183, 0.05);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.similar-label { color: var(--text-muted); margin-right: 0.35rem; }
+.similar-hint a { color: var(--accent, #6ee7b7); }
+.similar-hint small { color: var(--text-faint); }
+
+/* ---- Ask → research handoff ---- */
+.ask-research-form { margin: 0.9rem 0 0; }
+.ask-research-form button { width: auto; font-size: var(--text-sm); }

@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 _SINGLE_CALL_BUDGET = 36_000   # est tokens of notes for a one-shot synthesis
 _BATCH_BUDGET = 30_000         # est tokens per map batch
+_PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
 
 
 def _note_block(f: Finding) -> str:
@@ -28,7 +29,8 @@ def _note_block(f: Finding) -> str:
 
 async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                      recency_desc: str, today: str, state_md: str,
-                     findings: list[Finding], bus=None, run_id: str = "") -> str:
+                     findings: list[Finding], bus=None, run_id: str = "",
+                     previous_overview: str = "") -> str:
     blocks = [_note_block(f) for f in findings]
 
     if est_tokens("".join(blocks)) > _SINGLE_CALL_BUDGET:
@@ -39,6 +41,11 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         today=today, state_md=state_md or "(none)",
         notes_block="\n".join(blocks),
     )
+    if previous_overview:
+        # Evergreen refreshes and follow-ups lead with what changed — nobody
+        # wants to re-read a 90%-identical overview to find the new part.
+        clipped = previous_overview[:_PREVIOUS_OVERVIEW_CHARS]
+        prompt += prompts.SYNTH_DELTA_BLOCK.format(previous_overview=clipped)
     messages = [{"role": "user", "content": prompt}]
 
     # Synthesis is the longest single call in a run and the one the user is
