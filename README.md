@@ -15,12 +15,18 @@ Everything runs on your own machine. The only thing that can leave it is the
 LLM call — and even that stays local if you point it at llama.cpp, LM Studio,
 Ollama, or MLX.
 
-- **Web UI** with live progress, a research library (keyword + semantic
+- **Web UI** with live streaming progress, pre-flight run estimates
+  calibrated to your own hardware, a research library (keyword + semantic
   search), and an "Ask" page that answers from everything you've researched,
   with citations.
-- **Telegram bot**: start runs, watch progress, get the overview delivered.
-- **Evergreen topics**: mark a run evergreen and it re-researches itself daily,
-  linking each update back to the original.
+- **Citation chasing**: sources that make the cut get their best references
+  fetched too — datasheets and primary documents search engines never surface.
+- **Evergreen topics** re-research themselves daily, and every refresh leads
+  with *what's new* instead of repeating itself.
+- **One-click PDF export** of the whole research record, and a **Telegram
+  bot** for starting runs and receiving results on your phone.
+- **Multi-user aware**: runs are tagged with the Cloudflare Access identity
+  (or LAN label) that started them.
 - **Everything is plain markdown on disk** (`data/research_data/<run>/`).
   SQLite and the vector index are derived — `reindex` rebuilds them from the
   files at any time.
@@ -130,6 +136,10 @@ that find nothing new, or at per-depth source and LLM-call caps.
 - **Depth 5–10** is a project. Expect many sources and, on a local model, a
   long wall-clock time.
 
+The new-run form shows a live estimate — searches, sources, LLM calls, time,
+cost — for the depth you've dialed in, calibrated against your own completed
+runs, and warns you if something similar is already in your library.
+
 **Recency** maps to search-engine time filters plus a date check on the
 documents themselves. Engine date metadata is imperfect, so undated sources
 are kept but flagged, and the synthesis is told to prefer dated in-window
@@ -137,8 +147,12 @@ material. Treat the windows as best effort.
 
 Every run directory contains `overview.md` (the cited synthesis),
 `further-research.md`, `sources.md`, per-source `findings/*.md`, a `rounds/`
-log, `meta.json`, and `events.jsonl`. The "Further research" tab turns each
-suggestion into a one-click follow-up run.
+log, `meta.json`, and `events.jsonl`. In the UI, a finished run has four tabs
+— Overview (with the bibliography its `[n]` citations jump to), Sources (each
+source's notes, expandable), Further research (one-click follow-up runs), and
+Log — plus **Export PDF**, which produces the entire research record as a
+single document: the question as asked, the overview, the bibliography, and
+every source's notes.
 
 **Citation chasing.** When a source makes the cut, its most relevant outbound
 references become candidates in the same run — the links a good page chooses
@@ -250,12 +264,14 @@ building one never clobbers the other.
 - **Search engines rate-limit.** Google, Brave, DuckDuckGo and Startpage all
   throttle or serve CAPTCHAs to home and datacenter IPs under research-volume
   traffic, and the stock SearXNG `general` category is made up of exactly those.
-  The app therefore searches `general,science,it` by default, which also reaches
-  Crossref, OpenAlex, Semantic Scholar, arXiv, Stack Overflow and GitHub —
-  better research sources that don't gate. Queries are throttled to two at a
-  time for the same reason. If every engine does block, a run says so
+  The app therefore searches `general,science` by default, which also reaches
+  Crossref, OpenAlex, Semantic Scholar and arXiv — research-grade sources that
+  don't gate. General-web results lead and academic ones backfill, so a
+  practical question isn't answered out of a journal. Queries are throttled to
+  two at a time for the same reason. If every engine does block, a run says so
   explicitly rather than reporting "no sources found"; wait a few minutes and
-  hit *Retry*. Tune with `SEARCH_CATEGORIES` and `SEARCH_CONCURRENCY`.
+  hit *Retry*. Tune with `SEARCH_CATEGORIES`, `SEARCH_CONCURRENCY`, and
+  `BLOCKED_DOMAINS` for sites you never want fetched.
 
 ---
 

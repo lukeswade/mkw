@@ -16,9 +16,13 @@ _ROOT = Path(__file__).parent.parent.parent
 # first so no orphan [](...) shell survives, then bare images.
 _LINKED_IMAGE_RE = re.compile(r"\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)")
 _IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+# The screenshot gallery is pure captions-plus-images; with the images gone
+# the captions narrate pictures that aren't there, so the section goes too.
+_GALLERY_RE = re.compile(r"\n## What it looks like\n.*?\n---\n", re.DOTALL)
 
 
 def _strip_images(md: str) -> str:
+    md = _GALLERY_RE.sub("\n---\n", md)
     md = _LINKED_IMAGE_RE.sub("", md)
     md = _IMAGE_RE.sub("", md)
     return re.sub(r"\n{3,}", "\n\n", md)
