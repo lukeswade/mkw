@@ -19,7 +19,7 @@ import socket
 import time
 import urllib.robotparser
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -33,6 +33,35 @@ MAX_REDIRECTS = 5
 ALLOWED_TYPES = ("text/html", "application/xhtml", "text/plain", "text/xml",
                  "application/xml", "application/pdf")
 DOMAIN_MIN_INTERVAL = 1.0  # seconds between hits on the same domain
+# Slower lanes for hosts with strict unauthenticated rate limits (reddit
+# allows roughly ten requests a minute before answering 403/429).
+_DOMAIN_INTERVALS = {"reddit.com": 7.0}
+
+# Domains that never yield text to an anonymous client — login walls or pure
+# JS shells. Skipping up front saves the fetch and reports an honest reason
+# instead of a mystery http 400 or "no extractable text".
+_LOGIN_WALLED = frozenset({
+    "instagram.com", "facebook.com", "m.facebook.com", "twitter.com", "x.com",
+    "tiktok.com", "linkedin.com", "threads.net", "pinterest.com",
+})
+
+# Same content, server-rendered: www.reddit.com serves a JavaScript shell with
+# nothing to extract, old.reddit.com serves the thread as plain HTML.
+_HOST_REWRITES = {
+    "reddit.com": "old.reddit.com",
+    "www.reddit.com": "old.reddit.com",
+    "m.reddit.com": "old.reddit.com",
+    "new.reddit.com": "old.reddit.com",
+}
+
+
+def rewrite_host(url: str) -> str:
+    parts = urlsplit(url)
+    target = _HOST_REWRITES.get(parts.netloc.lower())
+    if target is None:
+        return url
+    return urlunsplit((parts.scheme, target, parts.path, parts.query,
+                       parts.fragment))
 
 
 @dataclass
@@ -105,11 +134,16 @@ class Fetcher:
             self._domain_sems[domain] = asyncio.Semaphore(2)
         return self._domain_sems[domain]
 
-    async def _polite_get(self, url: str) -> httpx.Response | Fetched | None:
+    async def _polite_get(self, url: str,
+                          extra_types: tuple[str, ...] = ()) -> httpx.Response | Fetched | None:
         """One SSRF-checked, politeness-throttled GET without redirects."""
+        allowed = ALLOWED_TYPES + extra_types
         domain = domain_of(url)
+        interval = next((v for k, v in _DOMAIN_INTERVALS.items()
+                         if domain == k or domain.endswith("." + k)),
+                        DOMAIN_MIN_INTERVAL)
         async with self._domain_sem(domain):
-            wait = self._domain_last.get(domain, 0.0) + DOMAIN_MIN_INTERVAL - time.monotonic()
+            wait = self._domain_last.get(domain, 0.0) + interval - time.monotonic()
             if wait > 0:
                 await asyncio.sleep(wait)
             try:
@@ -119,7 +153,7 @@ class Fetcher:
                     if resp.status_code != 200:
                         raise SkipReason(f"http {resp.status_code}")
                     ctype = (resp.headers.get("content-type") or "text/html").split(";")[0].strip().lower()
-                    if not any(ctype.startswith(t) for t in ALLOWED_TYPES):
+                    if not any(ctype.startswith(t) for t in allowed):
                         raise SkipReason(f"content-type {ctype}")
                     chunks: list[bytes] = []
                     size = 0
@@ -137,17 +171,21 @@ class Fetcher:
                 self._domain_last[domain] = time.monotonic()
 
     # ---- public -----------------------------------------------------------------
-    async def fetch(self, url: str) -> Fetched:
+    async def fetch(self, url: str,
+                    extra_types: tuple[str, ...] = ()) -> Fetched:
         """Fetch one URL. Raises SkipReason with a human-readable cause."""
         async with self._sem:
             current = url
             for _hop in range(MAX_REDIRECTS + 1):
+                current = rewrite_host(current)  # also on every redirect hop
+                if domain_of(current) in _LOGIN_WALLED:
+                    raise SkipReason("login-walled site")
                 if not await self._host_allowed(current):
                     raise SkipReason("blocked address (SSRF guard)")
                 if not await self._robots_allows(current):
                     raise SkipReason("disallowed by robots.txt")
                 try:
-                    result = await self._polite_get(current)
+                    result = await self._polite_get(current, extra_types)
                 except httpx.HTTPError as e:
                     raise SkipReason(f"fetch failed: {type(e).__name__}") from e
                 if isinstance(result, Fetched):

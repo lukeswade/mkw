@@ -62,6 +62,30 @@ def lexical_overlap(query: str, text: str) -> float:
     return len(query_tokens & _content_tokens(text)) / len(query_tokens)
 
 
+def text_fingerprint(text: str, k: int = 8) -> frozenset[int]:
+    """Hashed word k-shingles of `text`, for near-duplicate detection.
+
+    Python's salted hash() is fine here: fingerprints are only ever compared
+    within one process (one run), never stored.
+    """
+    words = re.findall(r"[a-z0-9]+", (text or "").lower())
+    if len(words) < k:
+        return frozenset({hash(" ".join(words))} if words else ())
+    return frozenset(hash(" ".join(words[i:i + k]))
+                     for i in range(len(words) - k + 1))
+
+
+def similarity(a: frozenset[int], b: frozenset[int]) -> float:
+    """Containment of the smaller fingerprint in the larger.
+
+    Containment rather than Jaccard so a scraped clone that pads the stolen
+    article with extra junk still registers as a duplicate.
+    """
+    if not a or not b:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
+
+
 def interleave(lists: Iterable[list[T]]) -> list[T]:
     """Round-robin merge so every sub-query contributes to the top ranks."""
     out: list[T] = []

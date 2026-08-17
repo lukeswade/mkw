@@ -26,8 +26,10 @@ from app.models import RECENCY_LABELS
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
+from app.research import reddit, youtube
 from app.research.dedupe import (canonicalize, domain_of, interleave,
-                                 lexical_overlap, rank_diverse)
+                                 lexical_overlap, rank_diverse,
+                                 similarity, text_fingerprint)
 from app.research.extractor import extract, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
@@ -59,6 +61,11 @@ _WEAK_MAX = 4
 
 # Citation chasing: at most this many cited references are fetched per round.
 _REFS_PER_ROUND = 4
+
+# Extracted text whose smaller fingerprint is ≥ this contained in an earlier
+# document's is the same content: a scraped SEO clone or a syndicated copy.
+# Genuinely distinct articles on one topic land far lower (~0.1-0.3).
+_DUP_CONTAINMENT = 0.7
 
 # Link targets that are never worth a fetch: social shares and video, which
 # either have no extractable text or are pure engagement chrome.
@@ -103,6 +110,7 @@ class _RunState:
     findings: list[Finding] = field(default_factory=list)
     weak: list[tuple[int, dict]] = field(default_factory=list)
     seen_urls: set[str] = field(default_factory=set)
+    fingerprints: list[tuple[frozenset[int], str]] = field(default_factory=list)
     searched: list[str] = field(default_factory=list)
     state_md: str = ""
     rounds_done: int = 0
@@ -375,18 +383,39 @@ class Pipeline:
         async def process(c, harvest_refs: bool = True) -> None:
             if self.cancel_requested:
                 return
+            # Three acquisition paths: video → caption transcript, reddit →
+            # the thread's .json API, everything else → fetch + extract.
+            fetched = None  # set only on the generic path; gates link harvest
             try:
-                fetched = await fetcher.fetch(c.url)
+                if vid := youtube.video_id(c.url):
+                    final_url = c.url
+                    doc = await youtube.transcript(fetcher.client, vid)
+                    if doc is None:
+                        raise SkipReason("no caption transcript")
+                elif reddit.is_thread(c.url):
+                    doc, final_url = await reddit.thread(fetcher, c.url)
+                else:
+                    fetched = await fetcher.fetch(c.url)
+                    final_url = fetched.final_url
+                    doc = extract(fetched)
+                    if doc is None:
+                        raise SkipReason("no extractable text")
             except SkipReason as e:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url, reason=str(e))
                 return
-            doc = extract(fetched)
-            if doc is None:
+            # Near-duplicate collapse: scraped SEO clones and syndicated
+            # copies read as on-topic, so left alone they burn a notes call
+            # each and can be "kept" several times as separate sources.
+            fp = text_fingerprint(doc.text)
+            dup = next((dom for other, dom in state.fingerprints
+                        if similarity(fp, other) >= _DUP_CONTAINMENT), None)
+            if dup is not None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
-                                 reason="no extractable text")
+                                 reason=f"duplicate of {dup} content")
                 return
+            state.fingerprints.append((fp, domain_of(final_url)))
             detected_date = doc.date or (c.published.date().isoformat()
                                          if c.published else None)
             if cutoff and detected_date:
@@ -401,7 +430,7 @@ class Pipeline:
             title = doc.title or c.title
             notes = await take_notes(
                 llm, brief=brief, recency_desc=recency_desc, today=today,
-                url=fetched.final_url, title=title,
+                url=final_url, title=title,
                 detected_date=detected_date, text=doc.text, keywords=keywords)
             if notes is None:
                 state.skipped += 1
@@ -417,8 +446,8 @@ class Pipeline:
                 # nothing when nine documents were read is its own failure.
                 if notes.relevance >= _WEAK_FLOOR:
                     state.weak.append((notes.relevance, {
-                        "url": fetched.final_url, "title": title,
-                        "domain": domain_of(fetched.final_url),
+                        "url": final_url, "title": title,
+                        "domain": domain_of(final_url),
                         "published": notes.published_date or detected_date,
                         "relevance": notes.relevance, "summary": notes.summary,
                         "notes_md": notes.notes_md,
@@ -431,8 +460,8 @@ class Pipeline:
             # idx assignment + append happen with no await in between → atomic
             idx = len(state.findings) + 1
             finding = Finding(
-                idx=idx, url=fetched.final_url, title=title,
-                domain=domain_of(fetched.final_url),
+                idx=idx, url=final_url, title=title,
+                domain=domain_of(final_url),
                 published=notes.published_date or detected_date,
                 relevance=notes.relevance, summary=notes.summary,
                 notes_md=notes.notes_md, key_facts=[f.model_dump() for f in notes.key_facts],
@@ -453,9 +482,9 @@ class Pipeline:
             # often better than anything a search engine returns, and
             # unreachable through one. Harvested here, fetched in a second
             # wave below (which does not harvest again — one hop per round).
-            if harvest_refs and self.cfg.reference_chasing:
+            if harvest_refs and fetched is not None and self.cfg.reference_chasing:
                 for url, anchor in select_references(
-                        extract_links(fetched), source_url=fetched.final_url,
+                        extract_links(fetched), source_url=final_url,
                         context=f"{query} {brief} {c.via_query}",
                         seen=state.seen_urls):
                     references.append(SearchResult(

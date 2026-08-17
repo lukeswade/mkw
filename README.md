@@ -21,6 +21,9 @@ Ollama, or MLX.
   with citations.
 - **Citation chasing**: sources that make the cut get their best references
   fetched too — datasheets and primary documents search engines never surface.
+- **Reads the hard parts of the web**: YouTube videos via their caption
+  transcripts, Reddit threads (post + comments) via the JSON API, and scraped
+  SEO clones collapsed into a single source.
 - **Evergreen topics** re-research themselves daily, and every refresh leads
   with *what's new* instead of repeating itself.
 - **One-click PDF export** of the whole research record, and a **Telegram
@@ -160,6 +163,15 @@ are often better than anything a search engine returns, and unreachable
 through one. Chased findings show their provenance ("cited by [3]"). Turn it
 off in Settings if you want engine results only.
 
+**Video, Reddit, and the spammy web.** YouTube results are read through their
+caption transcript (authored or auto-generated) — for how-to topics that's
+where the actual step-by-step knowledge lives. Reddit threads are read through
+Reddit's public JSON API, post and comment tree included, instead of the
+unscrapeable JavaScript shell reddit.com serves. And when the same article
+shows up under several domains — scraped SEO clones, syndicated copies — the
+duplicates are collapsed to a single source instead of being analyzed and
+cited repeatedly.
+
 **Ask** answers questions from everything you've researched so far, citing the
 runs it drew on — and every answer offers a one-click "Research this deeper"
 handoff into a full run. New runs automatically build on related earlier
@@ -284,7 +296,8 @@ building one never clobbers the other.
   into your UI. Fetched text is framed as untrusted data in every prompt.
 - The fetcher refuses private, loopback, and link-local addresses (set
   `ALLOW_PRIVATE_FETCH=true` if you genuinely need intranet sources) and
-  rate-limits itself to one request per second per domain. It sends a standard
+  rate-limits itself to one request per second per domain (slower on hosts
+  with strict limits, like reddit). It sends a standard
   browser user agent by default because many CDNs reject unknown clients with
   403 (set `USER_AGENT` to identify yourself instead). robots.txt is **not**
   honoured by

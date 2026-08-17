@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import datetime, timedelta
 
 import httpx
@@ -29,7 +30,16 @@ PARA = ("This is a substantive paragraph about solid state batteries with "
 
 
 def article(title: str) -> str:
-    body = "".join(f"<p>{PARA}{i}</p>" for i in range(4))
+    # Body text is salted with the title so distinct fixture pages read as
+    # distinct content to the pipeline's near-duplicate collapse — the same
+    # way distinct real pages carry distinct prose. Serving the SAME title
+    # from two URLs therefore models a scraped clone.
+    salt = re.sub(r"[^a-z0-9]+", "", title.lower()) or "topic"
+    body = f"<p>{PARA}</p>" + "".join(
+        f"<p>Finding {i} for {salt}: measurement series {salt}-{i} recorded "
+        f"result {i} under condition {salt}{i}, with commentary specific to "
+        f"the {salt} experiment, stage {i} of the {salt} write-up.</p>"
+        for i in range(6))
     return (f"<!DOCTYPE html><html><head><title>{title}</title></head>"
             f"<body><main><article><h1>{title}</h1>{body}</article></main>"
             f"</body></html>")
@@ -39,7 +49,9 @@ def pdf_bytes() -> bytes:
     import pymupdf
     doc = pymupdf.open()
     page = doc.new_page()
-    text = "PDF research paper. " + PARA * 3
+    text = "PDF research paper on electrolyte tooling. " + " ".join(
+        f"Bench row {i}: pdf-only figure {i} with annotation {i}."
+        for i in range(30))
     for i, line in enumerate([text[j:j + 80] for j in range(0, len(text), 80)]):
         page.insert_text((50, 60 + 14 * i), line)
     out = doc.tobytes()
