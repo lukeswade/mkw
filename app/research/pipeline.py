@@ -50,6 +50,12 @@ def breadth_for_depth(depth: int) -> int:
 def max_docs_for_depth(depth: int) -> int:
     return 12 * depth
 
+def candidates_per_round(breadth: int) -> int:
+    # breadth*3 starved runs whose topics live on hard-to-search sites; the
+    # wider net costs only fetches for candidates the ranker put below the
+    # old cut line — the notes-call budget is still governed by relevance.
+    return breadth * 4 + 2
+
 def max_llm_calls_for_depth(depth: int) -> int:
     return 20 + 15 * depth
 
@@ -229,7 +235,8 @@ class Pipeline:
             self.bus.publish(run_id, "phase", phase="planning")
             the_plan = await planner_stage.plan(
                 llm, query=query, recency_desc=recency_desc, today=today,
-                breadth=breadth, prior=prior)
+                breadth=breadth, prior=prior,
+                authority=getattr(self.cfg, "authority_sites", ""))
             self.repo.update_run(run_id, title=the_plan.title)
             store.update_meta(title=the_plan.title, brief=the_plan.brief)
             self.bus.publish(run_id, "plan", title=the_plan.title,
@@ -266,7 +273,8 @@ class Pipeline:
                     llm, query=query, brief=the_plan.brief,
                     recency_desc=recency_desc, round_no=round_no, depth=depth,
                     breadth=breadth, state_md=state.state_md,
-                    new_findings=kept, searched=state.searched)
+                    new_findings=kept, searched=state.searched,
+                    authority=getattr(self.cfg, "authority_sites", ""))
                 state.state_md = gap.state_md
                 store.write_round(round_no, self._round_md(
                     round_no, queries, kept, gap.saturated, state))
@@ -340,7 +348,7 @@ class Pipeline:
             return chosen
 
         merged = interleave(merged_lists)
-        candidates = pick(merged, breadth * 3)
+        candidates = pick(merged, candidates_per_round(breadth))
 
         # Starved round: most results were duplicates or already seen. Pull
         # page 2 from the most productive queries before giving up — cheaper
@@ -356,7 +364,7 @@ class Pipeline:
                 except Exception as e:
                     log.debug("page-2 backfill failed for %r: %s", q, e)
             if extra:
-                backfill = pick(extra, breadth * 3 - len(candidates))
+                backfill = pick(extra, candidates_per_round(breadth) - len(candidates))
                 if backfill:
                     self.bus.publish(run_id, "log",
                                      message=(f"round was starved — pulled "

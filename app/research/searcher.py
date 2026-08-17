@@ -9,14 +9,29 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 
 import httpx
 
 log = logging.getLogger(__name__)
 
 # recency option → SearXNG time_range param (None = omit)
+_SITE_RE = re.compile(r"\bsite:([A-Za-z0-9.-]+)")
+
+
+def _site_scope(query: str) -> str | None:
+    m = _SITE_RE.search(query)
+    return m.group(1).lower().strip(".").removeprefix("www.") if m else None
+
+
+def _in_site(url: str, site: str) -> bool:
+    host = urlsplit(url).netloc.lower().split(":")[0].removeprefix("www.")
+    return host == site or host.endswith("." + site)
+
+
 RECENCY_TO_TIME_RANGE: dict[str, str | None] = {
     "week": "week",
     "month": "month",
@@ -169,10 +184,17 @@ class Searcher:
             self.empty_searches += 1
 
         cutoff = cutoff_for(recency)
+        site = _site_scope(query)
         out: list[SearchResult] = []
         for item in data.get("results", []):
             url = item.get("url")
             if not url or not str(url).startswith(("http://", "https://")):
+                continue
+            # A site:-scoped query is a promise to the pipeline. Some engines
+            # honor the operator; others (bing, notoriously) quietly drop it
+            # and return keyword matches from anywhere, which would flood the
+            # candidate pool with junk. Enforce the scope here.
+            if site and not _in_site(str(url), site):
                 continue
             published = parse_published(item.get("publishedDate"))
             # pre-fetch date filter: drop only when a date is present AND outside

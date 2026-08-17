@@ -22,7 +22,7 @@ Research question: {query}
 Recency focus: {recency_desc}
 Today's date: {today}
 Number of initial search queries to produce: {breadth}
-{prior_block}
+{prior_block}{authority_block}
 Produce a JSON object with exactly these keys:
 - "title": a short descriptive title for this research (max 10 words)
 - "brief": 2-4 sentences stating what the research must establish — the specific angles, subtopics, and what a complete answer looks like
@@ -37,6 +37,14 @@ what is already established — target gaps and updates instead):
 ---
 {prior}
 ---
+"""
+
+AUTHORITY_BLOCK = """
+Curated sites known to hold authoritative primary documents:
+{authority_sites}
+If one of these plausibly covers the topic, dedicate ONE query to it using the
+site: operator (e.g. "site:charm.li 2007 GX470 spark plug"). Ignore them all
+when none fits the topic — never waste a query on an irrelevant site.
 """
 
 NOTES = """You are the note-taking stage of an automated research pipeline. \
@@ -99,7 +107,7 @@ New findings this round:
 
 Queries already searched (do not repeat or trivially rephrase):
 {searched}
-
+{authority_block}
 Produce a JSON object with exactly these keys:
 - "state_md": REWRITE the complete research state document in markdown, merging the new findings into it: what is now established (cite source ids like [3]), what is uncertain or disputed, what is still missing. Max 1500 words. This document is the pipeline's only memory — keep it complete and dense.
 - "saturated": boolean — true only if further searching is unlikely to add material insight on the brief

@@ -70,6 +70,13 @@
       <input type="text" name="blocked_domains" value="{{ cfg.blocked_domains }}"
              placeholder="e.g. pinterest.com, quora.com">
     </label>
+    <label>Authority sites <small>(one per line: domain — what it holds)</small>
+      <textarea name="authority_sites" rows="3"
+                placeholder="charm.li — full factory service manuals for cars">{{ cfg.authority_sites }}</textarea>
+    </label>
+    <p class="hint">Sites full of authoritative primary documents that search
+      engines barely index. When one fits the topic, the planner dedicates a
+      <code>site:</code>-scoped query to it.</p>
     <label>
       <input type="checkbox" name="browser_impersonation" {{ 'checked' if cfg.browser_impersonation else '' }}>
       Retry refused fetches with a real Chrome fingerprint

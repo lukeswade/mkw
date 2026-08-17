@@ -32,13 +32,16 @@ def _truncate_state(state_md: str) -> str:
 
 async def analyze(llm: LLM, *, query: str, brief: str, recency_desc: str,
                   round_no: int, depth: int, breadth: int, state_md: str,
-                  new_findings: list[Finding], searched: list[str]) -> GapOut:
+                  new_findings: list[Finding], searched: list[str],
+                  authority: str = "") -> GapOut:
+    authority_block = (prompts.AUTHORITY_BLOCK.format(authority_sites=authority)
+                       if authority else "")
     prompt = prompts.GAP.format(
         round=round_no, depth=depth, query=query, brief=brief,
         recency_desc=recency_desc, state_md=state_md or "(empty)",
         round_findings=render_round_findings(new_findings),
         searched="\n".join(f"- {q}" for q in searched) or "(none)",
-        breadth=breadth,
+        breadth=breadth, authority_block=authority_block,
     )
     try:
         out = await llm.chat_json(

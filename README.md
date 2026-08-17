@@ -159,6 +159,13 @@ Log — plus **Export PDF**, which produces the entire research record as a
 single document: the question as asked, the overview, the bibliography, and
 every source's notes.
 
+**Authority sites.** Some of the best primary sources — like charm.li, the
+mirror of full factory service manuals for nearly every car — are barely
+indexed by search engines and never surface on their own. The Settings page
+keeps a short curated list ("domain — what it holds"); when a topic fits one,
+the planner dedicates a `site:`-scoped query to it. Add your own goldmines as
+you find them.
+
 **Citation chasing.** When a source makes the cut, its most relevant outbound
 references become candidates in the same run — the links a good page chooses
 are often better than anything a search engine returns, and unreachable

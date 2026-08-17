@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from app.research.pipeline import (breadth_for_depth, max_docs_for_depth,
+from app.research.pipeline import (breadth_for_depth, candidates_per_round,
+                                   max_docs_for_depth,
                                    max_llm_calls_for_depth)
 
 # Fallbacks until this install has completed runs to learn from. Seconds per
@@ -102,7 +103,7 @@ def estimate_run(repo, depth: int) -> Estimate:
     queries = breadth * depth
     # The caps are ceilings; a typical run saturates before reaching them.
     cap = max_docs_for_depth(depth)
-    fetched = min(cap, breadth * 3 * depth)
+    fetched = min(cap, candidates_per_round(breadth) * depth)
     likely = int(fetched * KEEP_RATE)
     sources_low = max(2, int(likely * 0.5))
     sources_high = max(sources_low + 1, min(cap, likely))

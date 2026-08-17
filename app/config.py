@@ -44,6 +44,7 @@ ENV_MAP = {
     "relevance_threshold": "RELEVANCE_THRESHOLD",
     "reference_chasing": "REFERENCE_CHASING",
     "blocked_domains": "BLOCKED_DOMAINS",
+    "authority_sites": "AUTHORITY_SITES",
     "respect_robots": "RESPECT_ROBOTS",
     "allow_private_fetch": "ALLOW_PRIVATE_FETCH",
     "user_agent": "USER_AGENT",
@@ -74,6 +75,7 @@ UI_EDITABLE = {
     "relevance_threshold",
     "reference_chasing",
     "blocked_domains",
+    "authority_sites",
     "respect_robots",
     "browser_impersonation",
     "browser_solver_url",
@@ -127,6 +129,12 @@ class Settings:
     reference_chasing: bool = True
     # Comma-separated domains never worth fetching for you (e.g. pinterest.com)
     blocked_domains: str = ""
+    # Curated sites holding authoritative primary documents, offered to the
+    # planner and gap analysis for site:-scoped queries when the topic fits
+    # (search engines barely index their deep pages, so they rarely surface
+    # on their own). One per line, "domain — what it holds".
+    authority_sites: str = ("charm.li — full factory service manuals for most "
+                            "cars and trucks, every make/model/year")
     # Off by default: this fetches a handful of pages a person could
     # open by hand, at one request per second per domain, with an
     # identifiable user agent. Turn it on if you want the crawler
