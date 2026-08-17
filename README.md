@@ -23,7 +23,9 @@ Ollama, or MLX.
   fetched too — datasheets and primary documents search engines never surface.
 - **Reads the hard parts of the web**: YouTube videos via their caption
   transcripts, Reddit threads (post + comments) via the JSON API, and scraped
-  SEO clones collapsed into a single source.
+  SEO clones collapsed into a single source. Fetches refused by CDN bot walls
+  are retried with a real Chrome TLS fingerprint, and an optional headless
+  browser sidecar solves JavaScript challenges.
 - **Evergreen topics** re-research themselves daily, and every refresh leads
   with *what's new* instead of repeating itself.
 - **One-click PDF export** of the whole research record, and a **Telegram
@@ -172,6 +174,22 @@ shows up under several domains — scraped SEO clones, syndicated copies — the
 duplicates are collapsed to a single source instead of being analyzed and
 cited repeatedly.
 
+**Bot walls.** When a page answers with a bot-wall status (403, 429, a
+challenge interstitial), the fetch escalates: first a retry presenting a real
+Chrome TLS fingerprint — most CDN blocks key on the TLS handshake, and this
+recovers sites like Britannica or Merriam-Webster without running a browser —
+and then, if you've opted in, a [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)
+sidecar that drives a real headless browser through JavaScript challenges:
+
+```bash
+docker compose --profile browser up -d
+```
+
+then set `BROWSER_SOLVER_URL=http://flaresolverr:8191` in `.env` (add
+`COMPOSE_PROFILES=browser` there too so plain `docker compose up -d` keeps
+managing it) or paste the URL in Settings. Some walls (Yelp, PerimeterX
+sites) defeat even that — those fail with an honest reason in the log.
+
 **Ask** answers questions from everything you've researched so far, citing the
 runs it drew on — and every answer offers a one-click "Research this deeper"
 handoff into a full run. New runs automatically build on related earlier
@@ -299,8 +317,9 @@ building one never clobbers the other.
   rate-limits itself to one request per second per domain (slower on hosts
   with strict limits, like reddit). It sends a standard
   browser user agent by default because many CDNs reject unknown clients with
-  403 (set `USER_AGENT` to identify yourself instead). robots.txt is **not**
-  honoured by
+  403 (set `USER_AGENT` to identify yourself instead), and retries bot-wall
+  refusals once with a real Chrome TLS fingerprint
+  (`BROWSER_IMPERSONATION=false` to disable). robots.txt is **not** honoured by
   default — this reads the same handful of pages you would open by hand
   rather than crawling a site. Set `RESPECT_ROBOTS=true` to enforce it.
 - Run files are served through a filename allowlist plus a containment check,

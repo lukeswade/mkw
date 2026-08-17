@@ -308,3 +308,120 @@ async def test_duplicate_content_across_domains_is_kept_once(data_dir):
     assert llm.calls["notes"] == 1                 # the clone never cost a call
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
     assert "duplicate of" in events
+
+
+# ---- fetch escalation: impersonation and the browser solver --------------------
+
+from app.research.fetcher import _challenge_status
+
+
+def test_challenge_status_recognizes_bot_walls():
+    for reason in ("http 403", "http 202", "http 429", "http 522",
+                   "http 403 (impersonated)"):
+        assert _challenge_status(reason)
+    for reason in ("http 404", "http 500", "no extractable text",
+                   "fetch failed: ReadTimeout"):
+        assert not _challenge_status(reason)
+
+
+@respx.mock
+async def test_blocked_fetch_escalates_to_impersonation(data_dir, monkeypatch):
+    respx.get("https://walled.example.com/page").mock(
+        return_value=httpx.Response(403))
+    fetcher, client = _fetcher(data_dir)
+    calls = []
+
+    async def fake_curl(url, extra_types=()):
+        calls.append(url)
+        return Fetched(url=url, final_url=url, content_type="text/html",
+                       body=article("Recovered Page").encode())
+    monkeypatch.setattr(fetcher, "_curl_get", fake_curl)
+
+    fetched = await fetcher.fetch("https://walled.example.com/page")
+    await client.aclose()
+    assert calls == ["https://walled.example.com/page"]
+    assert b"Recovered Page" in fetched.body
+
+
+@respx.mock
+async def test_non_challenge_failures_do_not_escalate(data_dir, monkeypatch):
+    respx.get("https://gone.example.com/x").mock(return_value=httpx.Response(404))
+    fetcher, client = _fetcher(data_dir)
+
+    async def fake_curl(url, extra_types=()):
+        raise AssertionError("impersonation must not run for a 404")
+    monkeypatch.setattr(fetcher, "_curl_get", fake_curl)
+
+    with pytest.raises(SkipReason, match="http 404"):
+        await fetcher.fetch("https://gone.example.com/x")
+    await client.aclose()
+
+
+@respx.mock
+async def test_escalation_can_be_disabled(data_dir, monkeypatch):
+    respx.get("https://walled.example.com/page").mock(
+        return_value=httpx.Response(403))
+    fetcher, client = _fetcher(data_dir)
+    fetcher.cfg.browser_impersonation = False
+
+    async def fake_curl(url, extra_types=()):
+        raise AssertionError("impersonation is disabled")
+    monkeypatch.setattr(fetcher, "_curl_get", fake_curl)
+
+    with pytest.raises(SkipReason, match="http 403"):
+        await fetcher.fetch("https://walled.example.com/page")
+    await client.aclose()
+
+
+@respx.mock
+async def test_solver_is_last_resort_after_impersonation(data_dir, monkeypatch):
+    respx.get("https://walled.example.com/page").mock(
+        return_value=httpx.Response(403))
+    respx.post("http://solver.test:8191/v1").mock(
+        return_value=httpx.Response(200, json={
+            "status": "ok",
+            "solution": {"status": 200,
+                         "url": "https://walled.example.com/page",
+                         "response": article("Solved Page")}}))
+    fetcher, client = _fetcher(data_dir)
+    fetcher.cfg.browser_solver_url = "http://solver.test:8191"
+
+    async def fake_curl(url, extra_types=()):
+        raise SkipReason("http 403 (impersonated)")
+    monkeypatch.setattr(fetcher, "_curl_get", fake_curl)
+
+    fetched = await fetcher.fetch("https://walled.example.com/page")
+    await client.aclose()
+    assert b"Solved Page" in fetched.body
+    assert fetched.content_type == "text/html"
+
+
+@respx.mock
+async def test_solver_is_skipped_for_api_fetches(data_dir, monkeypatch):
+    respx.get("https://old.reddit.com/r/GXOR/comments/abc/x.json").mock(
+        return_value=httpx.Response(403))
+    fetcher, client = _fetcher(data_dir)
+    fetcher.cfg.browser_solver_url = "http://solver.test:8191"
+    fetcher.cfg.browser_impersonation = False
+
+    with pytest.raises(SkipReason, match="http 403"):
+        await fetcher.fetch(
+            "https://www.reddit.com/r/GXOR/comments/abc/x.json",
+            extra_types=("application/json",))
+    await client.aclose()
+
+
+@respx.mock
+async def test_solver_failure_reports_honestly(data_dir, monkeypatch):
+    respx.get("https://walled.example.com/page").mock(
+        return_value=httpx.Response(403))
+    respx.post("http://solver.test:8191/v1").mock(
+        return_value=httpx.Response(200, json={
+            "status": "error", "message": "challenge not solved"}))
+    fetcher, client = _fetcher(data_dir)
+    fetcher.cfg.browser_impersonation = False
+    fetcher.cfg.browser_solver_url = "http://solver.test:8191"
+
+    with pytest.raises(SkipReason, match="browser solver failed"):
+        await fetcher.fetch("https://walled.example.com/page")
+    await client.aclose()

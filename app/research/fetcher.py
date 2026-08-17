@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import re
 import socket
 import time
 import urllib.robotparser
@@ -74,6 +75,21 @@ class Fetched:
 
 class SkipReason(Exception):
     """Fetch skipped for a stated reason (not an error)."""
+
+
+# Refusals that usually mean a bot wall rather than a real answer: worth
+# retrying with a stronger disguise. 202 is the challenge-interstitial some
+# forums serve; 520-526 are Cloudflare's own error band.
+_CHALLENGE_CODES = frozenset({202, 401, 403, 405, 406, 429, 503})
+_STATUS_RE = re.compile(r"http (\d+)")
+
+
+def _challenge_status(reason: str) -> bool:
+    m = _STATUS_RE.search(reason)
+    if not m:
+        return False
+    code = int(m.group(1))
+    return code in _CHALLENGE_CODES or 520 <= code <= 526
 
 
 class Fetcher:
@@ -173,26 +189,124 @@ class Fetcher:
     # ---- public -----------------------------------------------------------------
     async def fetch(self, url: str,
                     extra_types: tuple[str, ...] = ()) -> Fetched:
-        """Fetch one URL. Raises SkipReason with a human-readable cause."""
+        """Fetch one URL. Raises SkipReason with a human-readable cause.
+
+        When the plain client is refused with a bot-wall status, the fetch
+        escalates: once with a real Chrome TLS fingerprint (curl_cffi), then —
+        if a solver is configured — through a real headless browser that can
+        pass JavaScript challenges.
+        """
         async with self._sem:
-            current = url
-            for _hop in range(MAX_REDIRECTS + 1):
-                current = rewrite_host(current)  # also on every redirect hop
-                if domain_of(current) in _LOGIN_WALLED:
-                    raise SkipReason("login-walled site")
-                if not await self._host_allowed(current):
-                    raise SkipReason("blocked address (SSRF guard)")
-                if not await self._robots_allows(current):
-                    raise SkipReason("disallowed by robots.txt")
-                try:
-                    result = await self._polite_get(current, extra_types)
-                except httpx.HTTPError as e:
-                    raise SkipReason(f"fetch failed: {type(e).__name__}") from e
-                if isinstance(result, Fetched):
-                    return result
-                # redirect
-                location = result.headers.get("location")
-                if not location:
-                    raise SkipReason("redirect without location")
-                current = str(httpx.URL(current).join(location))
-            raise SkipReason("too many redirects")
+            try:
+                return await self._hops(url, extra_types, self._polite_get)
+            except SkipReason as err:
+                for attempt in self._escalations(extra_types):
+                    if not _challenge_status(str(err)):
+                        break
+                    try:
+                        return await attempt(url, extra_types)
+                    except SkipReason as e:
+                        err = e
+                raise err
+
+    def _escalations(self, extra_types: tuple[str, ...]) -> list:
+        out = []
+        if getattr(self.cfg, "browser_impersonation", True):
+            out.append(lambda u, et: self._hops(u, et, self._curl_get))
+        # The solver renders pages in a browser, so it only makes sense for
+        # HTML — an API fetch (reddit .json) would come back wrapped in markup.
+        if getattr(self.cfg, "browser_solver_url", "") and not extra_types:
+            out.append(self._solver_get)
+        return out
+
+    async def _hops(self, url: str, extra_types: tuple[str, ...],
+                    getter) -> Fetched:
+        """The redirect-following loop, with every hop guard-checked."""
+        current = url
+        for _hop in range(MAX_REDIRECTS + 1):
+            current = rewrite_host(current)  # also on every redirect hop
+            if domain_of(current) in _LOGIN_WALLED:
+                raise SkipReason("login-walled site")
+            if not await self._host_allowed(current):
+                raise SkipReason("blocked address (SSRF guard)")
+            if not await self._robots_allows(current):
+                raise SkipReason("disallowed by robots.txt")
+            try:
+                result = await getter(current, extra_types)
+            except httpx.HTTPError as e:
+                raise SkipReason(f"fetch failed: {type(e).__name__}") from e
+            if isinstance(result, Fetched):
+                return result
+            # redirect
+            location = result.headers.get("location")
+            if not location:
+                raise SkipReason("redirect without location")
+            current = str(httpx.URL(current).join(location))
+        raise SkipReason("too many redirects")
+
+    # ---- escalation transports ---------------------------------------------------
+    async def _curl_get(self, url: str,
+                        extra_types: tuple[str, ...] = ()):
+        """One GET presenting a real Chrome TLS fingerprint.
+
+        Most CDN bot walls (Cloudflare, Akamai) reject on the TLS handshake —
+        python clients have a recognizable one no User-Agent can hide. libcurl
+        built to impersonate Chrome recovers those pages without a browser.
+        """
+        try:
+            from curl_cffi.requests import AsyncSession
+        except ImportError as e:
+            raise SkipReason("impersonation unavailable") from e
+        allowed = ALLOWED_TYPES + extra_types
+        domain = domain_of(url)
+        interval = next((v for k, v in _DOMAIN_INTERVALS.items()
+                         if domain == k or domain.endswith("." + k)),
+                        DOMAIN_MIN_INTERVAL)
+        async with self._domain_sem(domain):
+            wait = self._domain_last.get(domain, 0.0) + interval - time.monotonic()
+            if wait > 0:
+                await asyncio.sleep(wait)
+            try:
+                async with AsyncSession(impersonate="chrome",
+                                        timeout=25) as session:
+                    resp = await session.get(
+                        url, allow_redirects=False,
+                        headers={"Accept-Language": "en-US,en;q=0.9"})
+            except Exception as e:  # curl_cffi has its own error hierarchy
+                raise SkipReason(f"fetch failed: {type(e).__name__}") from e
+            finally:
+                self._domain_last[domain] = time.monotonic()
+        if resp.status_code in (301, 302, 303, 307, 308):
+            return resp  # caller follows, with guards
+        if resp.status_code != 200:
+            raise SkipReason(f"http {resp.status_code} (impersonated)")
+        ctype = (resp.headers.get("content-type") or "text/html").split(";")[0].strip().lower()
+        if not any(ctype.startswith(t) for t in allowed):
+            raise SkipReason(f"content-type {ctype}")
+        return Fetched(url=url, final_url=url, content_type=ctype,
+                       body=resp.content[:MAX_BYTES])
+
+    async def _solver_get(self, url: str,
+                          extra_types: tuple[str, ...] = ()) -> Fetched:
+        """Last resort: a FlareSolverr sidecar drives a real headless browser
+        through the page's JavaScript challenge and hands back the HTML."""
+        if not await self._host_allowed(url):
+            raise SkipReason("blocked address (SSRF guard)")
+        base = self.cfg.browser_solver_url.rstrip("/")
+        try:
+            resp = await self.client.post(
+                f"{base}/v1",
+                json={"cmd": "request.get", "url": url, "maxTimeout": 45000},
+                timeout=60)
+            data = resp.json()
+        except (httpx.HTTPError, ValueError) as e:
+            raise SkipReason(f"browser solver unreachable: {type(e).__name__}") from e
+        solution = data.get("solution") or {}
+        status = int(solution.get("status") or 0)
+        if data.get("status") != "ok" or status >= 400 or not solution.get("response"):
+            detail = status or data.get("message") or "no response"
+            raise SkipReason(f"browser solver failed ({detail})")
+        log.info("browser solver recovered %s", url)
+        return Fetched(url=url, final_url=solution.get("url") or url,
+                       content_type="text/html",
+                       body=solution["response"].encode()[:MAX_BYTES])

@@ -47,6 +47,8 @@ ENV_MAP = {
     "respect_robots": "RESPECT_ROBOTS",
     "allow_private_fetch": "ALLOW_PRIVATE_FETCH",
     "user_agent": "USER_AGENT",
+    "browser_impersonation": "BROWSER_IMPERSONATION",
+    "browser_solver_url": "BROWSER_SOLVER_URL",
 }
 
 # Fields the web Settings page is allowed to persist into settings.json.
@@ -73,6 +75,8 @@ UI_EDITABLE = {
     "reference_chasing",
     "blocked_domains",
     "respect_robots",
+    "browser_impersonation",
+    "browser_solver_url",
 }
 
 SECRET_FIELDS = {"llm_api_key", "deepseek_api_key", "local_llm_api_key",
@@ -136,6 +140,16 @@ class Settings:
     user_agent: str = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
                        "Chrome/126.0.0.0 Safari/537.36")
+    # When a fetch is refused with a bot-wall status (403/429/challenge), retry
+    # it once presenting a real Chrome TLS fingerprint (curl_cffi). Most CDN
+    # blocks key on the TLS handshake, not behavior, so this recovers them
+    # without running a browser.
+    browser_impersonation: bool = True
+    # Optional last resort for pages that refuse even a real fingerprint:
+    # a FlareSolverr endpoint (docker compose --profile browser up -d, then
+    # http://flaresolverr:8191). It drives a real headless browser through
+    # JavaScript challenges. Empty = escalation stops at impersonation.
+    browser_solver_url: str = ""
 
     # --- resolved LLM endpoint -------------------------------------------
     # Precedence: explicit generic field → legacy provider-specific field →

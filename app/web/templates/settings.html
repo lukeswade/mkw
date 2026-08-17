@@ -71,6 +71,20 @@
              placeholder="e.g. pinterest.com, quora.com">
     </label>
     <label>
+      <input type="checkbox" name="browser_impersonation" {{ 'checked' if cfg.browser_impersonation else '' }}>
+      Retry refused fetches with a real Chrome fingerprint
+    </label>
+    <p class="hint">Many CDNs reject non-browser clients on the TLS handshake
+      alone. When a page answers 403/429/challenge, it is retried once
+      presenting Chrome's exact fingerprint — no browser involved.</p>
+    <label>Browser solver URL <small>(optional, for JavaScript challenges)</small>
+      <input type="text" name="browser_solver_url" value="{{ cfg.browser_solver_url }}"
+             placeholder="http://flaresolverr:8191">
+    </label>
+    <p class="hint">Last resort for pages that refuse even a real fingerprint:
+      a FlareSolverr headless browser solves the challenge and returns the
+      page. Start one with <code>docker compose --profile browser up -d</code>.</p>
+    <label>
       <input type="checkbox" name="respect_robots" {{ 'checked' if cfg.respect_robots else '' }}>
       Respect robots.txt when fetching pages
     </label>

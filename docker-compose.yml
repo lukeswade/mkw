@@ -54,6 +54,18 @@ services:
   #   command: ["-m", "/models/model.gguf", "--host", "0.0.0.0", "--port", "8080", "-c", "32768"]
   #   restart: unless-stopped
 
+  # Optional: a headless browser that solves JavaScript bot challenges for
+  # pages that refuse even a Chrome-fingerprint fetch. Opt in with:
+  #   docker compose --profile browser up -d
+  # and set BROWSER_SOLVER_URL=http://flaresolverr:8191 in .env (or the URL in
+  # Settings). Internal-only: no ports are published on the host.
+  flaresolverr:
+    profiles: ["browser"]
+    image: ghcr.io/flaresolverr/flaresolverr:v3.4.1
+    environment:
+      - LOG_LEVEL=info
+    restart: unless-stopped
+
   # Optional: expose the UI on a public hostname through a Cloudflare Tunnel,
   # with no inbound ports opened on the host. Opt in with:
   #   docker compose --profile tunnel up -d

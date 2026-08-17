@@ -43,6 +43,7 @@ async def settings_save(request: Request):
             pass
     updates["respect_robots"] = form.get("respect_robots") == "on"
     updates["reference_chasing"] = form.get("reference_chasing") == "on"
+    updates["browser_impersonation"] = form.get("browser_impersonation") == "on"
     if "blocked_domains" in form:
         updates["blocked_domains"] = str(form["blocked_domains"]).strip()
     for f in _SECRET_FORM_FIELDS:
