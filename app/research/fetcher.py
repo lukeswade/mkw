@@ -304,7 +304,8 @@ class Fetcher:
         solution = data.get("solution") or {}
         status = int(solution.get("status") or 0)
         if data.get("status") != "ok" or status >= 400 or not solution.get("response"):
-            detail = status or data.get("message") or "no response"
+            detail = str(status or data.get("message") or "no response")
+            detail = detail.splitlines()[0][:120]  # not a stacktrace dump
             raise SkipReason(f"browser solver failed ({detail})")
         log.info("browser solver recovered %s", url)
         return Fetched(url=url, final_url=solution.get("url") or url,

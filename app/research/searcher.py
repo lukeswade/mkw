@@ -208,4 +208,16 @@ class Searcher:
                 published=published,
                 score=float(item.get("score") or 0.0),
             ))
+        # Site-restricted indexes are thin: a long specific query against one
+        # usually matches nothing, while a short one finds the pages. Planners
+        # keep writing long ones despite prompt guidance, so enforce the
+        # shortening here: one retry with the first five words.
+        if site and not out and pageno == 1:
+            words = [w for w in query.split()
+                     if not w.lower().startswith("site:")]
+            if len(words) > 5:
+                short = f"site:{site} " + " ".join(words[:5])
+                log.info("site-scoped query found nothing, retrying "
+                         "shorter: %r", short)
+                return await self.search(short, recency, pageno=pageno)
         return out

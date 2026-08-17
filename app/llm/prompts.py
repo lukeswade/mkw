@@ -43,7 +43,9 @@ AUTHORITY_BLOCK = """
 Curated sites known to hold authoritative primary documents:
 {authority_sites}
 If one of these plausibly covers the topic, dedicate ONE query to it using the
-site: operator (e.g. "site:charm.li 2007 GX470 spark plug"). Ignore them all
+site: operator. Keep that query SHORT — the site: operator plus 2-4 broad
+keywords (e.g. "site:charm.li GX470 spark plug"): site-restricted indexes are
+thin, and a long specific query returns nothing. Ignore these sites entirely
 when none fits the topic — never waste a query on an irrelevant site.
 """
 

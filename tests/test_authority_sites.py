@@ -136,3 +136,44 @@ async def test_site_scope_is_enforced_against_disobedient_engines(data_dir):
         s = Searcher(SX, http, categories="general", max_concurrent=1)
         res = await s.search("2007 GX470 spark plug", "all")
     assert len(res) == 3
+
+
+@respx.mock
+async def test_empty_site_query_retries_with_first_five_words(data_dir):
+    """Site-restricted indexes are thin — a long query that finds nothing is
+    retried once, trimmed to its first five words."""
+    seen: list[str] = []
+
+    def handler(req):
+        q = req.url.params["q"]
+        seen.append(q)
+        if q == "site:charm.li Lexus GX470 2007 spark plug":
+            return httpx.Response(200, json=sx_payload(
+                [sx_result("https://charm.li/Lexus/2007/plug-spec", "Specs")]))
+        return httpx.Response(200, json=sx_payload([]))
+
+    respx.get(f"{SX}/search").mock(side_effect=handler)
+    from app.research.searcher import Searcher
+    async with httpx.AsyncClient() as http:
+        s = Searcher(SX, http, categories="general", max_concurrent=1)
+        res = await s.search(
+            "site:charm.li Lexus GX470 2007 spark plug replacement procedure "
+            "torque specs", "all")
+    assert len(seen) == 2 and seen[1] == "site:charm.li Lexus GX470 2007 spark plug"
+    assert [r.url for r in res] == ["https://charm.li/Lexus/2007/plug-spec"]
+
+
+@respx.mock
+async def test_short_empty_site_query_is_not_retried(data_dir):
+    seen: list[str] = []
+
+    def handler(req):
+        seen.append(req.url.params["q"])
+        return httpx.Response(200, json=sx_payload([]))
+
+    respx.get(f"{SX}/search").mock(side_effect=handler)
+    from app.research.searcher import Searcher
+    async with httpx.AsyncClient() as http:
+        s = Searcher(SX, http, categories="general", max_concurrent=1)
+        res = await s.search("site:charm.li GX470 plugs", "all")
+    assert res == [] and len(seen) == 1
