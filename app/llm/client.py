@@ -76,11 +76,20 @@ class LLM:
 
     def _track(self, kind: str, resp) -> None:
         u = self.usage.setdefault(kind, {"calls": 0, "prompt_tokens": 0,
-                                         "completion_tokens": 0})
+                                         "completion_tokens": 0,
+                                         "cached_tokens": 0})
         u["calls"] += 1
         if getattr(resp, "usage", None):
             u["prompt_tokens"] += resp.usage.prompt_tokens or 0
             u["completion_tokens"] += resp.usage.completion_tokens or 0
+            # Context-cache hits: DeepSeek reports prompt_cache_hit_tokens,
+            # OpenAI reports prompt_tokens_details.cached_tokens. Research
+            # prompts share long prefixes, so this is most of the input bill.
+            cached = getattr(resp.usage, "prompt_cache_hit_tokens", None)
+            if cached is None:
+                details = getattr(resp.usage, "prompt_tokens_details", None)
+                cached = getattr(details, "cached_tokens", None) if details else None
+            u["cached_tokens"] = u.get("cached_tokens", 0) + int(cached or 0)
 
     def usage_summary(self) -> dict:
         total_in = sum(u["prompt_tokens"] for u in self.usage.values())
@@ -95,11 +104,18 @@ class LLM:
         }
         if self.fast_model != self.model:
             summary["fast_model"] = self.fast_model
+        total_cached = sum(u.get("cached_tokens", 0)
+                           for u in self.usage.values())
+        if total_cached:
+            summary["cached_tokens"] = total_cached
         # Only priced where the preset's default model has a stable published
         # price; elsewhere the token counts stand on their own.
         if self.preset.price_in and self.preset.price_out:
+            cached = min(total_cached, total_in)
+            hit_price = self.preset.price_cache_in or self.preset.price_in
             summary["est_cost_usd"] = round(
-                total_in / 1e6 * self.preset.price_in
+                (total_in - cached) / 1e6 * self.preset.price_in
+                + cached / 1e6 * hit_price
                 + total_out / 1e6 * self.preset.price_out, 4)
         return summary
 

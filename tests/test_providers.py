@@ -92,3 +92,52 @@ async def test_unconfigured_provider_fails_with_a_useful_message():
     with pytest.raises(Exception) as exc:
         await llm.chat("planner", [{"role": "user", "content": "hi"}])
     assert "OpenAI" in str(exc.value)
+
+
+def test_deepseek_cost_prices_cache_hits(data_dir):
+    """Matt's empirical bill: 24.9M tokens ≈ $0.57 — cache hits dominate.
+    Costing every input token at the cache-miss rate overestimated ~10x."""
+    from app.config import Settings
+    from app.llm.client import LLM
+
+    cfg = Settings(data_dir=str(data_dir), llm_provider="deepseek",
+                   llm_api_key="sk-test")
+    llm = LLM(cfg)
+
+    class Usage:
+        prompt_tokens = 1_000_000
+        completion_tokens = 100_000
+        prompt_cache_hit_tokens = 900_000
+
+    class Resp:
+        usage = Usage()
+
+    llm._track("notes", Resp())
+    s = llm.usage_summary()
+    assert s["cached_tokens"] == 900_000
+    # 100k miss @ $0.28 + 900k hit @ $0.028 + 100k out @ $0.42
+    expected = round(0.1 * 0.28 + 0.9 * 0.028 + 0.1 * 0.42, 4)
+    assert s["est_cost_usd"] == expected
+    # sanity: the old all-miss math would have said ~2.4x more
+    assert s["est_cost_usd"] < 0.1
+
+
+def test_cost_without_cache_info_uses_miss_price(data_dir):
+    from app.config import Settings
+    from app.llm.client import LLM
+
+    cfg = Settings(data_dir=str(data_dir), llm_provider="deepseek",
+                   llm_api_key="sk-test")
+    llm = LLM(cfg)
+
+    class Usage:
+        prompt_tokens = 1_000_000
+        completion_tokens = 0
+
+    class Resp:
+        usage = Usage()
+
+    llm._track("notes", Resp())
+    s = llm.usage_summary()
+    assert "cached_tokens" not in s
+    assert s["est_cost_usd"] == 0.28

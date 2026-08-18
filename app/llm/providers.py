@@ -23,17 +23,21 @@ class Provider:
     needs_key: bool = True
     price_in: float | None = None
     price_out: float | None = None
+    # Cached-input price. Research prompts share long template prefixes, so
+    # providers with context caching serve most input tokens at this rate —
+    # ignoring it overestimated real DeepSeek runs by an order of magnitude.
+    price_cache_in: float | None = None
     hint: str = ""
 
 
 PROVIDERS: dict[str, Provider] = {
     "deepseek": Provider(
         "deepseek", "DeepSeek", "https://api.deepseek.com", "deepseek-chat",
-        price_in=0.27, price_out=1.10,
+        price_in=0.28, price_out=0.42, price_cache_in=0.028,
         hint="Cheap and strong at structured output. Key: platform.deepseek.com"),
     "openai": Provider(
         "openai", "OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini",
-        price_in=0.40, price_out=1.60,
+        price_in=0.40, price_out=1.60, price_cache_in=0.10,
         hint="Key: platform.openai.com. Supports strict json_schema output."),
     "openrouter": Provider(
         "openrouter", "OpenRouter", "https://openrouter.ai/api/v1",
