@@ -138,9 +138,14 @@ that find nothing new, or at per-depth source and LLM-call caps.
 
 - **Depth 0** is quick chat — a straight streamed answer from the model with
   no web search. Good for a fast question.
-- **Depth 1–3** is a normal question.
-- **Depth 5–10** is a project. Expect many sources and, on a local model, a
-  long wall-clock time.
+- **Depth 1–3** is a normal question: typically 5–25 sources.
+- **Depth 4–6** is a deep dive: dozens of sources, and a run stops early only
+  after gap analysis declares the topic saturated twice in a row.
+- **Depth 7–10** is deep-research territory — Perplexity/OpenAI-DR scale, with
+  source budgets up to ~220 at depth 10. On a local model that's hours unless
+  you raise `LLM_CONCURRENCY` (batching servers like oMLX and llama.cpp run
+  parallel note-taking at nearly linear aggregate throughput) or point the
+  planning/synthesis at a cloud model.
 
 The new-run form shows a live estimate — searches, sources, LLM calls, time,
 cost — for the depth you've dialed in, calibrated against your own completed

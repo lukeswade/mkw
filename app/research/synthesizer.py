@@ -66,16 +66,19 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
     # actually waiting on, so stream it into the progress pane rather than
     # sitting behind a spinner. A stream failure falls back to a normal call —
     # the document matters more than the animation.
+    # A 100+ source deep run deserves a longer report than a 6-source one.
+    max_out = 8000 if len(findings) <= 30 else 12000
+
     text = None
     if bus is not None and run_id:
         try:
             text = await llm.chat_stream("synth", messages, bus, run_id,
-                                         max_tokens=8000, temperature=0.4)
+                                         max_tokens=max_out, temperature=0.4)
         except Exception:
             log.warning("streaming synthesis failed, retrying unstreamed",
                         exc_info=True)
     if text is None:
-        text = await llm.chat("synth", messages, max_tokens=8000,
+        text = await llm.chat("synth", messages, max_tokens=max_out,
                               temperature=0.4)
 
     if not looks_like_document(text):
@@ -90,7 +93,7 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                  "document itself, beginning immediately with the '# ' title "
                  "line. No planning, no reasoning, no commentary.")
         retry = await llm.chat("synth", [{"role": "user", "content": stern}],
-                               max_tokens=8000, temperature=0.4)
+                               max_tokens=max_out, temperature=0.4)
         if looks_like_document(retry):
             return retry
     return text

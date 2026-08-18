@@ -17,13 +17,11 @@ from tests.test_pipeline_e2e import SX, article, make_cfg, sx_payload, sx_result
 
 
 def test_candidate_budget_grew_with_every_depth():
-    # the +5..10 widening over the old breadth*3, monotone in depth
-    for depth, expected in ((1, 14), (2, 18), (3, 22), (6, 34), (10, 34)):
+    for depth, expected in ((1, 14), (2, 18), (3, 22), (6, 34), (10, 42)):
         assert candidates_per_round(breadth_for_depth(depth)) == expected
-    assert all(
-        candidates_per_round(breadth_for_depth(d))
-        - 3 * breadth_for_depth(d) in range(5, 11)
-        for d in range(1, 11))
+    budgets = [candidates_per_round(breadth_for_depth(d))
+               for d in range(1, 11)]
+    assert budgets == sorted(budgets)  # monotone in depth
 
 
 @respx.mock

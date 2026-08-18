@@ -46,19 +46,32 @@ log = logging.getLogger(__name__)
 # ---- depth semantics ---------------------------------------------------------
 
 def breadth_for_depth(depth: int) -> int:
-    return min(2 + depth, 8)
+    return min(2 + depth, 10)
 
 def max_docs_for_depth(depth: int) -> int:
-    return 12 * depth
+    # Slightly superlinear: high depths are "deep research" runs, and the
+    # benchmark there (Perplexity/OpenAI DR) reads sources by the hundred,
+    # not the dozen. depth 1 → 13, 3 → 45, 5 → 85, 10 → 220.
+    return depth * (12 + depth)
 
 def candidates_per_round(breadth: int) -> int:
     # breadth*3 starved runs whose topics live on hard-to-search sites; the
     # wider net costs only fetches for candidates the ranker put below the
-    # old cut line — the notes-call budget is still governed by relevance.
+    # old cut line — the notes-call budget is still governed by triage and
+    # relevance.
     return breadth * 4 + 2
 
 def max_llm_calls_for_depth(depth: int) -> int:
-    return 20 + 15 * depth
+    # A ceiling against runaways, not a target: every analyzed document is
+    # one notes call, so the budget must comfortably exceed the source cap.
+    return 25 + 2 * max_docs_for_depth(depth)
+
+def saturation_patience(depth: int) -> int:
+    """Consecutive 'saturated' verdicts needed before a run stops early.
+
+    Models declare "saturated" cheaply; believing the first verdict made
+    depth 8 behave like depth 3. Deep runs demand a second opinion."""
+    return 1 if depth <= 3 else 2
 
 
 # Below the keep threshold but not worthless — promoted only if the run would
@@ -289,6 +302,7 @@ class Pipeline:
             queries = the_plan.subqueries
             current_keywords = the_plan.keywords
             dry_rounds = 0
+            saturated_streak = 0
             stop_reason = "depth limit reached"
             for round_no in range(1, depth + 1):
                 self._check_cancel()
@@ -325,7 +339,9 @@ class Pipeline:
                                  next_queries=gap.next_queries)
 
                 dry_rounds = dry_rounds + 1 if len(kept) < 2 else 0
-                if gap.saturated and round_no >= min(2, depth):
+                saturated_streak = saturated_streak + 1 if gap.saturated else 0
+                if (saturated_streak >= saturation_patience(depth)
+                        and round_no >= min(2, depth)):
                     stop_reason = "saturated — no material gaps left"
                     break
                 if dry_rounds >= 2:
