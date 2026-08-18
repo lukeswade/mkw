@@ -22,7 +22,8 @@ from app.config import Settings
 from app.db import Repo, utcnow
 from app.llm import prompts
 from app.llm.client import LLM
-from app.models import RECENCY_LABELS
+from app.llm.json_utils import LLMJsonError
+from app.models import RECENCY_LABELS, TriageOut
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
@@ -73,6 +74,11 @@ _REFS_PER_ROUND = 4
 # Genuinely distinct articles on one topic land far lower (~0.1-0.3).
 _DUP_CONTAINMENT = 0.7
 
+# A low-scoring page with less text than this is usually a section/index
+# shell (service-manual directories are the canonical case) — the content
+# lives one level down, so its own child links are worth following.
+_STUB_CHARS = 600
+
 # Link targets that are never worth a fetch: social shares and video, which
 # either have no extractable text or are pure engagement chrome.
 _REF_SKIP_DOMAINS = frozenset({
@@ -84,19 +90,23 @@ _REF_SKIP_DOMAINS = frozenset({
 
 def select_references(links: list[tuple[str, str]], *, source_url: str,
                       context: str, seen: set[str],
-                      per_source: int = 3) -> list[tuple[str, str]]:
+                      per_source: int = 3,
+                      same_domain_ok: bool = False) -> list[tuple[str, str]]:
     """Rank a page's outbound links by how much they smell like citations.
 
     Same-domain links are navigation, not references; a link only qualifies
     if its anchor text or URL path shares content words with the research
     context — that is what separates 'further reading' from footer chrome.
+    (`same_domain_ok` flips that rule for index/section pages, where the
+    same-domain children ARE the content.)
     """
     source_domain = domain_of(source_url)
     scored: list[tuple[float, str, str]] = []
     picked_urls: set[str] = set()
     for url, anchor in links:
         domain = domain_of(url)
-        if domain == source_domain or domain in _REF_SKIP_DOMAINS:
+        if (domain == source_domain and not same_domain_ok) \
+                or domain in _REF_SKIP_DOMAINS:
             continue
         canonical = canonicalize(url)
         if canonical in seen or canonical in picked_urls:
@@ -132,6 +142,39 @@ class Pipeline:
         self.rag = rag  # knowledge-layer hooks (M3); None → skipped
         self.llm_factory = llm_factory or (lambda: LLM(cfg))
         self.cancel_requested = False
+
+    async def _triage(self, run_id: str, llm, brief: str,
+                      candidates: list, state: "_RunState") -> list:
+        """Drop candidates whose title/url/snippet already condemns them."""
+        lines = []
+        for i, c in enumerate(candidates):
+            snippet = " ".join((c.snippet or "").split())[:200]
+            lines.append(f"{i}. {c.title[:120]} — {c.url[:150]} — {snippet}"
+                         f" — via: {c.via_query[:80]}")
+        prompt = prompts.TRIAGE.format(brief=brief,
+                                       candidates="\n".join(lines))
+        try:
+            out = await llm.chat_json(
+                "triage", [{"role": "user", "content": prompt}],
+                TriageOut, max_tokens=400, temperature=0.0)
+        except LLMJsonError as e:
+            log.warning("triage degraded to keep-all: %s", e)
+            return candidates
+        keep = {i for i in out.keep if 0 <= i < len(candidates)}
+        if not keep:  # an empty verdict is a broken verdict, not a judgment
+            return candidates
+        dropped = len(candidates) - len(keep)
+        if dropped:
+            state.skipped += dropped
+            for i, c in enumerate(candidates):
+                if i not in keep:
+                    self.bus.publish(run_id, "source_skipped", url=c.url,
+                                     reason="dropped at triage")
+            self.bus.publish(run_id, "log",
+                             message=(f"triage dropped {dropped} of "
+                                      f"{len(candidates)} candidates before "
+                                      f"fetching"))
+        return [c for i, c in enumerate(candidates) if i in keep]
 
     def _blocked_domains(self) -> frozenset[str]:
         raw = getattr(self.cfg, "blocked_domains", "") or ""
@@ -372,6 +415,15 @@ class Pipeline:
                                               f"from page 2"))
                     candidates.extend(backfill)
 
+        # Triage: one fast-model look at titles/urls/snippets before anything
+        # is fetched. A doomed candidate that slips through costs a fetch (up
+        # to a 45s browser-solver attempt) plus minutes of local-model notes
+        # time before scoring 0/10 — this call costs seconds and drops most
+        # of them. Degrades to keeping everything.
+        if len(candidates) > 3:
+            candidates = await self._triage(run_id, llm, brief, candidates,
+                                            state)
+
         total_results = sum(len(l) for l in merged_lists)
         self.bus.publish(run_id, "searched", results=total_results,
                          candidates=len(candidates))
@@ -462,6 +514,21 @@ class Pipeline:
                         "key_facts": [f.model_dump() for f in notes.key_facts],
                         "query": c.via_query,
                     }))
+                # A thin low-scorer is often an index shell over the real
+                # content (FSM section pages): follow its best child links.
+                if (harvest_refs and fetched is not None
+                        and self.cfg.reference_chasing
+                        and len(doc.text) < _STUB_CHARS):
+                    for ref_url, anchor in select_references(
+                            extract_links(fetched), source_url=final_url,
+                            context=f"{query} {brief} {c.via_query}",
+                            seen=state.seen_urls, same_domain_ok=True):
+                        references.append(SearchResult(
+                            url=ref_url, title=anchor or ref_url,
+                            snippet=anchor, engine="reference",
+                            published=None, score=0.0,
+                            via_query=(f"linked from index page on "
+                                       f"{domain_of(final_url)}")))
                 self.bus.publish(run_id, "source_skipped", url=c.url,
                                  reason=f"relevance {notes.relevance}/10")
                 return

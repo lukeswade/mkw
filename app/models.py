@@ -113,6 +113,11 @@ class NotesOut(BaseModel):
             return 0
 
 
+class TriageOut(BaseModel):
+    """Indices of search candidates worth fetching and reading in full."""
+    keep: list[int] = Field(default_factory=list, max_length=64)
+
+
 class GapOut(BaseModel):
     state_md: str = ""
     saturated: bool = False

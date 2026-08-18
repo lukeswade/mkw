@@ -76,6 +76,8 @@ def test_select_references_respects_seen_and_cap():
 
 def _script(synth="# T\n\nBody [1].\n"):
     return {
+        # keep-all triage: candidate selection is under test elsewhere
+        "triage": [{"keep": list(range(64))}],
         "planner": [{"title": "T", "brief": "Investigate solid state batteries.",
                      "subqueries": ["q1"]}],
         "notes": [{"relevance": 8, "summary": "Useful.", "notes_md": "Notes.",

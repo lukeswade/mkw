@@ -12,9 +12,14 @@ from app.models import NotesOut
 
 log = logging.getLogger(__name__)
 
-# ~6k est-tokens of document text per notes call
-_HEAD_CHARS = 14_000
-_TAIL_CHARS = 4_000
+# Document budget per notes call. Prompt processing is far faster than
+# generation (locally and in every cloud), so feeding the whole page costs
+# little and grades it on what it actually says — keyword excerpts kept
+# rating pages from fragments. ~40k chars ≈ 13k est-tokens; only documents
+# larger than that fall back to keyword excerpting / head+tail clipping.
+_INPUT_CHARS = 40_000
+_HEAD_CHARS = 34_000
+_TAIL_CHARS = 6_000
 
 # Sources at or above this score are kept. 4 = "real material on part of the
 # brief" under the notes rubric — demanding briefs made the old bar of 5 throw
@@ -166,15 +171,15 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      url: str, title: str, detected_date: str | None,
                      text: str, keywords: list[str] | None = None) -> NotesOut | None:
     """Returns None when the model output is unusable (doc gets skipped)."""
-    if keywords:
-        filtered = select_excerpts(text, keywords)
-        if filtered:
-            text = filtered
-        else:
-            text = clip_text(text)
-    else:
-        text = clip_text(text)
-        
+    if len(text) > _INPUT_CHARS:
+        # Too big to feed whole: keyword-focused excerpts if we have
+        # keywords, head+tail otherwise.
+        filtered = (select_excerpts(text, keywords, window=2400,
+                                    max_excerpts=24, max_chars=_INPUT_CHARS)
+                    if keywords else "")
+        text = filtered or clip_text(text)
+
+
     prompt = prompts.NOTES.format(
         brief=brief, recency_desc=recency_desc, today=today, url=url,
         title=title, detected_date=detected_date or "unknown",

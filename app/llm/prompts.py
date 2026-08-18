@@ -49,6 +49,27 @@ thin, and a long specific query returns nothing. Ignore these sites entirely
 when none fits the topic — never waste a query on an irrelevant site.
 """
 
+TRIAGE = """You are the triage stage of an automated deep-research pipeline. \
+Search returned the candidate pages below. Each will cost a fetch and a full \
+document analysis, so drop the ones that are clearly not worth it.
+
+Research brief: {brief}
+
+Candidates (index. title — url — snippet — found via):
+{candidates}
+
+Judge each from its title, URL and snippet only. DROP: shopping/product \
+listings, dictionary or encyclopedia pages on generic words, pages about a \
+clearly different model/topic/domain than the brief, listicle content farms, \
+login or share shells. KEEP: primary documents and manuals, forum threads and \
+discussions on the actual topic, guides, official documentation, videos, and \
+anything plausibly useful — when unsure, keep it.
+
+Produce a JSON object with exactly one key:
+- "keep": array of the integer indices worth reading (e.g. [0, 2, 5])
+
+Respond with only the JSON object."""
+
 NOTES = """You are the note-taking stage of an automated research pipeline. \
 Extract what matters from ONE fetched web document.
 

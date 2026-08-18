@@ -115,7 +115,8 @@ Two things worth knowing when running locally:
 - **Set a fast model.** A run makes one planning call and one synthesis call
   but a dozen or more per-document note calls, so nearly all the time goes into
   note-taking. Naming a smaller model in the *Fast model* box uses it for the
-  notes only and leaves the big model to do the thinking:
+  notes and the per-round candidate triage, leaving the big model to do the
+  thinking:
 
   ```
   LLM_MODEL=qwen2.5:32b-instruct   # planning + synthesis
@@ -158,6 +159,13 @@ source's notes, expandable), Further research (one-click follow-up runs), and
 Log — plus **Export PDF**, which produces the entire research record as a
 single document: the question as asked, the overview, the bibliography, and
 every source's notes.
+
+**Triage before reading.** Search returns far more candidates than are worth
+reading. A fast-model pass over titles, URLs and snippets drops the obvious
+junk — product listings, wrong-model pages, content farms — before anything
+is fetched, so the expensive full-document analysis runs only on plausible
+sources. Those that survive are read whole: the note-taker sees the entire
+extracted page (up to ~13k tokens), not a keyword snippet.
 
 **Authority sites.** Some of the best primary sources — like charm.li, the
 mirror of full factory service manuals for nearly every car — are barely

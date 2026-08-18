@@ -76,6 +76,8 @@ def make_cfg(data_dir) -> Settings:
 
 def script(gap_rounds: list[dict]) -> dict:
     return {
+        # keep-all triage: candidate selection is under test elsewhere
+        "triage": [{"keep": list(range(64))}],
         "planner": [{"title": "Test Research", "brief": "Investigate X thoroughly.",
                      "subqueries": ["q1", "q2"]}],
         "notes": [{"relevance": 8, "summary": "Useful source about X.",
