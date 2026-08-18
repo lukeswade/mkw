@@ -212,7 +212,7 @@ def spawn_watcher(application, chat_id: int, run_id: str) -> None:
 # ---- /new conversation ------------------------------------------------------------
 
 def _depth_keyboard() -> InlineKeyboardMarkup:
-    rows = [[1, 2, 3], [5, 7, 10]]
+    rows = [[2, 3, 4], [6, 8, 10]]
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(str(d), callback_data=f"depth:{d}") for d in row]
         for row in rows])

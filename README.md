@@ -131,20 +131,24 @@ You can change all of this later on the **Settings** page, which also has
 
 ## Using it
 
-**Depth** is the maximum number of search rounds. Each round runs several
-targeted queries, reads what's useful, and then a gap analysis decides what to
-search next. Runs stop early when the topic is saturated, after two rounds
-that find nothing new, or at per-depth source and LLM-call caps.
+**Depth** is a 0–10 effort dial. Every two steps buy roughly one full search
+round with its budgets, so odd numbers are genuine half-steps — twice the
+granularity in the range where most runs live. Each round runs several
+targeted queries, triages and reads what's useful, and a gap analysis decides
+what to search next. Runs stop early when the topic is saturated (at depth 7+
+that takes two saturated verdicts in a row), after two rounds that find
+nothing new, or at per-depth source and LLM-call caps.
 
-- **Depth 0** is quick chat — a straight streamed answer from the model with
-  no web search. Good for a fast question.
-- **Depth 1–3** is a normal question: typically 5–25 sources.
-- **Depth 4–6** is a deep dive: dozens of sources, and a run stops early only
-  after gap analysis declares the topic saturated twice in a row.
-- **Depth 7–10** is deep-research territory — Perplexity/OpenAI-DR scale, with
-  source budgets up to ~220 at depth 10. On a local model that's hours unless
-  you raise `LLM_CONCURRENCY` (batching servers like oMLX and llama.cpp run
-  parallel note-taking at nearly linear aggregate throughput) or point the
+- **Depth 0** is an instant answer — one search and a concise, cited summary
+  grounded on the result snippets, like a search engine's AI overview. No
+  pages are fetched; it's the fastest grounded answer the tool can give.
+- **Depth 1–4** is a question: one to two rounds, source budgets of ~8–28.
+  The form defaults to depth 3.
+- **Depth 5–7** is a deep dive: two to four rounds, budgets up to ~54 sources.
+- **Depth 8–10** is deep-research territory: budgets up to ~85 sources at
+  depth 10. On a local model that's an hour or more unless you raise
+  `LLM_CONCURRENCY` (batching servers like oMLX and llama.cpp run parallel
+  note-taking at nearly linear aggregate throughput) or point the
   planning/synthesis at a cloud model.
 
 The new-run form shows a live estimate — searches, sources, LLM calls, time,

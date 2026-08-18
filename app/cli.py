@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="start a research run")
     run_p.add_argument("query")
     run_p.add_argument("--depth", "-d", type=int, default=3,
-                       choices=range(1, 11), metavar="1-10")
+                       choices=range(0, 11), metavar="0-10")
     run_p.add_argument("--recency", "-r", default="all", choices=RECENCY_CHOICES)
     run_p.set_defaults(fn=_cmd_run)
 

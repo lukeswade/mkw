@@ -17,7 +17,7 @@ from tests.test_pipeline_e2e import SX, article, make_cfg, sx_payload, sx_result
 
 
 def test_candidate_budget_grew_with_every_depth():
-    for depth, expected in ((1, 14), (2, 18), (3, 22), (6, 34), (10, 42)):
+    for depth, expected in ((1, 14), (2, 14), (3, 18), (6, 22), (10, 30)):
         assert candidates_per_round(breadth_for_depth(depth)) == expected
     budgets = [candidates_per_round(breadth_for_depth(d))
                for d in range(1, 11)]

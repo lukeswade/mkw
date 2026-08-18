@@ -149,7 +149,7 @@ async def test_full_run(data_dir):
     bus = ProgressBus()
     orch = Orchestrator(lambda: cfg, repo, bus, llm_factory=lambda: llm)
 
-    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=2,
+    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=4,
                                     recency="6months", origin="cli"))
     await orch.execute_now(run_id)
 
@@ -229,7 +229,7 @@ async def test_cancellation_keeps_round1_findings(data_dir):
     bus = ProgressBus()
     orch = Orchestrator(lambda: cfg, repo, bus, llm_factory=lambda: llm)
 
-    run_id = orch.enqueue(RunParams(query="cancel me", depth=3,
+    run_id = orch.enqueue(RunParams(query="cancel me", depth=4,
                                     recency="all", origin="cli"))
     row = repo.get_run(run_id)
     store = RunStore(cfg.research_dir / row["dir"])

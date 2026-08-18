@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from app.research.pipeline import (breadth_for_depth, candidates_per_round,
                                    max_docs_for_depth,
-                                   max_llm_calls_for_depth)
+                                   max_llm_calls_for_depth, rounds_for_depth)
 
 # Fallbacks until this install has completed runs to learn from. Seconds per
 # kept source and per LLM call, measured against a mid-size cloud model.
@@ -100,14 +100,16 @@ def estimate_run(repo, depth: int) -> Estimate:
                         llm_calls=1, seconds=20.0)
 
     breadth = breadth_for_depth(depth)
-    queries = breadth * depth
+    rounds = rounds_for_depth(depth)
+    queries = breadth * rounds
     # The caps are ceilings; a typical run saturates before reaching them.
     cap = max_docs_for_depth(depth)
-    fetched = min(cap, candidates_per_round(breadth) * depth)
+    fetched = min(cap, candidates_per_round(breadth) * rounds)
     likely = int(fetched * KEEP_RATE)
     sources_low = max(2, int(likely * 0.5))
     sources_high = max(sources_low + 1, min(cap, likely))
-    llm_calls = min(max_llm_calls_for_depth(depth), 3 + depth * 2 + sources_high)
+    llm_calls = min(max_llm_calls_for_depth(depth),
+                    3 + rounds * 2 + sources_high)
 
     per_source, cost_per_source, samples = _history(repo)
     calibrated = per_source is not None and samples >= MIN_SAMPLES

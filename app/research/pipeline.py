@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -44,15 +45,27 @@ log = logging.getLogger(__name__)
 
 
 # ---- depth semantics ---------------------------------------------------------
+# The UI depth 0-10 is a half-step scale: each step is worth half a research
+# "unit" (one unit ≈ one full search round with its budgets). Depth 2 is one
+# unit, 6 is three, 10 is five — twice the granularity where runs actually
+# live, with genuine quick-look settings at 1 and 3. Depth 0 stays quick chat.
+
+def effort_for_depth(depth: int) -> float:
+    return depth / 2
+
+def rounds_for_depth(depth: int) -> int:
+    return max(1, math.ceil(effort_for_depth(depth)))
 
 def breadth_for_depth(depth: int) -> int:
-    return min(2 + depth, 10)
+    return min(2 + math.ceil(effort_for_depth(depth)), 10)
 
 def max_docs_for_depth(depth: int) -> int:
-    # Slightly superlinear: high depths are "deep research" runs, and the
-    # benchmark there (Perplexity/OpenAI DR) reads sources by the hundred,
-    # not the dozen. depth 1 → 13, 3 → 45, 5 → 85, 10 → 220.
-    return depth * (12 + depth)
+    # Slightly superlinear: the top of the scale is "deep research" (the
+    # Perplexity/OpenAI-DR benchmark reads sources by the dozens-to-hundreds).
+    # depth 2 → 13, 6 → 45, 8 → 64, 10 → 85; floor of 8 so even a quick
+    # half-unit look can cite a handful of sources.
+    effort = effort_for_depth(depth)
+    return max(8, round(effort * (12 + effort)))
 
 def candidates_per_round(breadth: int) -> int:
     # breadth*3 starved runs whose topics live on hard-to-search sites; the
@@ -70,8 +83,8 @@ def saturation_patience(depth: int) -> int:
     """Consecutive 'saturated' verdicts needed before a run stops early.
 
     Models declare "saturated" cheaply; believing the first verdict made
-    depth 8 behave like depth 3. Deep runs demand a second opinion."""
-    return 1 if depth <= 3 else 2
+    deep runs behave like shallow ones. Deep runs demand a second opinion."""
+    return 1 if depth <= 6 else 2
 
 
 # Below the keep threshold but not worthless — promoted only if the run would
@@ -235,6 +248,7 @@ class Pipeline:
         cfg = self.cfg
         query, depth, recency = row["query"], row["depth"], row["recency"]
         breadth = breadth_for_depth(depth)
+        rounds = rounds_for_depth(depth)
         recency_desc = prompts.RECENCY_DESC[recency]
         today = datetime.now().date().isoformat()
         llm = self.llm_factory()
@@ -268,14 +282,54 @@ class Pipeline:
                                      message=f"building on {len(related)} related earlier run(s)")
 
             if depth == 0:
-                self.bus.publish(run_id, "phase", phase="chatting")
+                # Depth 0 is an instant answer in the style of a search
+                # engine's AI overview: one search, snippet-grounded cited
+                # summary, no page fetching. Falls back to plain chat when
+                # search has nothing.
+                self.bus.publish(run_id, "phase", phase="quick answer")
                 self.repo.update_run(run_id, title=query[:100])
                 store.update_meta(title=query[:100])
-                messages = [
-                    {"role": "system", "content": "You are a helpful AI answering a direct query."},
-                    {"role": "user", "content": f"Query: {query}\n\nContext (if any):\n{prior}\n\nPlease answer the query based on the context and your knowledge."}
-                ]
-                final_text = await llm.chat_stream("chat", messages, self.bus, run_id, max_tokens=2048)
+                results = []
+                try:
+                    results = (await searcher.search(query, recency))[:8]
+                except Exception as e:
+                    log.warning("depth-0 search failed, answering from the "
+                                "model alone: %s", e)
+                if results:
+                    self.bus.publish(
+                        run_id, "log",
+                        message=f"grounding on {len(results)} search results")
+                    snippets = "\n".join(
+                        f"[{i}] {r.title}\n    {r.url}\n    {r.snippet}"
+                        for i, r in enumerate(results, 1))
+                    prior_block = (prompts.PRIOR_BLOCK.format(prior=prior)
+                                   if prior else "")
+                    messages = [{"role": "user",
+                                 "content": prompts.QUICK_ANSWER.format(
+                                     query=query, today=today,
+                                     recency_desc=recency_desc,
+                                     snippets=snippets,
+                                     prior_block=prior_block)}]
+                else:
+                    messages = [
+                        {"role": "system", "content": "You are a helpful AI answering a direct query."},
+                        {"role": "user", "content": f"Query: {query}\n\nContext (if any):\n{prior}\n\nPlease answer the query based on the context and your knowledge."}
+                    ]
+                try:
+                    final_text = await llm.chat_stream("chat", messages,
+                                                       self.bus, run_id,
+                                                       max_tokens=2048)
+                except Exception:
+                    log.warning("streaming quick answer failed, retrying "
+                                "unstreamed", exc_info=True)
+                    final_text = await llm.chat("chat", messages,
+                                                max_tokens=2048)
+                if results:
+                    final_text, _ = validate_citations(final_text,
+                                                       len(results))
+                    final_text += "\n\n## Sources\n" + "\n".join(
+                        f"{i}. [{r.title}]({r.url})"
+                        for i, r in enumerate(results, 1))
                 store.write_overview(final_text)
                 self.repo.fts_add(run_id, "overview", query[:100], final_text)
                 
@@ -304,11 +358,11 @@ class Pipeline:
             dry_rounds = 0
             saturated_streak = 0
             stop_reason = "depth limit reached"
-            for round_no in range(1, depth + 1):
+            for round_no in range(1, rounds + 1):
                 self._check_cancel()
                 state.rounds_done = round_no
                 self.bus.publish(run_id, "round_start", round=round_no,
-                                 depth=depth, queries=queries)
+                                 depth=rounds, queries=queries)
 
                 kept = await self._round(run_id, store, state, searcher, fetcher,
                                          llm, query, the_plan.brief,
@@ -328,7 +382,7 @@ class Pipeline:
                                  round=round_no)
                 gap = await gap_stage.analyze(
                     llm, query=query, brief=the_plan.brief,
-                    recency_desc=recency_desc, round_no=round_no, depth=depth,
+                    recency_desc=recency_desc, round_no=round_no, depth=rounds,
                     breadth=breadth, state_md=state.state_md,
                     new_findings=kept, searched=state.searched,
                     authority=getattr(self.cfg, "authority_sites", ""))
@@ -341,13 +395,13 @@ class Pipeline:
                 dry_rounds = dry_rounds + 1 if len(kept) < 2 else 0
                 saturated_streak = saturated_streak + 1 if gap.saturated else 0
                 if (saturated_streak >= saturation_patience(depth)
-                        and round_no >= min(2, depth)):
+                        and round_no >= min(2, rounds)):
                     stop_reason = "saturated — no material gaps left"
                     break
                 if dry_rounds >= 2:
                     stop_reason = "two consecutive dry rounds"
                     break
-                if round_no == depth:
+                if round_no == rounds:
                     break
                 if not gap.next_queries:
                     stop_reason = "no further queries proposed"
