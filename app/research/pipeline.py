@@ -706,6 +706,81 @@ class Pipeline:
         self.bus.publish(run_id, "done", status="completed",
                          stop_reason=stop_reason, sources=len(findings))
 
+    # ---- re-synthesis ------------------------------------------------------------
+    async def resynthesize(self, run_id: str) -> None:
+        """Regenerate overview + follow-ups from a run's stored findings.
+
+        No searching, no fetching, no note-taking — this exists for when the
+        research succeeded but the final synthesis call didn't (a thinking
+        model leaked its monologue, a truncation, a crash). Minutes instead
+        of re-running everything.
+        """
+        row = self.repo.get_run(run_id)
+        if row is None:
+            raise ValueError(f"run {run_id} not found")
+        store = RunStore(self.cfg.research_dir / row["dir"])
+        meta = store.read_meta()
+        findings: list[Finding] = []
+        for r in self.repo.findings_for_run(run_id):
+            # The finding .md file is the full record (summary, notes, quoted
+            # evidence) — feed it whole rather than re-deriving its parts.
+            try:
+                body = (store.dir / r["path"]).read_text(encoding="utf-8")
+            except OSError:
+                body = r["summary"] or ""
+            findings.append(Finding(
+                idx=r["idx"], url=r["url"], title=r["title"],
+                domain=r["domain"], published=r["published_date"],
+                relevance=r["relevance"], summary=r["summary"] or "",
+                notes_md=body, key_facts=[]))
+        if not findings:
+            raise ValueError("run has no stored findings to synthesize from")
+
+        query = row["query"]
+        title = meta.get("title") or row["title"] or query[:120]
+        brief = meta.get("brief") or query
+        recency_desc = prompts.RECENCY_DESC[row["recency"]]
+        today = datetime.now().date().isoformat()
+        llm = self.llm_factory()
+
+        self.bus.publish(run_id, "phase", phase="synthesis",
+                         sources=len(findings))
+        self.bus.publish(run_id, "log",
+                         message="re-synthesizing overview from stored findings")
+        overview = await synthesizer.synthesize(
+            llm, query=query, title=title, brief=brief,
+            recency_desc=recency_desc, today=today, state_md="",
+            findings=findings, bus=self.bus, run_id=run_id,
+            previous_overview=self._parent_overview(row))
+        if not synthesizer.looks_like_document(overview):
+            self.bus.publish(run_id, "log",
+                             message=("re-synthesis still produced reasoning "
+                                      "text, not a document — keeping the "
+                                      "existing overview"))
+            raise RuntimeError("synthesis output is not a document")
+        overview, removed = validate_citations(overview, len(findings))
+        if removed:
+            self.bus.publish(run_id, "log",
+                             message=f"stripped invalid citations: {sorted(removed)}")
+        fu = await synthesizer.follow_ups(llm, query=query, overview=overview)
+
+        store.write_overview(overview)
+        store.write_further(synthesizer.render_further_md(fu.items))
+        store.update_meta(followups=[f.model_dump() for f in fu.items],
+                          resynthesized_at=utcnow())
+        self.repo.fts_delete_run(run_id)
+        self.repo.fts_add(run_id, "overview", title, overview)
+        for f in findings:
+            self.repo.fts_add(run_id, "finding", f.title, f.notes_md)
+        if self.rag is not None:
+            try:
+                await self.rag.index_run(self.repo, run_id)
+            except Exception:
+                log.exception("re-indexing after resynthesis failed for %s",
+                              run_id)
+        self.bus.publish(run_id, "log", message="overview re-synthesized")
+        self.bus.publish(run_id, "resynthesized", sources=len(findings))
+
     # ---- helpers -----------------------------------------------------------------
     def _check_cancel(self) -> None:
         if self.cancel_requested:

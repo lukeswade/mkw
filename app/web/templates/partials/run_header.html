@@ -12,6 +12,14 @@
       {% endif %}
       <a class="export-btn" href="/runs/{{ run_id }}/export.pdf"
          title="Download this run as a PDF">Export PDF</a>
+      {% if row['status'] in ('completed', 'interrupted', 'failed') %}
+      <button class="resynth-btn"
+              hx-post="/runs/{{ run_id }}/resynthesize"
+              hx-swap="outerHTML"
+              hx-confirm="Rewrite the overview from this run's stored sources? The current overview will be replaced."
+              title="Regenerate the overview from the stored sources without re-searching — for when synthesis failed or the model produced garbage">
+        Re-synthesize</button>
+      {% endif %}
       <button class="delete-btn"
               hx-delete="/runs/{{ run_id }}"
               hx-confirm="Permanently delete this run and all its files?"

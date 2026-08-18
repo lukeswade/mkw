@@ -163,6 +163,37 @@ class Orchestrator:
             return True
         return False
 
+    def start_resynth(self, run_id: str) -> bool:
+        """Regenerate a finished run's overview in the background.
+
+        Refused while the run is queued/running or already being worked on.
+        """
+        row = self.repo.get_run(run_id)
+        if (row is None or row["status"] in ("queued", "running")
+                or run_id in self.active):
+            return False
+        store = self._store_for(row)
+        if store is None:
+            return False
+        pipeline = Pipeline(self.cfg_loader(), self.repo, self.bus,
+                            rag=self.rag, llm_factory=self.llm_factory)
+        self.bus.attach(store)
+
+        async def _job() -> None:
+            try:
+                await pipeline.resynthesize(run_id)
+            except Exception as e:
+                log.exception("re-synthesis failed for %s", run_id)
+                self.bus.publish(run_id, "log",
+                                 message=f"re-synthesis failed: {e}")
+            finally:
+                self.active.pop(run_id, None)
+                self.bus.detach(run_id)
+
+        task = asyncio.create_task(_job(), name=f"resynth-{run_id}")
+        self.active[run_id] = (task, pipeline)
+        return True
+
     async def execute_now(self, run_id: str) -> None:
         """Run synchronously (CLI path, no worker loop)."""
         pipeline = Pipeline(self.cfg_loader(), self.repo, self.bus,

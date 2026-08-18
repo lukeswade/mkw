@@ -158,7 +158,11 @@ log, `meta.json`, and `events.jsonl`. In the UI, a finished run has four tabs
 source's notes, expandable), Further research (one-click follow-up runs), and
 Log — plus **Export PDF**, which produces the entire research record as a
 single document: the question as asked, the overview, the bibliography, and
-every source's notes.
+every source's notes. **Re-synthesize** rewrites the overview from the run's
+stored sources without re-searching anything — for when the research
+succeeded but the final synthesis call didn't (a truncation, or a
+thinking-mode model emitting its reasoning instead of the document; normal
+runs also detect that and retry once automatically).
 
 **Triage before reading.** Search returns far more candidates than are worth
 reading. A fast-model pass over titles, URLs and snippets drops the obvious

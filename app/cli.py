@@ -103,6 +103,32 @@ async def _cmd_ask(args) -> int:
     return 0
 
 
+async def _cmd_resynth(args) -> int:
+    from app.research.pipeline import Pipeline
+    cfg = load_settings()
+    cfg.ensure_dirs()
+    repo = Repo(connect(cfg.db_path))
+    row = repo.get_run(args.run_id)
+    if row is None:
+        print(f"run {args.run_id} not found")
+        return 1
+    bus = ProgressBus()
+    store = RunStore(cfg.research_dir / row["dir"])
+    bus.attach(store)
+    pipeline = Pipeline(cfg, repo, bus, rag=_build_rag(cfg))
+    replay, queue = bus.subscribe(args.run_id, store)
+    printer = asyncio.create_task(_print_events(replay, queue))
+    try:
+        await pipeline.resynthesize(args.run_id)
+    except Exception as e:
+        print(f"re-synthesis failed: {e}")
+        return 1
+    finally:
+        printer.cancel()
+    print(f"overview rewritten: {store.overview_path}")
+    return 0
+
+
 async def _cmd_reindex(_args) -> int:
     cfg = load_settings()
     cfg.ensure_dirs()
@@ -137,6 +163,12 @@ def main(argv: list[str] | None = None) -> int:
 
     re_p = sub.add_parser("reindex", help="rebuild search indexes from disk")
     re_p.set_defaults(fn=_cmd_reindex)
+
+    rs_p = sub.add_parser(
+        "resynth",
+        help="rewrite a run's overview from its stored findings (no re-search)")
+    rs_p.add_argument("run_id")
+    rs_p.set_defaults(fn=_cmd_resynth)
 
     args = p.parse_args(argv)
     return asyncio.run(args.fn(args))

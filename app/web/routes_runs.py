@@ -8,8 +8,8 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import (FileResponse, RedirectResponse, Response,
-                               StreamingResponse)
+from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
+                               Response, StreamingResponse)
 from pydantic import ValidationError
 
 from app.models import RunParams
@@ -305,6 +305,23 @@ async def retry_run(request: Request, run_id: str):
                        parent_run_id=run_id, created_by=_initiator(request))
     new_id = request.app.state.orch.enqueue(params)
     return RedirectResponse(f"/runs/{new_id}", status_code=303)
+
+
+@router.post("/runs/{run_id}/resynthesize")
+async def resynthesize_run(request: Request, run_id: str):
+    """Regenerate the overview from stored findings — no re-searching.
+
+    For when the research succeeded but the final synthesis call didn't
+    (leaked reasoning text, truncation, model failure)."""
+    _row_or_404(request, run_id)
+    started = request.app.state.orch.start_resynth(run_id)
+    if started:
+        return HTMLResponse(
+            '<span class="resynth-note">Re-synthesizing from the stored '
+            'sources — refresh this page in a few minutes.</span>')
+    return HTMLResponse(
+        '<span class="resynth-note">Could not start: the run is busy or '
+        'has no stored findings.</span>')
 
 
 @router.get("/runs/{run_id}/export.pdf")

@@ -17,6 +17,20 @@ _BATCH_BUDGET = 30_000         # est tokens per map batch
 _PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
 
 
+def looks_like_document(text: str) -> bool:
+    """True when the output is a markdown document, not leaked reasoning.
+
+    A thinking-mode model without a reasoning parser streams its planning
+    monologue as content ("We need answer user's request…") and can burn the
+    whole token budget without ever writing the document. The tell is simple:
+    a real overview starts with a markdown heading almost immediately.
+    """
+    for line in text.strip().splitlines()[:3]:
+        if line.lstrip().startswith("#"):
+            return True
+    return False
+
+
 def _note_block(f: Finding) -> str:
     block = f"{f.citation_line()}\n    {f.url}\n{f.notes_md}\n"
     # Verbatim evidence is the point of extracting quotes — synthesis has to
@@ -52,15 +66,34 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
     # actually waiting on, so stream it into the progress pane rather than
     # sitting behind a spinner. A stream failure falls back to a normal call —
     # the document matters more than the animation.
+    text = None
     if bus is not None and run_id:
         try:
-            return await llm.chat_stream("synth", messages, bus, run_id,
+            text = await llm.chat_stream("synth", messages, bus, run_id,
                                          max_tokens=8000, temperature=0.4)
         except Exception:
             log.warning("streaming synthesis failed, retrying unstreamed",
                         exc_info=True)
+    if text is None:
+        text = await llm.chat("synth", messages, max_tokens=8000,
+                              temperature=0.4)
 
-    return await llm.chat("synth", messages, max_tokens=8000, temperature=0.4)
+    if not looks_like_document(text):
+        # Leaked reasoning monologue instead of a document. One stern retry;
+        # publishing the monologue as an overview wastes the whole run.
+        log.warning("synthesis output is not a document, retrying once")
+        if bus is not None and run_id:
+            bus.publish(run_id, "log",
+                        message=("synthesis produced reasoning text instead "
+                                 "of the document — retrying once"))
+        stern = (prompt + "\n\nIMPORTANT: Output ONLY the final markdown "
+                 "document itself, beginning immediately with the '# ' title "
+                 "line. No planning, no reasoning, no commentary.")
+        retry = await llm.chat("synth", [{"role": "user", "content": stern}],
+                               max_tokens=8000, temperature=0.4)
+        if looks_like_document(retry):
+            return retry
+    return text
 
 
 async def _map_digest(llm: LLM, query: str, blocks: list[str]) -> list[str]:
