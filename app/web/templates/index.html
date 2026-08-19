@@ -26,7 +26,7 @@
                value="{{ prefill.depth if prefill else 3 }}"
                hx-get="/partials/estimate" hx-trigger="input changed delay:150ms"
                hx-target="#estimate" hx-swap="outerHTML"
-               oninput="document.getElementById('depth-val').value = this.value == '0' ? '0 (Quick Chat)' : this.value">
+               oninput="document.getElementById('depth-val').value = this.value == '0' ? '0 (AI answer)' : this.value">
       </label>
       <label>Recency
         <select name="recency">
@@ -38,7 +38,13 @@
       <button type="submit" class="go">Start research</button>
     </div>
     {% include "partials/estimate.html" %}
-    <p class="hint">Depth = maximum search rounds. Each round digs into the gaps the previous one exposed.</p>
+    <p class="hint">Depth is an effort dial: every two steps buy roughly one
+      search round, and each round digs into the gaps the previous one
+      exposed. <strong>0</strong> answers instantly from search snippets, like
+      a search engine's AI overview &middot; <strong>1&ndash;4</strong> a
+      question (one or two rounds) &middot; <strong>5&ndash;7</strong> a deep
+      dive &middot; <strong>8&ndash;10</strong> deep research at
+      dozens-of-sources scale.</p>
   </form>
 </section>
 
