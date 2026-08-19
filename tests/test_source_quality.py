@@ -425,3 +425,94 @@ async def test_solver_failure_reports_honestly(data_dir, monkeypatch):
     with pytest.raises(SkipReason, match="browser solver failed"):
         await fetcher.fetch("https://walled.example.com/page")
     await client.aclose()
+
+
+# ---- JS-shell fallback: render-then-extract ------------------------------------
+
+_JS_SHELL = ('<html><head><title>App</title></head><body>'
+             '<div id="root"></div><script>window.__APP__=1</script>'
+             '</body></html>')
+
+
+@respx.mock
+async def test_js_shell_page_is_rendered_and_recovered(data_dir):
+    cfg = make_cfg(data_dir)
+    cfg.browser_solver_url = "http://solver.test:8191"
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result("https://spa.example.com/guide", "SPA Guide")])))
+    respx.get("https://spa.example.com/guide").mock(
+        return_value=httpx.Response(200, html=_JS_SHELL))
+    solver_calls = []
+
+    def solver(req):
+        solver_calls.append(json.loads(req.content)["url"])
+        return httpx.Response(200, json={
+            "status": "ok",
+            "solution": {"status": 200, "url": "https://spa.example.com/guide",
+                         "response": article("Rendered Guide")}})
+
+    respx.post("http://solver.test:8191/v1").mock(side_effect=solver)
+
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(_script()))
+    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=2,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    assert solver_calls == ["https://spa.example.com/guide"]
+    findings = repo.findings_for_run(run_id)
+    assert len(findings) == 1 and findings[0]["domain"] == "spa.example.com"
+
+
+@respx.mock
+async def test_js_shell_without_solver_skips_honestly(data_dir):
+    cfg = make_cfg(data_dir)
+    assert not cfg.browser_solver_url
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result("https://spa.example.com/guide", "SPA Guide")])))
+    respx.get("https://spa.example.com/guide").mock(
+        return_value=httpx.Response(200, html=_JS_SHELL))
+    # NOTE: no solver route — a POST there would fail the test
+
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(_script()))
+    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=2,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+    assert repo.findings_for_run(run_id) == []
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert "no extractable text" in events
+
+
+@respx.mock
+async def test_solver_fetched_pages_are_not_rendered_twice(data_dir):
+    """A page whose fetch already came through the solver must not re-render
+    when it still extracts to nothing (the solver already had its shot)."""
+    cfg = make_cfg(data_dir)
+    cfg.browser_solver_url = "http://solver.test:8191"
+    cfg.browser_impersonation = False
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result("https://walled.example.com/page", "Walled")])))
+    respx.get("https://walled.example.com/page").mock(
+        return_value=httpx.Response(403))
+    solver_calls = []
+
+    def solver(req):
+        solver_calls.append(1)
+        return httpx.Response(200, json={
+            "status": "ok",
+            "solution": {"status": 200, "url": "https://walled.example.com/page",
+                         "response": _JS_SHELL}})   # solved, but still a shell
+
+    respx.post("http://solver.test:8191/v1").mock(side_effect=solver)
+
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(_script()))
+    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=2,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+    assert len(solver_calls) == 1                  # exactly one render
+    assert repo.findings_for_run(run_id) == []

@@ -528,6 +528,20 @@ class Pipeline:
                     fetched = await fetcher.fetch(c.url)
                     final_url = fetched.final_url
                     doc = extract(fetched)
+                    if doc is None and fetched.via != "browser" \
+                            and fetched.content_type.startswith("text/html") \
+                            and getattr(self.cfg, "browser_solver_url", ""):
+                        # A 200 that extracts to nothing is usually a JS
+                        # shell — the content is built client-side. One real
+                        # render in the solver recovers those pages.
+                        try:
+                            rendered = await fetcher.render(c.url)
+                            doc = extract(rendered)
+                            if doc is not None:
+                                fetched = rendered
+                                final_url = rendered.final_url
+                        except SkipReason:
+                            pass
                     if doc is None:
                         raise SkipReason("no extractable text")
             except SkipReason as e:

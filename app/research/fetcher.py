@@ -71,6 +71,7 @@ class Fetched:
     final_url: str    # after redirects
     content_type: str
     body: bytes
+    via: str = "http" # transport that produced it: http | impersonated | browser
 
 
 class SkipReason(Exception):
@@ -284,7 +285,17 @@ class Fetcher:
         if not any(ctype.startswith(t) for t in allowed):
             raise SkipReason(f"content-type {ctype}")
         return Fetched(url=url, final_url=url, content_type=ctype,
-                       body=resp.content[:MAX_BYTES])
+                       body=resp.content[:MAX_BYTES], via="impersonated")
+
+    async def render(self, url: str) -> Fetched:
+        """Render one page in the browser solver, regardless of status.
+
+        The JS-shell fallback: a page that answered 200 but extracted to
+        nothing usually builds its content client-side — one real render
+        recovers it. Raises SkipReason (no solver configured, or it failed)."""
+        if not getattr(self.cfg, "browser_solver_url", ""):
+            raise SkipReason("no browser solver configured")
+        return await self._solver_get(url)
 
     async def _solver_get(self, url: str,
                           extra_types: tuple[str, ...] = ()) -> Fetched:
@@ -310,4 +321,5 @@ class Fetcher:
         log.info("browser solver recovered %s", url)
         return Fetched(url=url, final_url=solution.get("url") or url,
                        content_type="text/html",
-                       body=solution["response"].encode()[:MAX_BYTES])
+                       body=solution["response"].encode()[:MAX_BYTES],
+                       via="browser")
