@@ -117,3 +117,38 @@ async def test_html_export_is_a_complete_standalone_page(data_dir, monkeypatch):
     assert "/static/" not in page
     assert 'src="http' not in page
     assert "attachment" in r.headers["content-disposition"]
+
+
+@respx.mock
+async def test_interactive_export_is_a_one_file_mini_app(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    from tests.test_web import make_app
+
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result("https://example-a.com/article", "Article A")])))
+    respx.get("https://example-a.com/article").mock(
+        return_value=httpx.Response(200, html=article("Article A")))
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(_script(
+                            synth="# T\n\nAn overview claim [1].\n")))
+    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=1,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    app, _cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        r = client.get(f"/runs/{run_id}/export-interactive.html")
+    assert r.status_code == 200
+    page = r.text
+    assert page.startswith("<!doctype html>")
+    assert 'data-tab="sources"' in page          # tab bar
+    assert 'id="search-box"' in page             # client-side search
+    assert 'href="#src-1"' in page               # citation jump target exists
+    assert 'id="src-1"' in page
+    assert "cited ×1" in page                    # back-reference count
+    assert "— planning —" in page or "planning" in page   # log tab content
+    assert "/static/" not in page                # self-contained
+    assert 'src="http' not in page
+    assert "interactive.html" in r.headers["content-disposition"]

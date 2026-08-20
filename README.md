@@ -16,9 +16,13 @@ LLM call — and even that stays local if you point it at llama.cpp, LM Studio,
 Ollama, or MLX.
 
 - **Web UI** with live streaming progress, pre-flight run estimates
-  calibrated to your own hardware, a research library (keyword + semantic
-  search), and an "Ask" page that answers from everything you've researched,
-  with citations.
+  calibrated to your own hardware (cache-hit-aware cost estimates for cloud
+  models), a research library (keyword + semantic search), and an "Ask" page
+  that answers from everything you've researched, with citations.
+- **A 0–10 depth dial** from instant AI answers (one search, a cited
+  snippet-grounded summary) up to deep-research runs budgeted for dozens of
+  sources, with a fast-model triage pass so doomed candidates cost seconds,
+  not full analyses.
 - **Citation chasing**: sources that make the cut get their best references
   fetched too — datasheets and primary documents search engines never surface.
 - **Reads the hard parts of the web**: YouTube videos via their caption
@@ -28,8 +32,10 @@ Ollama, or MLX.
   browser sidecar solves JavaScript challenges.
 - **Evergreen topics** re-research themselves daily, and every refresh leads
   with *what's new* instead of repeating itself.
-- **One-click PDF export** of the whole research record, and a **Telegram
-  bot** for starting runs and receiving results on your phone.
+- **One-click exports** of the whole research record: PDF, a self-contained
+  web page, or a portable one-file mini-app with tabs, search, and clickable
+  citations. Plus a **Telegram bot** for starting runs and receiving results
+  on your phone.
 - **Multi-user aware**: runs are tagged with the Cloudflare Access identity
   (or LAN label) that started them.
 - **Everything is plain markdown on disk** (`data/research_data/<run>/`).
@@ -156,9 +162,13 @@ cost — for the depth you've dialed in, calibrated against your own completed
 runs, and warns you if something similar is already in your library.
 
 **Search categories** — the checkboxes under the form pick which SearXNG
-categories a run queries (general, science, it, news, files). The default is
-the instance's `SEARCH_CATEGORIES`; your last selection is remembered in the
-browser, and retries and evergreen refreshes inherit the run's categories.
+categories a run queries: general, science, it, news, **videos** (searched on
+YouTube and read via caption transcripts), **social media** (reddit threads,
+read through the JSON API — note reddit rate-limits anonymous search hard,
+so this category can come back empty for a while after heavy use), and
+files. The default is the instance's
+`SEARCH_CATEGORIES`; your last selection is remembered in the browser, and
+retries and evergreen refreshes inherit the run's categories.
 
 **Recency** maps to search-engine time filters plus a date check on the
 documents themselves. Engine date metadata is imperfect, so undated sources
@@ -170,11 +180,14 @@ Every run directory contains `overview.md` (the cited synthesis),
 log, `meta.json`, and `events.jsonl`. In the UI, a finished run has four tabs
 — Overview (with the bibliography its `[n]` citations jump to), Sources (each
 source's notes, expandable), Further research (one-click follow-up runs), and
-Log — plus **Export PDF** and **Export HTML**, which produce the entire research
-record as a single document: the question as asked, the overview, the
-bibliography, and every source's notes. The HTML export is one self-contained
-page (collapsible notes, dark-mode aware, zero external assets) that opens
-from a double-click and shares over anything. **Re-synthesize** rewrites the overview from the run's
+Log — plus three one-click exports of the entire research record:
+**Export PDF** (a print-ready document), **Export HTML** (one
+self-contained page with
+collapsible notes, dark-mode aware, zero external assets — opens from a
+double-click and shares over anything), and **Export interactive** (the same
+single file as a portable mini-app: Overview/Sources/Notes/Log tabs,
+client-side search across sources and notes, citations that jump to the
+bibliography, a theme toggle, and a print layout). **Re-synthesize** rewrites the overview from the run's
 stored sources without re-searching anything — for when the research
 succeeded but the final synthesis call didn't (a truncation, or a
 thinking-mode model emitting its reasoning instead of the document; normal

@@ -40,7 +40,7 @@
     <fieldset class="cats" id="cat-group"
               title="Which search-engine categories this run queries. Your last selection is remembered.">
       <legend>Search in</legend>
-      {% for c in ["general", "science", "it", "news", "files"] %}
+      {% for c in ["general", "science", "it", "news", "videos", "social media", "files"] %}
       <label><input type="checkbox" name="categories" value="{{ c }}"> {{ c }}</label>
       {% endfor %}
     </fieldset>

@@ -35,6 +35,37 @@ outgoing:
 # research anyway: Crossref, OpenAlex, Semantic Scholar, arXiv, Stack Overflow,
 # GitHub, Hacker News.
 engines:
+  # --- video + community (the app reads YouTube via caption transcripts and
+  # reddit threads via the JSON API — these engines let runs search them
+  # directly through the videos / social media categories) ---
+  - name: youtube
+    disabled: false
+  # This SearXNG no longer ships a reddit engine, so define one over
+  # reddit's public search API with the generic JSON engine.
+  - name: reddit
+    engine: json_engine
+    shortcut: re
+    categories: social media
+    disabled: false
+    timeout: 8.0
+    paging: false
+    search_url: https://old.reddit.com/search.json?q={query}&limit=25&sort=relevance
+    results_query: data/children
+    url_query: data/permalink
+    url_prefix: https://www.reddit.com
+    title_query: data/title
+    content_query: data/selftext
+  # The default social-media engines return user-profile noise, not
+  # discussions — reddit is the one this category is for.
+  - name: mastodon users
+    disabled: true
+  - name: mastodon hashtags
+    disabled: true
+  - name: lemmy users
+    disabled: true
+  - name: lemmy communities
+    disabled: true
+
   # --- resilient general-web engines ---
   - name: mojeek
     disabled: false
