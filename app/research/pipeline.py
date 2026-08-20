@@ -37,8 +37,8 @@ from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
                                 take_notes)
 from app.research.progress import ProgressBus
-from app.research.searcher import (Searcher, SearchResult, SearxngError,
-                                   cutoff_for, engine_tier)
+from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult,
+                                   SearxngError, cutoff_for, engine_tier)
 from app.research.storage import RunStore, validate_citations
 
 log = logging.getLogger(__name__)
@@ -191,6 +191,16 @@ class Pipeline:
             log.warning("triage degraded to keep-all: %s", e)
             return candidates
         drop = {i for i in out.drop if 0 <= i < len(candidates)}
+        authority = self._authority_domains()
+        if authority:
+            spared = {i for i in drop
+                      if any(domain_of(candidates[i].url) == a
+                             or domain_of(candidates[i].url).endswith("." + a)
+                             for a in authority)}
+            if spared:
+                log.info("triage spared %d authority-site candidate(s)",
+                         len(spared))
+                drop -= spared
         if len(drop) == len(candidates):
             # condemning everything is a broken verdict, not a judgment
             return candidates
@@ -205,6 +215,23 @@ class Pipeline:
                                       f"{len(candidates)} candidates before "
                                       f"fetching"))
         return [c for i, c in enumerate(candidates) if i not in drop]
+
+    def _authority_domains(self) -> frozenset[str]:
+        """Domains from the curated authority list (first token of each line).
+
+        Curating a site as authoritative is a standing judgment that outranks
+        a title-level guess: triage dropped charm.li factory-manual pages
+        because their URLs named a sibling model, losing the best sources in
+        the run. Authority candidates therefore bypass pre-fetch filtering
+        entirely — they still face full relevance scoring after being read."""
+        out = set()
+        for line in (getattr(self.cfg, "authority_sites", "") or "").splitlines():
+            token = line.strip().split()[0].strip("-—:,") if line.strip() else ""
+            token = token.lower().removeprefix("http://").removeprefix("https://")
+            token = token.split("/")[0].removeprefix("www.")
+            if "." in token:
+                out.add(token)
+        return frozenset(out)
 
     def _blocked_domains(self) -> frozenset[str]:
         raw = getattr(self.cfg, "blocked_domains", "") or ""
@@ -451,6 +478,11 @@ class Pipeline:
             raise errors[0] if isinstance(errors[0], SearxngError) else RuntimeError(
                 f"all searches failed: {errors[0]}")
 
+        # A run that selected the videos category wants video ranked with the
+        # web results, not behind all of them.
+        promote = (VIDEO_ENGINES if "video" in (searcher.categories or "")
+                   else frozenset())
+
         def pick(pool: list, limit: int) -> list:
             # Stable sort keeps round-robin order inside each tier, so every
             # sub-query still contributes. Ordering: a practical web page
@@ -461,7 +493,7 @@ class Pipeline:
             pool = [r for r in pool
                     if domain_of(r.url) not in self._blocked_domains()]
             pool.sort(key=lambda r: (
-                engine_tier(r.engine),
+                engine_tier(r.engine, promote),
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
             chosen = rank_diverse(pool, state.seen_urls, per_domain=2,
                                   limit=limit)

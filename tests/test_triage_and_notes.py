@@ -183,3 +183,55 @@ async def test_thin_index_page_chases_its_child_links(data_dir):
     events = run_dir.joinpath("events.jsonl").read_text()
     assert "relevance 2/10" in events             # the stub was still scored
 
+
+
+# ---- triage must not discard platform siblings or authority sites -----------------
+
+def test_triage_prompt_protects_sibling_models():
+    """A "different model" instruction made triage drop charm.li factory
+    manuals for the Tundra/Sequoia — same 2UZ-FE engine as the GX470 in the
+    question, and the best sources in the run."""
+    from app.llm import prompts
+    assert "Do NOT drop a candidate merely because its title names a " \
+           "different product" in prompts.TRIAGE.replace("\n", " ")
+    assert "same engine, chipset, platform or codebase" in \
+        prompts.TRIAGE.replace("\n", " ")
+
+
+@respx.mock
+async def test_authority_site_candidates_survive_triage(data_dir):
+    """Curating a site as authoritative outranks a title-level guess."""
+    cfg = make_cfg(data_dir)
+    cfg.authority_sites = "charm.li — factory service manuals for cars"
+    fsm = ("https://charm.li/Toyota/2006/Tundra%20V8-4.7L%20(2UZ-FE)/"
+           "Spark%20Plug/")
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload([
+        sx_result(fsm, "Spark Plug — Tundra 2UZ-FE"),
+        sx_result("https://junk.example.com/ad", "Buy spark plugs cheap"),
+    ])))
+    respx.get(fsm).mock(return_value=httpx.Response(
+        200, html=article("Tundra 2UZ-FE Spark Plug")))
+    # NOTE: no route for junk.example.com — fetching it would fail the test
+
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    s["triage"] = [{"drop": [0, 1]}]      # triage condemns the FSM page too
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(s))
+    run_id = orch.enqueue(RunParams(query="gx470 2UZ-FE spark plugs", depth=1,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    findings = repo.findings_for_run(run_id)
+    assert [f["domain"] for f in findings] == ["charm.li"]
+
+
+def test_authority_domains_parses_the_settings_blob(data_dir):
+    from app.research.pipeline import Pipeline
+    from app.research.progress import ProgressBus as PB
+    cfg = make_cfg(data_dir)
+    cfg.authority_sites = ("charm.li — factory service manuals\n"
+                           "https://www.nist.gov/ — standards\n"
+                           "not-a-domain line\n")
+    p = Pipeline(cfg, Repo(connect(cfg.db_path)), PB())
+    assert p._authority_domains() == frozenset({"charm.li", "nist.gov"})

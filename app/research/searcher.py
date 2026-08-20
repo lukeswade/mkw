@@ -82,9 +82,23 @@ _GENERAL_WEB_ENGINES = frozenset({
 })
 
 
-def engine_tier(engine: str) -> int:
-    """0 = general web, 1 = specialist. Lower sorts first."""
-    return 0 if (engine or "").strip().lower() in _GENERAL_WEB_ENGINES else 1
+# Video engines. Normally tier 1 (a video is a worse answer than a page for
+# most questions), but when a run explicitly selects the videos category the
+# user asked for video — relegating it below every web result then makes the
+# category useless, which is exactly what happened on a how-to run.
+VIDEO_ENGINES = frozenset({
+    "youtube", "bing videos", "duckduckgo videos", "google videos",
+    "dailymotion", "vimeo", "peertube", "sepiasearch", "invidious",
+    "rumble", "odysee",
+})
+
+
+def engine_tier(engine: str, promote: frozenset[str] = frozenset()) -> int:
+    """0 = leads the ranking, 1 = backfill. Lower sorts first."""
+    e = (engine or "").strip().lower()
+    if e in promote:
+        return 0
+    return 0 if e in _GENERAL_WEB_ENGINES else 1
 
 
 def categories_for(recency: str, base: str = DEFAULT_CATEGORIES) -> str:

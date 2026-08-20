@@ -75,13 +75,20 @@ Research brief: {brief}
 Candidates (index. title — url — snippet — found via):
 {candidates}
 
-Judge each from its title, URL and snippet only. DROP: shopping/product \
-listings, dictionary or encyclopedia pages on generic words, pages about a \
-clearly different model/topic/domain than the question, listicle content \
-farms, login or share shells. Everything else stays — primary documents and \
-manuals, forum threads and discussions on the actual topic, guides, official \
-documentation, videos, and anything plausibly useful. When unsure about a \
-candidate, do NOT list it.
+Judge each from its title, URL and snippet only. DROP: shopping and product \
+listings, dictionary or encyclopedia pages on generic words, listicle content \
+farms, login or share shells, and pages on a genuinely unrelated subject.
+
+Do NOT drop a candidate merely because its title names a different product, \
+model, version or year than the question. Technical knowledge is shared \
+across families — the same engine, chipset, platform or codebase appears in \
+many products, and a service manual for a sibling model is often the best \
+source there is. Drop on a name mismatch only when the question is about \
+something specific to that one product, AND the candidate cannot serve it.
+
+Everything else stays — primary documents and manuals, forum threads and \
+discussions, guides, official documentation, videos, and anything plausibly \
+useful. When unsure about a candidate, do NOT list it.
 
 Produce a JSON object with exactly one key:
 - "drop": array of the integer indices not worth fetching (e.g. [1, 4])

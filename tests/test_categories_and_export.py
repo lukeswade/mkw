@@ -187,3 +187,13 @@ def test_bare_domains_in_text_are_not_hyperlinked():
     assert "<a " not in html
     # real URLs still become links
     assert '<a href="https://example.com/page"' in render("See https://example.com/page")
+
+
+def test_video_engines_lead_only_when_videos_requested():
+    """Enabling the videos category put video in the pool but engine tiering
+    kept it behind every web result, so the category did nothing."""
+    from app.research.searcher import VIDEO_ENGINES, engine_tier
+    assert engine_tier("youtube") == 1                      # default: backfill
+    assert engine_tier("youtube", VIDEO_ENGINES) == 0       # requested: leads
+    assert engine_tier("bing") == 0                         # web unchanged
+    assert engine_tier("arxiv", VIDEO_ENGINES) == 1         # academic unchanged
