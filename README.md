@@ -121,8 +121,8 @@ Two things worth knowing when running locally:
 - **Set a fast model.** A run makes one planning call and one synthesis call
   but a dozen or more per-document note calls, so nearly all the time goes into
   note-taking. Naming a smaller model in the *Fast model* box uses it for the
-  notes and the per-round candidate triage, leaving the big model to do the
-  thinking:
+  notes, the per-round candidate triage, and the first-look screening that
+  spares full reads for junk pages, leaving the big model to do the thinking:
 
   ```
   LLM_MODEL=qwen2.5:32b-instruct   # planning + synthesis

@@ -24,7 +24,7 @@ from app.db import Repo, utcnow
 from app.llm import prompts
 from app.llm.client import LLM
 from app.llm.json_utils import LLMJsonError
-from app.models import RECENCY_LABELS, TriageOut
+from app.models import RECENCY_LABELS, ScreenOut, TriageOut
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
@@ -104,6 +104,15 @@ _DUP_CONTAINMENT = 0.7
 # shell (service-manual directories are the canonical case) — the content
 # lives one level down, so its own child links are worth following.
 _STUB_CHARS = 600
+
+# First-look screening: documents longer than this get a cheap fast-model
+# relevance estimate from their opening _SCREEN_SNIPPET chars before the
+# full-page notes call; a score ≤ _SCREEN_FLOOR skips the full read. Small
+# documents aren't worth the extra call (and index stubs must reach the
+# notes stage, where their child links get chased).
+_SCREEN_MIN_CHARS = 3_000
+_SCREEN_SNIPPET = 2_000
+_SCREEN_FLOOR = 2
 
 # Link targets that are never worth a fetch: social shares and video, which
 # either have no extractable text or are pure engagement chrome.
@@ -581,6 +590,29 @@ class Pipeline:
                 except ValueError:
                     pass
             title = doc.title or c.title
+            # First-look screen: half of recent runs' doc time went to
+            # full-page analysis of sources that scored ≤2 — a cheap look at
+            # the opening text catches most of them for a fraction of the
+            # prefill. Any screening failure falls through to the full read.
+            if len(doc.text) > _SCREEN_MIN_CHARS:
+                try:
+                    screen = await llm.chat_json(
+                        "screen", [{"role": "user", "content":
+                                    prompts.SCREEN.format(
+                                        brief=brief, url=final_url,
+                                        title=title or "(untitled)",
+                                        text=doc.text[:_SCREEN_SNIPPET])}],
+                        ScreenOut, max_tokens=120, temperature=0.0)
+                    if screen.relevance <= _SCREEN_FLOOR:
+                        state.skipped += 1
+                        self.bus.publish(
+                            run_id, "source_skipped", url=c.url,
+                            reason=(f"screened out ({screen.relevance}/10 "
+                                    f"on first look)"))
+                        return
+                except LLMJsonError as e:
+                    log.debug("screen degraded to full read for %s: %s",
+                              final_url, e)
             notes = await take_notes(
                 llm, brief=brief, recency_desc=recency_desc, today=today,
                 url=final_url, title=title,
