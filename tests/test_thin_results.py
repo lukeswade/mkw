@@ -18,7 +18,7 @@ from tests.test_pipeline_e2e import article, make_cfg, sx_payload, sx_result, SX
 
 def _script(relevance: int) -> dict:
     return {
-        "triage": [{"keep": list(range(64))}],
+        "triage": [{"drop": []}],
         "planner": [{"title": "Thin Topic", "brief": "Investigate.",
                      "subqueries": ["q1"]}],
         "notes": [{"relevance": relevance, "summary": "Only tangential.",

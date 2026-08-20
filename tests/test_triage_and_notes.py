@@ -42,7 +42,7 @@ async def test_triage_drops_candidates_before_any_fetch(data_dir):
             return_value=httpx.Response(200, html=article(f"Article {c.upper()}")))
 
     s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
-    s["triage"] = [{"keep": [0, 2]}]
+    s["triage"] = [{"drop": [1, 3, 4]}]
     repo, llm, orch, run_id = _run(make_cfg(data_dir), s)
     await orch.execute_now(run_id)
 
@@ -71,7 +71,7 @@ async def test_triage_failure_degrades_to_keeping_everything(data_dir):
 
 
 @respx.mock
-async def test_empty_triage_verdict_is_ignored(data_dir):
+async def test_condemning_everything_is_ignored(data_dir):
     cfg = make_cfg(data_dir)
     respx.get(f"{SX}/search").mock(return_value=httpx.Response(
         200, json=sx_payload(_five_candidates())))
@@ -80,7 +80,7 @@ async def test_empty_triage_verdict_is_ignored(data_dir):
             return_value=httpx.Response(200, html=article(f"Article {c.upper()}")))
 
     s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
-    s["triage"] = [{"keep": []}]
+    s["triage"] = [{"drop": [0, 1, 2, 3, 4]}]   # drop-all = broken verdict
     repo, llm, orch, run_id = _run(cfg, s)
     await orch.execute_now(run_id)
     assert len(repo.findings_for_run(run_id)) == 5

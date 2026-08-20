@@ -50,6 +50,9 @@ def _migrations() -> list:
         # a Telegram name, or "CLI". Old rows stay NULL and show no tag.
         lambda conn: _add_column_if_missing(
             conn, "runs", "created_by", "TEXT"),
+        # Per-run SearXNG categories override (empty = global setting)
+        lambda conn: _add_column_if_missing(
+            conn, "runs", "categories", "TEXT NOT NULL DEFAULT ''"),
     ]
 
 
@@ -90,14 +93,16 @@ class Repo:
     def create_run(self, *, run_id: str, query: str, depth: int, recency: str,
                    dir: str, origin: str = "web", parent_run_id: str | None = None,
                    origin_chat_id: int | None = None, status: str = "queued",
-                   evergreen: bool = False, created_by: str = "") -> None:
+                   evergreen: bool = False, created_by: str = "",
+                   categories: str = "") -> None:
         self.conn.execute(
             "INSERT INTO runs (id, query, depth, recency, status, dir, origin,"
-            " parent_run_id, origin_chat_id, evergreen, created_by, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " parent_run_id, origin_chat_id, evergreen, created_by, categories,"
+            " created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, query, depth, recency, status, dir, origin,
              parent_run_id, origin_chat_id, evergreen, created_by or None,
-             utcnow()),
+             categories or "", utcnow()),
         )
         self.conn.commit()
 

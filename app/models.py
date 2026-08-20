@@ -33,6 +33,9 @@ class RunParams(BaseModel):
     origin_chat_id: int | None = None
     evergreen: bool = False
     created_by: str = Field(default="", max_length=120)
+    # SearXNG categories for this run, comma-separated. Empty = the global
+    # SEARCH_CATEGORIES setting.
+    categories: str = Field(default="", max_length=200)
 
     @field_validator("query")
     @classmethod
@@ -114,8 +117,12 @@ class NotesOut(BaseModel):
 
 
 class TriageOut(BaseModel):
-    """Indices of search candidates worth fetching and reading in full."""
-    keep: list[int] = Field(default_factory=list, max_length=64)
+    """Indices of search candidates NOT worth fetching.
+
+    A drop-list, deliberately: when the model under-delivers (truncation,
+    laziness) the failure mode is keeping extra junk — which relevance
+    scoring catches — rather than silently discarding good candidates."""
+    drop: list[int] = Field(default_factory=list, max_length=64)
 
 
 class GapOut(BaseModel):

@@ -37,6 +37,27 @@
       </label>
       <button type="submit" class="go">Start research</button>
     </div>
+    <fieldset class="cats" id="cat-group"
+              title="Which search-engine categories this run queries. Your last selection is remembered.">
+      <legend>Search in</legend>
+      {% for c in ["general", "science", "it", "news", "files"] %}
+      <label><input type="checkbox" name="categories" value="{{ c }}"> {{ c }}</label>
+      {% endfor %}
+    </fieldset>
+    <script>
+      (function () {
+        const boxes = document.querySelectorAll("#cat-group input");
+        let saved;
+        try { saved = JSON.parse(localStorage.getItem("search_categories")); }
+        catch (e) { saved = null; }
+        if (!Array.isArray(saved) || !saved.length) saved = ["general", "science"];
+        boxes.forEach(b => { b.checked = saved.includes(b.value); });
+        document.getElementById("cat-group").addEventListener("change", () => {
+          const picked = [...boxes].filter(b => b.checked).map(b => b.value);
+          localStorage.setItem("search_categories", JSON.stringify(picked));
+        });
+      })();
+    </script>
     {% include "partials/estimate.html" %}
     <p class="hint">Depth is an effort dial: every two steps buy roughly one
       search round, and each round digs into the gaps the previous one

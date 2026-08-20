@@ -169,15 +169,19 @@ class Pipeline:
         self.llm_factory = llm_factory or (lambda: LLM(cfg))
         self.cancel_requested = False
 
-    async def _triage(self, run_id: str, llm, brief: str,
+    async def _triage(self, run_id: str, llm, query: str, brief: str,
                       candidates: list, state: "_RunState") -> list:
-        """Drop candidates whose title/url/snippet already condemns them."""
+        """Drop candidates whose title/url/snippet already condemns them.
+
+        Asked as a drop-list on purpose: an under-delivering model (lazy,
+        truncated) then keeps extra junk — which relevance scoring catches —
+        instead of silently discarding good candidates."""
         lines = []
         for i, c in enumerate(candidates):
             snippet = " ".join((c.snippet or "").split())[:200]
             lines.append(f"{i}. {c.title[:120]} — {c.url[:150]} — {snippet}"
                          f" — via: {c.via_query[:80]}")
-        prompt = prompts.TRIAGE.format(brief=brief,
+        prompt = prompts.TRIAGE.format(query=query, brief=brief,
                                        candidates="\n".join(lines))
         try:
             out = await llm.chat_json(
@@ -186,21 +190,21 @@ class Pipeline:
         except LLMJsonError as e:
             log.warning("triage degraded to keep-all: %s", e)
             return candidates
-        keep = {i for i in out.keep if 0 <= i < len(candidates)}
-        if not keep:  # an empty verdict is a broken verdict, not a judgment
+        drop = {i for i in out.drop if 0 <= i < len(candidates)}
+        if len(drop) == len(candidates):
+            # condemning everything is a broken verdict, not a judgment
             return candidates
-        dropped = len(candidates) - len(keep)
-        if dropped:
-            state.skipped += dropped
+        if drop:
+            state.skipped += len(drop)
             for i, c in enumerate(candidates):
-                if i not in keep:
+                if i in drop:
                     self.bus.publish(run_id, "source_skipped", url=c.url,
                                      reason="dropped at triage")
             self.bus.publish(run_id, "log",
-                             message=(f"triage dropped {dropped} of "
+                             message=(f"triage dropped {len(drop)} of "
                                       f"{len(candidates)} candidates before "
                                       f"fetching"))
-        return [c for i, c in enumerate(candidates) if i in keep]
+        return [c for i, c in enumerate(candidates) if i not in drop]
 
     def _blocked_domains(self) -> frozenset[str]:
         raw = getattr(self.cfg, "blocked_domains", "") or ""
@@ -266,8 +270,13 @@ class Pipeline:
         limits = httpx.Limits(max_connections=cfg.fetch_concurrency * 2)
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
                                      limits=limits) as http:
+            run_categories = ""
+            try:
+                run_categories = (row["categories"] or "").strip()
+            except (KeyError, IndexError):
+                pass  # rows from before the migration
             searcher = Searcher(cfg.searxng_url, http,
-                                categories=cfg.search_categories,
+                                categories=run_categories or cfg.search_categories,
                                 max_concurrent=cfg.search_concurrency)
             fetcher = Fetcher(cfg, http)
 
@@ -491,8 +500,8 @@ class Pipeline:
         # time before scoring 0/10 — this call costs seconds and drops most
         # of them. Degrades to keeping everything.
         if len(candidates) > 3:
-            candidates = await self._triage(run_id, llm, brief, candidates,
-                                            state)
+            candidates = await self._triage(run_id, llm, query, brief,
+                                            candidates, state)
 
         total_results = sum(len(l) for l in merged_lists)
         self.bus.publish(run_id, "searched", results=total_results,

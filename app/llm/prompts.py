@@ -67,8 +67,9 @@ citation number that isn't in the list."""
 
 TRIAGE = """You are the triage stage of an automated deep-research pipeline. \
 Search returned the candidate pages below. Each will cost a fetch and a full \
-document analysis, so drop the ones that are clearly not worth it.
+document analysis, so name the ones that are clearly NOT worth it.
 
+Research question: {query}
 Research brief: {brief}
 
 Candidates (index. title — url — snippet — found via):
@@ -76,13 +77,14 @@ Candidates (index. title — url — snippet — found via):
 
 Judge each from its title, URL and snippet only. DROP: shopping/product \
 listings, dictionary or encyclopedia pages on generic words, pages about a \
-clearly different model/topic/domain than the brief, listicle content farms, \
-login or share shells. KEEP: primary documents and manuals, forum threads and \
-discussions on the actual topic, guides, official documentation, videos, and \
-anything plausibly useful — when unsure, keep it.
+clearly different model/topic/domain than the question, listicle content \
+farms, login or share shells. Everything else stays — primary documents and \
+manuals, forum threads and discussions on the actual topic, guides, official \
+documentation, videos, and anything plausibly useful. When unsure about a \
+candidate, do NOT list it.
 
 Produce a JSON object with exactly one key:
-- "keep": array of the integer indices worth reading (e.g. [0, 2, 5])
+- "drop": array of the integer indices not worth fetching (e.g. [1, 4])
 
 Respond with only the JSON object."""
 

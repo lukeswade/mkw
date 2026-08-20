@@ -20,6 +20,13 @@ REFRESH_INTERVAL_HOURS = 24
 CHECK_EVERY_SECONDS = 900
 
 
+def _categories_of(row) -> str:
+    try:
+        return row["categories"] or ""
+    except (KeyError, IndexError):
+        return ""
+
+
 async def refresh_due_runs(orchestrator, repo) -> int:
     """Enqueue a refresh for every evergreen run that is due. Returns the count."""
     due = repo.evergreen_due(REFRESH_INTERVAL_HOURS)
@@ -32,6 +39,7 @@ async def refresh_due_runs(orchestrator, repo) -> int:
             origin=row["origin"] or "web",
             origin_chat_id=row["origin_chat_id"],
             created_by=row["created_by"] or "",
+            categories=_categories_of(row),
         )
         new_id = orchestrator.enqueue(params)
         log.info("evergreen refresh %s queued for %s", new_id, row["id"])

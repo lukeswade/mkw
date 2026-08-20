@@ -155,6 +155,11 @@ The new-run form shows a live estimate — searches, sources, LLM calls, time,
 cost — for the depth you've dialed in, calibrated against your own completed
 runs, and warns you if something similar is already in your library.
 
+**Search categories** — the checkboxes under the form pick which SearXNG
+categories a run queries (general, science, it, news, files). The default is
+the instance's `SEARCH_CATEGORIES`; your last selection is remembered in the
+browser, and retries and evergreen refreshes inherit the run's categories.
+
 **Recency** maps to search-engine time filters plus a date check on the
 documents themselves. Engine date metadata is imperfect, so undated sources
 are kept but flagged, and the synthesis is told to prefer dated in-window
@@ -165,9 +170,11 @@ Every run directory contains `overview.md` (the cited synthesis),
 log, `meta.json`, and `events.jsonl`. In the UI, a finished run has four tabs
 — Overview (with the bibliography its `[n]` citations jump to), Sources (each
 source's notes, expandable), Further research (one-click follow-up runs), and
-Log — plus **Export PDF**, which produces the entire research record as a
-single document: the question as asked, the overview, the bibliography, and
-every source's notes. **Re-synthesize** rewrites the overview from the run's
+Log — plus **Export PDF** and **Export HTML**, which produce the entire research
+record as a single document: the question as asked, the overview, the
+bibliography, and every source's notes. The HTML export is one self-contained
+page (collapsible notes, dark-mode aware, zero external assets) that opens
+from a double-click and shares over anything. **Re-synthesize** rewrites the overview from the run's
 stored sources without re-searching anything — for when the research
 succeeded but the final synthesis call didn't (a truncation, or a
 thinking-mode model emitting its reasoning instead of the document; normal
