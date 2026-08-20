@@ -14,6 +14,10 @@ from markupsafe import Markup, escape
 from app.db import FTS_MARK_CLOSE, FTS_MARK_OPEN
 
 _md = MarkdownIt("gfm-like", options_update={"html": False, "linkify": True})
+# Only link real URLs, never bare domain-ish words: research text is full of
+# them ("180 kgf.cm", "v1.2.3", file names), and fuzzy linkify turned every
+# one into a hyperlink to a website that has nothing to do with the source.
+_md.linkify.set({"fuzzy_link": False, "fuzzy_email": False})
 
 # [3] → [\[3\]](#src-3), skipping [3](...) markdown links and [x][y] refs
 # (?!\() keeps real markdown links [3](url) intact. No (?!\[) — that used to

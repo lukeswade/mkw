@@ -116,19 +116,6 @@ class NotesOut(BaseModel):
             return 0
 
 
-class ScreenOut(BaseModel):
-    """First-look relevance estimate from a document's opening text."""
-    relevance: int = Field(default=4, ge=0, le=10)
-
-    @field_validator("relevance", mode="before")
-    @classmethod
-    def _clamp(cls, v):
-        try:
-            return max(0, min(10, int(float(v))))
-        except (TypeError, ValueError):
-            return 4  # unusable output must not silently discard the source
-
-
 class TriageOut(BaseModel):
     """Indices of search candidates NOT worth fetching.
 

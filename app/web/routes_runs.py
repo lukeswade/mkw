@@ -382,7 +382,11 @@ async def export_html(request: Request, run_id: str):
         meta_line=meta_line,
         overview_html=render_overview(overview_md, len(findings)),
         findings=findings, cards=_finding_cards(store, findings))
-    return Response(page, media_type="text/html", headers={
+    # octet-stream, not text/html: Cloudflare (and other RUM-injecting
+    # proxies) rewrite text/html responses in transit and add a beacon
+    # <script> to the file, which breaks the zero-external-assets promise
+    # and phones home when the saved file is opened offline.
+    return Response(page, media_type="application/octet-stream", headers={
         "Content-Disposition": f'attachment; filename="{run_id}.html"'})
 
 
@@ -416,7 +420,8 @@ async def export_interactive(request: Request, run_id: str):
         overview_html=render_overview(overview_md, len(findings)),
         findings=findings, cards=_finding_cards(store, findings),
         log_lines=log_lines)
-    return Response(page, media_type="text/html", headers={
+    # octet-stream so proxies can't inject a beacon script (see export_html)
+    return Response(page, media_type="application/octet-stream", headers={
         "Content-Disposition":
             f'attachment; filename="{run_id}-interactive.html"'})
 

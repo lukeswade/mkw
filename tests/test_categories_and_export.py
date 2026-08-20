@@ -161,3 +161,29 @@ def test_adjacent_citations_all_link():
     for n in (1, 8, 9):
         assert f'href="#src-{n}"' in html
     assert 'href="https://x.y"' in html          # markdown links untouched
+
+
+def test_exports_are_served_as_opaque_downloads(data_dir, monkeypatch):
+    """text/html responses get RUM beacon <script> tags injected by
+    Cloudflare and friends in transit, which would break the
+    zero-external-assets promise of a saved export."""
+    from fastapi.testclient import TestClient
+    from tests.test_web import make_app
+    from tests.test_web import seed_completed_run
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    with TestClient(app) as client:
+        for path in ("export.html", "export-interactive.html"):
+            r = client.get(f"/runs/{run_id}/{path}")
+            assert r.status_code == 200
+            assert r.headers["content-type"] == "application/octet-stream"
+            assert "attachment" in r.headers["content-disposition"]
+
+
+def test_bare_domains_in_text_are_not_hyperlinked():
+    """"180 kgf.cm" and friends were being linkified into websites."""
+    from app.web.markdown import render
+    html = render("Torque is 17.5 N.m (180 kgf.cm, 13 ft. lbf) per file v1.2.3.")
+    assert "<a " not in html
+    # real URLs still become links
+    assert '<a href="https://example.com/page"' in render("See https://example.com/page")
