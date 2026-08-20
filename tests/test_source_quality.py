@@ -137,24 +137,67 @@ async def test_reddit_thread_is_read_through_json_api(data_dir):
     assert f["published_date"] is None or f["published_date"].startswith("2024")
 
 
+_OLD_REDDIT_HTML = """<html><body>
+<div id="siteTable"><div class="thing link">
+  <a class="title">Rear bank plugs on a GX470 — what worked</a>
+  <div class="expando"><div class="usertext-body">Did all 8 today, notes on
+  extensions and torque below for anyone searching later.</div></div>
+</div></div>
+<div class="commentarea">
+  <div class="thing comment"><div class="entry">
+    <span class="score">57 points</span>
+    <div class="usertext-body">Use a 12in extension plus a wobble on cylinder
+    8; going in blind from the top is easier than it looks.</div></div>
+    <div class="child"><div class="thing comment"><div class="entry">
+      <span class="score">21 points</span>
+      <div class="usertext-body">Seconding the wobble joint, the u-joint
+      binds at that angle.</div></div></div></div>
+  </div>
+  <div class="thing comment"><div class="entry">
+    <span class="score">33 points</span>
+    <div class="usertext-body">Torque is 13 ft-lb on the 2UZ, do not
+    anti-seize the plated threads.</div></div></div>
+</div></body></html>"""
+
+
 @respx.mock
-async def test_reddit_thread_with_unparseable_json_is_skipped(data_dir):
+async def test_blocked_json_api_falls_back_to_old_reddit_html(data_dir):
+    """Reddit revokes anonymous .json access for days at a time while still
+    serving HTML — thread reading must survive that."""
     cfg = make_cfg(data_dir)
     thread_url = "https://www.reddit.com/r/GXOR/comments/abc/x/"
     respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
         [sx_result(thread_url, "Thread")])))
     respx.get("https://old.reddit.com/r/GXOR/comments/abc/x.json").mock(
-        return_value=httpx.Response(200, json={"error": 429},
-                                    headers={"content-type": "application/json"}))
+        return_value=httpx.Response(403))
+    respx.get("https://old.reddit.com/r/GXOR/comments/abc/x/").mock(
+        return_value=httpx.Response(200, html=_OLD_REDDIT_HTML))
     repo = Repo(connect(cfg.db_path))
     orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
                         llm_factory=lambda: FakeLLM(_script()))
+    orch_cfg = cfg
+    orch_cfg.browser_impersonation = False   # keep the 403 path deterministic
     run_id = orch.enqueue(RunParams(query="gx470 plugs", depth=1,
                                     recency="all", origin="cli"))
     await orch.execute_now(run_id)
-    assert repo.findings_for_run(run_id) == []
-    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
-    assert "unreadable reddit thread" in events
+    findings = repo.findings_for_run(run_id)
+    assert len(findings) == 1
+    assert "reddit thread" in findings[0]["title"]
+    md = (cfg.research_dir / run_id / findings[0]["path"]).read_text()
+    assert "wobble" in md or findings[0]["summary"]   # content flowed through
+
+
+def test_thread_from_html_parses_post_and_nested_comments():
+    from app.research.fetcher import Fetched
+    from app.research.reddit import _thread_from_html
+    page = Fetched(url="u", final_url="u", content_type="text/html",
+                   body=_OLD_REDDIT_HTML.encode())
+    title, selftext, comments = _thread_from_html(page)
+    assert title.startswith("Rear bank plugs")
+    assert "notes on" in selftext
+    assert len(comments) == 3
+    assert comments[0].startswith("[57 points]")
+    assert comments[1].startswith("  [21 points]")   # nested reply indented
 
 
 # ---- youtube: url recognition and caption parsing ------------------------------

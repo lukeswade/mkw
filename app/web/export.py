@@ -167,6 +167,7 @@ def standalone_html(*, title: str, query: str, meta_line: str,
     body = "\n".join(parts)
     return (f"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             f"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            f'<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔭</text></svg>">'
             f"<title>{escape(title)}</title><style>{_PAGE_CSS}</style></head>"
             f"<body>{body}</body></html>")
 
@@ -359,5 +360,6 @@ def interactive_html(*, title: str, query: str, meta_line: str,
         f"agent.</footer>")
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f'<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔭</text></svg>">'
             f"<title>{escape(title)}</title><style>{_APP_CSS}</style></head>"
             f"<body>{body}<script>{_APP_JS}</script></body></html>")

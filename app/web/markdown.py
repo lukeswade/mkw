@@ -16,7 +16,9 @@ from app.db import FTS_MARK_CLOSE, FTS_MARK_OPEN
 _md = MarkdownIt("gfm-like", options_update={"html": False, "linkify": True})
 
 # [3] → [\[3\]](#src-3), skipping [3](...) markdown links and [x][y] refs
-_CITE_RE = re.compile(r"\[(\d{1,3})\](?!\(|\[)")
+# (?!\() keeps real markdown links [3](url) intact. No (?!\[) — that used to
+# skip every citation in an adjacent run like [1][8][9] except the last one.
+_CITE_RE = re.compile(r"\[(\d{1,3})\](?!\()")
 
 
 def render(md_text: str) -> str:

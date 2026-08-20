@@ -151,4 +151,13 @@ async def test_interactive_export_is_a_one_file_mini_app(data_dir, monkeypatch):
     assert "— planning —" in page or "planning" in page   # log tab content
     assert "/static/" not in page                # self-contained
     assert 'src="http' not in page
+    assert 'rel="icon" href="data:image/svg+xml' in page   # inline favicon
     assert "interactive.html" in r.headers["content-disposition"]
+
+
+def test_adjacent_citations_all_link():
+    from app.web.markdown import render_overview
+    html = render_overview("Claim [1][8][9]. Real link [3](https://x.y).", 9)
+    for n in (1, 8, 9):
+        assert f'href="#src-{n}"' in html
+    assert 'href="https://x.y"' in html          # markdown links untouched
