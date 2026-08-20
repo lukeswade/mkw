@@ -26,7 +26,7 @@ Number of initial search queries to produce: {breadth}
 Produce a JSON object with exactly these keys:
 - "title": a short descriptive title for this research (max 10 words)
 - "brief": 2-4 sentences stating what the research must establish — the specific angles, subtopics, and what a complete answer looks like
-- "subqueries": array of exactly {breadth} distinct web search queries (plain strings). Make them specific and varied: cover different facets, use terminology a domain expert would search for, avoid near-duplicates. Where the recency focus makes it useful, include a year in the query text.
+- "subqueries": array of exactly {breadth} distinct web search queries (plain strings), SPREAD ACROSS THE DIFFERENT FACETS of the brief you just wrote. Never spend two queries on one facet while another facet has none — a query set that all asks for the same kind of thing returns one kind of source. Specifications, part numbers and measurements are ONE facet: at most one query, however many numbers the brief mentions. If the brief asks how to do something, at least one query must search the way a person doing the job would ("how to X", "X step by step", "X DIY", "X guide") — that is what surfaces walkthroughs, forum threads and videos, which specification queries never return. Use terminology a domain expert would search for, avoid near-duplicates, and where the recency focus makes it useful include a year in the query text.
 - "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) that are strongly associated with the target information across these subqueries. These will be used for fast text extraction from large documents.
 
 Respond with only the JSON object."""
@@ -161,7 +161,7 @@ Queries already searched (do not repeat or trivially rephrase):
 Produce a JSON object with exactly these keys:
 - "state_md": REWRITE the complete research state document in markdown, merging the new findings into it: what is now established (cite source ids like [3]), what is uncertain or disputed, what is still missing. Max 1500 words. This document is the pipeline's only memory — keep it complete and dense.
 - "saturated": boolean — true only if further searching is unlikely to add material insight on the brief
-- "next_queries": if not saturated, an array of up to {breadth} NEW targeted search queries attacking the biggest remaining gaps (plain strings, specific, no duplicates of past queries). Empty array if saturated.
+- "next_queries": if not saturated, an array of up to {breadth} NEW targeted search queries attacking the biggest remaining gaps (plain strings, specific, no duplicates of past queries). Spread them across DIFFERENT gaps rather than several angles on one, and if a gap is procedural ("how is it actually done") phrase at least one query the way someone doing the task would search. Empty array if saturated.
 - "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) relevant to the next_queries for fast text extraction.
 
 Respond with only the JSON object."""

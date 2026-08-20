@@ -55,3 +55,16 @@ def test_notes_prompt_carries_the_economy_rule():
     from app.llm import prompts
     assert "ECONOMY RULE" in prompts.NOTES
     assert "2 or lower" in prompts.NOTES
+
+
+def test_planner_and_gap_demand_facet_spread():
+    """Three of four queries in a live run asked for specs, so three of four
+    keeps were spec sheets scoring 4/10 against a procedural brief; the one
+    procedural query produced the one procedural source (6/10)."""
+    from app.llm import prompts
+    planner = prompts.PLANNER.replace("\n", " ")
+    assert "SPREAD ACROSS THE DIFFERENT FACETS" in planner
+    assert "at most one query" in planner            # specs are one facet
+    assert "step by step" in planner                 # how-to phrasing required
+    gap = prompts.GAP.replace("\n", " ")
+    assert "Spread them across DIFFERENT gaps" in gap
