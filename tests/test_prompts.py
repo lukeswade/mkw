@@ -46,3 +46,12 @@ def test_template_formats_without_error(name):
     args = {field: f"<{field}>" for field in _fields(template)}
     rendered = template.format(**args)
     assert "<" in rendered or not args
+
+
+def test_notes_prompt_carries_the_economy_rule():
+    """Half of recent runs' doc time went to writing full notes for sources
+    that scored ≤2 and were discarded — the rule must stay in the prompt,
+    and must stay ABOVE the thin-fallback band (3s keep their notes)."""
+    from app.llm import prompts
+    assert "ECONOMY RULE" in prompts.NOTES
+    assert "2 or lower" in prompts.NOTES

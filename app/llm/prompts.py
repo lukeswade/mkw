@@ -113,6 +113,8 @@ Produce a JSON object with exactly these keys:
   - "evidence_quote": a verbatim quote (≤200 chars) from the text supporting the claim, or null if unsupported
   - "confidence": integer 0-10 representing confidence in the claim
 
+ECONOMY RULE: decide the relevance score FIRST. If it is 2 or lower, the source will be discarded — output notes_md as "" and key_facts as [] (keep the one-sentence summary and published_date). Never write notes for a source you are scoring as junk.
+
 IMPORTANT: You must output ONLY valid, parseable JSON. Ensure all strings (especially in notes_md and quotes) are properly JSON-escaped (e.g. newlines as \\n, quotes as \\"). Do not wrap the JSON in markdown fences.
 
 Example structure (braces are doubled here only because this template is
