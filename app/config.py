@@ -37,6 +37,9 @@ ENV_MAP = {
     "data_dir": "DATA_DIR",
     "fetch_concurrency": "FETCH_CONCURRENCY",
     "llm_concurrency": "LLM_CONCURRENCY",
+    "embedding_model": "EMBEDDING_MODEL",
+    "embedding_base_url": "EMBEDDING_BASE_URL",
+    "embedding_api_key": "EMBEDDING_API_KEY",
     "llm_timeout": "LLM_TIMEOUT",
     "results_per_query": "RESULTS_PER_QUERY",
     "search_categories": "SEARCH_CATEGORIES",
@@ -77,12 +80,17 @@ UI_EDITABLE = {
     "blocked_domains",
     "authority_sites",
     "respect_robots",
+    "llm_concurrency",
+    "embedding_model",
+    "embedding_base_url",
+    "embedding_api_key",
     "browser_impersonation",
     "browser_solver_url",
 }
 
 SECRET_FIELDS = {"llm_api_key", "deepseek_api_key", "local_llm_api_key",
-                 "telegram_bot_token", "web_password"}
+                 "telegram_bot_token", "web_password",
+                 "embedding_api_key"}
 
 
 @dataclass
@@ -116,6 +124,14 @@ class Settings:
     data_dir: str = "./data"
     fetch_concurrency: int = 8
     llm_concurrency: int = 4
+    # Embeddings. Empty model = the bge-small baked into the image (fully
+    # offline, no server needed). Naming a model routes embeddings to an
+    # OpenAI-compatible /embeddings endpoint instead — e.g. a local oMLX or
+    # LM Studio serving a stronger retrieval model. Blank URL/key reuse the
+    # LLM endpoint's, which is the common case for a local server.
+    embedding_model: str = ""
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
     llm_timeout: int = 180
     results_per_query: int = 8
     # SearXNG categories to query. general alone is four engines that all

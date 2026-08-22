@@ -43,3 +43,100 @@ class Embedder:
 
     async def encode_query(self, text: str) -> list[float]:
         return (await asyncio.to_thread(self._encode, [QUERY_PREFIX + text]))[0]
+
+
+# ---- remote embeddings (OpenAI-compatible /embeddings) -----------------------
+
+# Retrieval models want their own instruction prefixes; using the wrong ones
+# (or none) measurably degrades recall. Keyed by substring of the model id.
+_PREFIXES: tuple[tuple[str, str, str], ...] = (
+    ("nomic", "search_query: ", "search_document: "),
+    ("modernbert", "search_query: ", "search_document: "),
+    ("bge", QUERY_PREFIX, ""),
+    ("e5", "query: ", "passage: "),
+    ("gte", "", ""),
+    ("qwen3-emb", "", ""),
+)
+
+
+def prefixes_for(model: str) -> tuple[str, str]:
+    m = (model or "").lower()
+    for key, q, d in _PREFIXES:
+        if key in m:
+            return q, d
+    return "", ""
+
+
+class RemoteEmbedder:
+    """Embeddings from an OpenAI-compatible /embeddings endpoint.
+
+    Lets a local inference server (oMLX, LM Studio, llama.cpp) supply a
+    stronger retrieval model than the small one baked into the image — often
+    one that is already resident in memory for other work.
+    """
+
+    def __init__(self, base_url: str, model: str, api_key: str = "",
+                 timeout: float = 120.0, batch_size: int = 32):
+        self.base_url = (base_url or "").rstrip("/")
+        self.model = model
+        self.api_key = api_key
+        self.timeout = timeout
+        self.batch_size = max(1, batch_size)
+        self.query_prefix, self.doc_prefix = prefixes_for(model)
+
+    async def _embed(self, inputs: list[str]) -> list[list[float]]:
+        import httpx
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        out: list[list[float]] = []
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for i in range(0, len(inputs), self.batch_size):
+                batch = inputs[i:i + self.batch_size]
+                resp = await client.post(f"{self.base_url}/embeddings",
+                                         headers=headers,
+                                         json={"model": self.model,
+                                               "input": batch})
+                resp.raise_for_status()
+                data = resp.json().get("data") or []
+                if len(data) != len(batch):
+                    raise RuntimeError(
+                        f"embedding endpoint returned {len(data)} vectors "
+                        f"for {len(batch)} inputs")
+                for item in sorted(data, key=lambda d: d.get("index", 0)):
+                    out.append([float(x) for x in item["embedding"]])
+        return out
+
+    async def encode_docs(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        return await self._embed([self.doc_prefix + t for t in texts])
+
+    async def encode_query(self, text: str) -> list[float]:
+        return (await self._embed([self.query_prefix + text]))[0]
+
+
+def make_embedder(cfg):
+    """Remote embedder when a model is configured, else the baked-in one."""
+    model = (getattr(cfg, "embedding_model", "") or "").strip()
+    if not model:
+        return Embedder()
+    base = (getattr(cfg, "embedding_base_url", "") or "").strip() \
+        or cfg.resolved_base_url
+    key = (getattr(cfg, "embedding_api_key", "") or "").strip() \
+        or cfg.resolved_api_key
+    log.info("embeddings via %s (model %s)", base, model)
+    return RemoteEmbedder(base, model, key)
+
+
+def embedder_id(cfg) -> str:
+    """Short identity of the active embedding model.
+
+    The vector index is namespaced by this: two models produce incompatible
+    vector spaces (and usually different dimensions), so they must not share
+    a collection. Switching models is then non-destructive and reversible —
+    the old collection stays put until you switch back.
+    """
+    import re as _re
+    model = (getattr(cfg, "embedding_model", "") or "").strip() or MODEL_NAME
+    return _re.sub(r"[^a-z0-9]+", "_", model.lower()).strip("_")[:48]

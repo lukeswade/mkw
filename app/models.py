@@ -25,7 +25,11 @@ RECENCY_LABELS: dict[str, str] = {
 }
 
 class RunParams(BaseModel):
-    query: str = Field(min_length=3, max_length=2000)
+    # 8000 chars comfortably holds a pasted multi-paragraph brief. The query
+    # rides in the planner, triage, gap and synthesis prompts (notes get the
+    # planner's distilled brief instead), so its cost is a few thousand
+    # prefill tokens per run — nothing against a 64k context window.
+    query: str = Field(min_length=3, max_length=8000)
     depth: int = Field(ge=0, le=10)
     recency: Recency = "all"
     origin: Literal["web", "telegram", "cli"] = "web"

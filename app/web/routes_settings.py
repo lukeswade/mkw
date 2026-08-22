@@ -17,7 +17,8 @@ router = APIRouter()
 
 _TEXT_FIELDS = ("llm_provider", "llm_base_url", "llm_model", "fast_model",
                 "telegram_allowed_user_ids", "searxng_url", "lan_user_label",
-                "authority_sites", "browser_solver_url")
+                "authority_sites", "browser_solver_url",
+                "embedding_model", "embedding_base_url")
 _SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password")
 
 
@@ -37,6 +38,11 @@ async def settings_save(request: Request):
     for f in _TEXT_FIELDS:
         if f in form:
             updates[f] = str(form[f]).strip()
+    if "llm_concurrency" in form:
+        try:
+            updates["llm_concurrency"] = max(1, min(16, int(str(form["llm_concurrency"]))))
+        except ValueError:
+            pass
     if "results_per_query" in form:
         try:
             updates["results_per_query"] = max(1, min(20, int(str(form["results_per_query"]))))

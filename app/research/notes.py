@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 # little and grades it on what it actually says — keyword excerpts kept
 # rating pages from fragments. ~40k chars ≈ 13k est-tokens; only documents
 # larger than that fall back to keyword excerpting / head+tail clipping.
-_INPUT_CHARS = 40_000
+_INPUT_CHARS = 56_000
 _HEAD_CHARS = 34_000
 _TAIL_CHARS = 6_000
 

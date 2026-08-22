@@ -23,8 +23,13 @@ class Hit:
 
 
 class VectorIndex:
-    def __init__(self, chroma_dir: Path):
+    def __init__(self, chroma_dir: Path, namespace: str = ""):
         self.chroma_dir = Path(chroma_dir)
+        # One collection per embedding model: different models mean different
+        # dimensions and an incompatible vector space, so they must never
+        # share a collection. Switching models therefore starts a clean index
+        # and leaves the old one intact to switch back to.
+        self.collection = f"{COLLECTION}__{namespace}" if namespace else COLLECTION
         self._coll = None
 
     def _collection(self):
@@ -34,7 +39,7 @@ class VectorIndex:
                 path=str(self.chroma_dir),
                 settings=chromadb.Settings(anonymized_telemetry=False))
             self._coll = client.get_or_create_collection(
-                COLLECTION, metadata={"hnsw:space": "cosine"})
+                self.collection, metadata={"hnsw:space": "cosine"})
         return self._coll
 
     def count(self) -> int:

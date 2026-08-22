@@ -70,6 +70,26 @@
       <input type="text" name="blocked_domains" value="{{ cfg.blocked_domains }}"
              placeholder="e.g. pinterest.com, quora.com">
     </label>
+    <div class="grid">
+      <label>Embedding model <small>(blank = built-in bge-small)</small>
+        <input type="text" name="embedding_model" value="{{ cfg.embedding_model }}"
+               placeholder="e.g. nomicai-modernbert-embed-base-bf16">
+      </label>
+      <label>Embedding endpoint <small>(blank = same as the LLM)</small>
+        <input type="text" name="embedding_base_url" value="{{ cfg.embedding_base_url }}"
+               placeholder="http://host.docker.internal:8000/v1">
+      </label>
+      <label>Parallel LLM requests
+        <input type="number" name="llm_concurrency" min="1" max="16"
+               value="{{ cfg.llm_concurrency }}">
+      </label>
+    </div>
+    <p class="hint">Semantic library search, Ask, and similar-run detection run
+      on embeddings. Naming a model sends them to an OpenAI-compatible
+      <code>/embeddings</code> endpoint — useful when your local server already
+      hosts a stronger retrieval model. Switching models starts a fresh vector
+      index; run <code>cli reindex</code> to refill it. Parallel requests only
+      help if your server batches (oMLX, vLLM, llama.cpp).</p>
     <label>Authority sites <small>(one per line: domain — what it holds)</small>
       <textarea name="authority_sites" rows="3"
                 placeholder="charm.li — full factory service manuals for cars">{{ cfg.authority_sites }}</textarea>

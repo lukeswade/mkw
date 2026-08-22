@@ -15,7 +15,7 @@ from app.config import Settings, load_settings
 from app.db import Repo, utcnow
 from app.llm import prompts
 from app.rag.chunking import chunk_markdown
-from app.rag.embeddings import Embedder
+from app.rag.embeddings import embedder_id, make_embedder
 from app.rag.index import VectorIndex
 
 log = logging.getLogger(__name__)
@@ -32,8 +32,8 @@ class RagService:
         import sentence_transformers  # noqa: F401 — fail fast if ML deps absent
         import chromadb                # noqa: F401
         self.cfg = cfg
-        self.embedder = Embedder()
-        self.index = VectorIndex(cfg.chroma_dir)
+        self.embedder = make_embedder(cfg)
+        self.index = VectorIndex(cfg.chroma_dir, embedder_id(cfg))
         self._llm_factory = llm_factory
 
     def _llm(self):
