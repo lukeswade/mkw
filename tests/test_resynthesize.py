@@ -126,3 +126,54 @@ async def test_orchestrator_guards_and_runs_resynth(data_dir):
     assert (cfg.research_dir / run_id / "overview.md").read_text()\
         .startswith("# Again")
     assert run_id not in orch.active
+
+
+# ---- repetition-collapse guard ----------------------------------------------
+
+LOOP = "!" * 8000
+
+
+def test_looks_degenerate_catches_repetition_collapse():
+    from app.research.synthesizer import looks_degenerate, looks_like_document
+    assert looks_degenerate(LOOP)
+    assert looks_degenerate("|" * 500)
+    assert looks_degenerate("ab" * 400)
+    assert not looks_degenerate("# Real Overview\n\n" + MONOLOGUE * 3)
+    assert not looks_degenerate("short")
+    assert not looks_like_document(LOOP)
+
+
+async def test_degenerate_synthesis_writes_a_placeholder_not_garbage():
+    from app.research.notes import Finding
+    from app.research.synthesizer import synthesize
+    llm = FakeLLM({"synth": [LOOP, LOOP]})       # loops on both attempts
+    f = Finding(idx=1, url="https://a.com/x", title="T", domain="a.com",
+                published=None, relevance=8, summary="s", notes_md="notes")
+    out = await synthesize(llm, query="q", title="TCL Fault", brief="b",
+                           recency_desc="any", today="2026-08-22",
+                           state_md="", findings=[f])
+    assert llm.calls["synth"] == 2
+    assert "!" * 50 not in out                    # the loop never reaches disk
+    assert out.startswith("# TCL Fault")
+    assert "Synthesis failed" in out and "Re-synthesize" in out
+
+
+async def test_large_source_sets_are_map_reduced():
+    """A single 16k+ token synthesis prompt ran away 30% of the time."""
+    from app.research.notes import Finding
+    from app.research.synthesizer import synthesize
+    calls = []
+
+    def capture(messages):
+        calls.append(messages[-1]["content"])
+        return "# Digest\n\nSummary [1]."
+
+    llm = FakeLLM({"synth": [capture]})
+    findings = [Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}",
+                        domain="a.com", published=None, relevance=7,
+                        summary="s", notes_md="word " * 800)
+                for i in range(1, 16)]
+    await synthesize(llm, query="q", title="T", brief="b", recency_desc="any",
+                     today="t", state_md="", findings=findings)
+    assert llm.calls["synth"] > 1                 # digested, not one huge call
+    assert all(len(c) < 60_000 for c in calls)    # no single monster prompt

@@ -876,7 +876,9 @@ class Pipeline:
             llm, query=query, title=title, brief=brief,
             recency_desc=recency_desc, today=today, state_md="",
             findings=findings, bus=self.bus, run_id=run_id,
-            previous_overview=self._parent_overview(row))
+            previous_overview=self._parent_overview(row),
+            # never replace a run's existing overview with a placeholder
+            placeholder_on_failure=False)
         if not synthesizer.looks_like_document(overview):
             self.bus.publish(run_id, "log",
                              message=("re-synthesis still produced reasoning "

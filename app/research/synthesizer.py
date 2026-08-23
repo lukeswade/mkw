@@ -12,9 +12,29 @@ from app.research.notes import Finding, render_facts
 
 log = logging.getLogger(__name__)
 
-_SINGLE_CALL_BUDGET = 36_000   # est tokens of notes for a one-shot synthesis
-_BATCH_BUDGET = 30_000         # est tokens per map batch
+# Est tokens of notes above which synthesis is map-reduced into digests.
+# Measured on a local 35B: calls with 16k+ token prompts ran away into
+# repetition loops 30% of the time versus 1% under 4k, so the threshold
+# sits well below that rather than at the context limit.
+_SINGLE_CALL_BUDGET = 12_000
+_BATCH_BUDGET = 10_000         # est tokens per map batch
 _PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
+
+
+def looks_degenerate(text: str) -> bool:
+    """True for repetition-collapse output: 8000 tokens of "!!!!!!".
+
+    Local models at long prompt lengths can fall into a loop that runs until
+    the token cap. The tell is character diversity: real prose over hundreds
+    of characters uses dozens of distinct ones, a loop uses a handful.
+    """
+    sample = (text or "").strip()
+    if len(sample) < 200:
+        return False
+    sample = sample[:4000]
+    distinct = len(set(sample))
+    top_share = max(sample.count(c) for c in set(sample)) / len(sample)
+    return distinct <= 12 or top_share > 0.5
 
 
 def looks_like_document(text: str) -> bool:
@@ -25,6 +45,8 @@ def looks_like_document(text: str) -> bool:
     whole token budget without ever writing the document. The tell is simple:
     a real overview starts with a markdown heading almost immediately.
     """
+    if looks_degenerate(text):
+        return False
     for line in text.strip().splitlines()[:3]:
         if line.lstrip().startswith("#"):
             return True
@@ -44,7 +66,8 @@ def _note_block(f: Finding) -> str:
 async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                      recency_desc: str, today: str, state_md: str,
                      findings: list[Finding], bus=None, run_id: str = "",
-                     previous_overview: str = "") -> str:
+                     previous_overview: str = "",
+                     placeholder_on_failure: bool = True) -> str:
     blocks = [_note_block(f) for f in findings]
 
     if est_tokens("".join(blocks)) > _SINGLE_CALL_BUDGET:
@@ -96,6 +119,30 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                                max_tokens=max_out, temperature=0.4)
         if looks_like_document(retry):
             return retry
+        # Both attempts failed. Publishing the output anyway is how a run
+        # ends up showing 8000 exclamation marks where its overview should
+        # be — the research itself is intact, so say so and point at the
+        # one-click rebuild instead. Re-synthesis passes
+        # placeholder_on_failure=False: overwriting a run's existing overview
+        # with a placeholder would destroy something usable.
+        if not placeholder_on_failure:
+            return retry
+        log.error("synthesis unusable twice; writing a placeholder overview")
+        if bus is not None and run_id:
+            bus.publish(run_id, "log",
+                        message=("synthesis failed twice — sources are saved; "
+                                 "use Re-synthesize to rebuild the overview"))
+        return (f"# {title}\n\n"
+                f"> **Synthesis failed.** The research completed and all "
+                f"{len(findings)} sources below are saved with their notes and "
+                f"evidence, but the model did not return a usable document "
+                f"after two attempts — most often a repetition loop on an "
+                f"over-long prompt.\n>\n"
+                f"> Press **Re-synthesize** on this run to rebuild the "
+                f"overview from the stored sources without re-searching. "
+                f"If it fails again, a smaller model prompt helps: lower the "
+                f"depth, or set a repetition penalty on your inference "
+                f"server.\n")
     return text
 
 

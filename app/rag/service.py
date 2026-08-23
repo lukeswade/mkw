@@ -28,13 +28,42 @@ ASK_MIN_SCORE = 0.35
 
 
 class RagService:
+    """Embeddings + vector index.
+
+    The web app builds this once at boot, but embedding settings can change
+    on the Settings page afterwards. The embedder and its index are therefore
+    re-resolved whenever the configured model changes — otherwise a running
+    server keeps writing vectors with the old model into the old collection
+    while everything else uses the new one, silently splitting the library
+    across two indexes.
+    """
+
     def __init__(self, cfg: Settings, llm_factory=None):
         import sentence_transformers  # noqa: F401 — fail fast if ML deps absent
         import chromadb                # noqa: F401
         self.cfg = cfg
-        self.embedder = make_embedder(cfg)
-        self.index = VectorIndex(cfg.chroma_dir, embedder_id(cfg))
+        self._embedder_id = ""
+        self.embedder = None
+        self.index = None
+        self._refresh()
         self._llm_factory = llm_factory
+
+    def _refresh(self) -> None:
+        """Point at whichever embedder the current settings ask for."""
+        try:
+            cfg = load_settings(self.cfg.data_dir)
+        except Exception:
+            cfg = self.cfg
+        wanted = embedder_id(cfg)
+        if wanted == self._embedder_id and self.embedder is not None:
+            return
+        if self._embedder_id:
+            log.info("embedding model changed (%s -> %s); switching index",
+                     self._embedder_id, wanted)
+        self.cfg = cfg
+        self.embedder = make_embedder(cfg)
+        self.index = VectorIndex(cfg.chroma_dir, wanted)
+        self._embedder_id = wanted
 
     def _llm(self):
         if self._llm_factory is not None:
@@ -45,6 +74,7 @@ class RagService:
     # ---- pipeline hook: before planning -------------------------------------
     async def prior_knowledge(self, query: str, exclude_run: str | None = None
                               ) -> tuple[str, list[tuple[str, float]]]:
+        self._refresh()
         if self.index.count() == 0:
             return "", []
         emb = await self.embedder.encode_query(query)
@@ -67,6 +97,7 @@ class RagService:
 
     # ---- pipeline hook: after synthesis ----------------------------------------
     async def index_run(self, repo: Repo, run_id: str) -> int:
+        self._refresh()
         row = repo.get_run(run_id)
         if row is None:
             return 0
@@ -124,6 +155,7 @@ class RagService:
 
     # ---- library semantic mode ---------------------------------------------------
     async def semantic_search(self, query: str, limit: int = 20) -> list[dict]:
+        self._refresh()
         emb = await self.embedder.encode_query(query)
         hits = self.index.query(emb, n=limit)
         return [{"run_id": h.meta.get("run_id", ""), "text": h.text[:400],
@@ -132,6 +164,7 @@ class RagService:
 
     # ---- ask ------------------------------------------------------------------------
     async def ask(self, question: str, repo: Repo) -> dict:
+        self._refresh()
         emb = await self.embedder.encode_query(question)
         hits = [h for h in self.index.query(emb, n=10) if h.score >= ASK_MIN_SCORE]
         if not hits:
@@ -161,6 +194,7 @@ class RagService:
 
     # ---- reindex from disk -------------------------------------------------------------
     async def reindex_all(self, repo: Repo) -> int:
+        self._refresh()
         count = 0
         for run_dir in sorted(self.cfg.research_dir.iterdir()):
             if not (run_dir / "meta.json").is_file():
