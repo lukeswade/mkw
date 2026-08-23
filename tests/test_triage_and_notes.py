@@ -405,3 +405,38 @@ async def test_link_dense_page_off_authority_does_not_start_a_descent(data_dir):
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
     assert "hop 1" not in events              # never descended
     assert not repo.findings_for_run(run_id)
+
+
+# ---- gap analysis must not end a run on an empty query list ---------------------
+
+async def test_gap_retries_when_it_proposes_nothing_but_is_not_saturated():
+    """A live depth-10 run ended at round 3 of 10 because gap analysis
+    returned saturated=false with next_queries=[] — every query it proposed
+    was a reword of one already searched, and the repeat filter emptied the
+    list. The pipeline stops the run outright on an empty list."""
+    from app.research.gap import analyze
+    llm = FakeLLM({"gap": [
+        # round's first answer: gaps remain, but every query is a repeat
+        {"state_md": "s", "saturated": False,
+         "next_queries": ["gx470 spark plug", "GX470 Spark Plug"]},
+        # the stern re-ask finds a genuinely new angle
+        {"state_md": "s", "saturated": False,
+         "next_queries": ["2UZ-FE ignition coil removal torque"]},
+    ]})
+    out = await analyze(llm, query="q", brief="b", recency_desc="any",
+                        round_no=3, depth=10, breadth=4, state_md="s",
+                        new_findings=[], searched=["gx470 spark plug"])
+    assert out.next_queries == ["2UZ-FE ignition coil removal torque"]
+    assert llm.calls["gap"] == 2
+
+
+async def test_gap_accepts_an_honest_saturation_verdict():
+    """The retry must not badger a model that legitimately says it is done."""
+    from app.research.gap import analyze
+    llm = FakeLLM({"gap": [{"state_md": "s", "saturated": True,
+                            "next_queries": []}]})
+    out = await analyze(llm, query="q", brief="b", recency_desc="any",
+                        round_no=3, depth=10, breadth=4, state_md="s",
+                        new_findings=[], searched=["gx470 spark plug"])
+    assert out.saturated is True and out.next_queries == []
+    assert llm.calls["gap"] == 1        # no pointless second call

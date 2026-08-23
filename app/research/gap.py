@@ -30,6 +30,43 @@ def _truncate_state(state_md: str) -> str:
     return state_md[: _STATE_MAX_TOKENS * 3] + "\n\n[state truncated]"
 
 
+def _fresh(queries: list[str], searched: list[str], breadth: int) -> list[str]:
+    seen = {s.lower().strip() for s in searched}
+    return [q for q in queries if q.lower().strip() not in seen][:breadth]
+
+
+async def _retry_for_queries(llm: LLM, prompt: str, searched: list[str],
+                             breadth: int, previous: GapOut) -> GapOut:
+    """One stern re-ask when gap analysis proposes nothing while not saturated.
+
+    Mirrors the synthesis retry: a single bad structured answer should not be
+    allowed to end work that has depth remaining.
+    """
+    stern = (prompt + "\n\nIMPORTANT: your previous answer left next_queries "
+             "empty while also reporting that the research is NOT saturated. "
+             "Those two cannot both be true. Every query you propose now must "
+             "be genuinely NEW — not one of the already-searched queries "
+             "above, and not a reworded version of one. Attack a facet of the "
+             "brief that has not been searched at all: a different component "
+             "or subsystem, a different failure mode, or a different KIND of "
+             "source (hands-on forum thread, video walkthrough, manufacturer "
+             "documentation, specification table). If you genuinely cannot "
+             "name one, set saturated to true instead.")
+    try:
+        out = await llm.chat_json(
+            "gap", [{"role": "user", "content": stern}],
+            GapOut, max_tokens=3000, temperature=0.6,
+        )
+    except LLMJsonError as e:
+        log.warning("gap retry for queries failed: %s", e)
+        return previous
+    out.state_md = _truncate_state(out.state_md) or previous.state_md
+    out.next_queries = _fresh(out.next_queries, searched, breadth)
+    if out.next_queries:
+        log.info("gap retry recovered %d queries", len(out.next_queries))
+    return out
+
+
 async def analyze(llm: LLM, *, query: str, brief: str, recency_desc: str,
                   round_no: int, depth: int, breadth: int, state_md: str,
                   new_findings: list[Finding], searched: list[str],
@@ -49,8 +86,14 @@ async def analyze(llm: LLM, *, query: str, brief: str, recency_desc: str,
             GapOut, max_tokens=3000, temperature=0.3,
         )
         out.state_md = _truncate_state(out.state_md) or state_md
-        out.next_queries = [q for q in out.next_queries
-                            if q.lower() not in {s.lower() for s in searched}][:breadth]
+        out.next_queries = _fresh(out.next_queries, searched, breadth)
+        if not out.next_queries and not out.saturated:
+            # The model reports gaps remain but named no way to attack them --
+            # usually because everything it proposed was a repeat and the
+            # filter above emptied the list. The pipeline stops the whole run
+            # on an empty list, so this ends a depth-10 run at round 3 on a
+            # single malformed verdict. Ask once more, explicitly.
+            out = await _retry_for_queries(llm, prompt, searched, breadth, out)
         return out
     except LLMJsonError as e:
         # degrade: keep old state, propose nothing (pipeline treats as a dry signal)
