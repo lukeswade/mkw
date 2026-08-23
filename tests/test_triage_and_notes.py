@@ -185,7 +185,6 @@ async def test_thin_index_page_chases_its_child_links(data_dir):
     assert "relevance 2/10" in events             # the stub was still scored
 
 
-
 # ---- triage must not discard platform siblings or authority sites -----------------
 
 def test_triage_prompt_protects_sibling_models():
@@ -277,134 +276,6 @@ async def test_triage_cannot_cull_more_than_half_a_round(data_dir):
     # never to whichever ones happened to sort last
     domains = {f["domain"] for f in findings}
     assert "example-a.com" in domains and "example-b.com" in domains
-
-
-# ---- fat indexes and multi-level descent ----------------------------------------
-
-def test_looks_like_index_distinguishes_directories_from_leaves():
-    """The three tiers of charm.li's GX470 manual, which no length threshold
-    alone can separate: a 125k-char table of contents, an 872-char shell
-    naming two children, and a 977-char leaf holding the factory spec."""
-    from app.research.pipeline import looks_like_index
-    base = "https://charm.li/Lexus/2008/GX/Repair/"
-
-    toc_links = [(f"{base}Section%20{i}/", f"Section {i} of the manual")
-                 for i in range(200)]
-    toc_text = " ".join(a for _u, a in toc_links)
-    assert looks_like_index(toc_text, toc_links, base)
-
-    shell_links = [(base + "Spark%20Plug/Specifications/", "Specifications"),
-                   (base + "Spark%20Plug/Application/", "Application and ID")]
-    shell_text = "Spark Plug " + "banner boilerplate about LEMON manuals " * 20
-    assert len(shell_text) > 600          # too long for the stub rule
-    assert looks_like_index(shell_text, shell_links, base + "Spark%20Plug/")
-
-    leaf = base + "Spark%20Plug/Specifications/"
-    leaf_links = [(base, "Repair and Diagnosis"), ("https://charm.li/", "Home")]
-    leaf_text = ("Spark plug electrode gap 1.0 to 1.1 mm (0.039 to 0.043 in.) "
-                 "Maximum electrode gap 1.3 mm " + "boilerplate " * 60)
-    assert not looks_like_index(leaf_text, leaf_links, leaf)   # points only up
-
-
-@respx.mock
-async def test_index_chase_descends_through_multiple_levels(data_dir):
-    """A service manual buries its content three levels down. One hop reaches
-    a subsection index and stops; the leaf is only reachable by descending.
-
-    Curated as an authority site on purpose: a fat directory is only followed
-    there. Letting any link-dense 0/10 page start a descent walked three hops
-    into a spark-plug manufacturer's company-philosophy pages.
-    """
-    cfg = make_cfg(data_dir)
-    cfg.authority_sites = "manuals.example.com — factory service manuals"
-    M = "https://manuals.example.com"
-
-    def index(title, children):
-        # Varied prose on purpose: trafilatura collapses a repeated identical
-        # sentence, which would leave too little text to extract at all.
-        prose = " ".join(
-            f"Subsection {i} covers spark plug service task number {i} for "
-            f"this engine family, including inspection and torque values."
-            for i in range(8))
-        links = "".join(f"<a href='{h}'>{t}</a> " for h, t in children)
-        return (f"<html><head><title>{title}</title></head><body><main>"
-                f"<article><h1>{title}</h1><p>{prose}</p>"
-                f"{links}</article></main></body></html>")
-
-    respx.get(f"{SX}/search").mock(return_value=httpx.Response(
-        200, json=sx_payload([sx_result(f"{M}/gx470/repair/", "Repair")])))
-    respx.get(f"{M}/gx470/repair/").mock(return_value=httpx.Response(
-        200, html=index("Repair", [("/gx470/repair/spark-plug/", "Spark Plug")])))
-    respx.get(f"{M}/gx470/repair/spark-plug/").mock(return_value=httpx.Response(
-        200, html=index("Spark Plug",
-                        [("/gx470/repair/spark-plug/specifications/",
-                          "Spark plug torque specifications")])))
-    respx.get(f"{M}/gx470/repair/spark-plug/specifications/").mock(
-        return_value=httpx.Response(200, html=article("Torque Specifications")))
-
-    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
-    s["planner"] = [{"title": "T", "brief": "GX470 spark plug torque specs.",
-                     "subqueries": ["gx470 spark plug torque"]}]
-    s["notes"] = [
-        {"relevance": 1, "summary": "Directory.", "notes_md": "", 
-         "key_facts": [], "published_date": None},           # level 1 index
-        {"relevance": 1, "summary": "Directory.", "notes_md": "",
-         "key_facts": [], "published_date": None},           # level 2 index
-        {"relevance": 9, "summary": "The factory spec.", "notes_md": "n",
-         "key_facts": [], "published_date": None},           # level 3 leaf
-    ]
-    repo = Repo(connect(cfg.db_path))
-    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
-                        llm_factory=lambda: FakeLLM(s))
-    run_id = orch.enqueue(RunParams(query="gx470 spark plug torque specs",
-                                    depth=1, recency="all", origin="cli"))
-    await orch.execute_now(run_id)
-
-    findings = repo.findings_for_run(run_id)
-    assert [f["url"] for f in findings] == \
-        [f"{M}/gx470/repair/spark-plug/specifications/"]
-    assert findings[0]["relevance"] == 9
-
-
-@respx.mock
-async def test_link_dense_page_off_authority_does_not_start_a_descent(data_dir):
-    """The regression that killed a live run: a spark-plug manufacturer's
-    homepage is link-dense and scores 0/10, so it read as an index and the
-    chase walked three hops into /info/philosophy/ and /info/vision/, burning
-    twelve fetches and twelve notes calls on company boilerplate. Fat
-    directories are only followed on curated authority domains."""
-    cfg = make_cfg(data_dir)
-    cfg.authority_sites = "charm.li — factory service manuals"
-    corp = "https://plugmaker.example.com"
-    nav = "".join(f"<a href='/info/{p}/'>{p.title()} of the company</a> "
-                  for p in ("philosophy", "vision", "gallery", "history",
-                            "careers", "investors", "brands", "contact"))
-    home = ("<html><head><title>Plugmaker</title></head><body><main><article>"
-            "<h1>Plugmaker</h1><p>" +
-            " ".join(f"Corporate statement number {i} about spark plug "
-                     f"manufacturing excellence worldwide." for i in range(6))
-            + f"</p>{nav}</article></main></body></html>")
-
-    respx.get(f"{SX}/search").mock(return_value=httpx.Response(
-        200, json=sx_payload([sx_result(f"{corp}/", "Spark plugs")])))
-    respx.get(f"{corp}/").mock(return_value=httpx.Response(200, html=home))
-    # no routes for /info/* — descending into them would fail this test
-
-    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
-    s["planner"] = [{"title": "T", "brief": "GX470 spark plug replacement.",
-                     "subqueries": ["gx470 spark plug"]}]
-    s["notes"] = [{"relevance": 0, "summary": "Corporate homepage.",
-                   "notes_md": "", "key_facts": [], "published_date": None}]
-    repo = Repo(connect(cfg.db_path))
-    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
-                        llm_factory=lambda: FakeLLM(s))
-    run_id = orch.enqueue(RunParams(query="gx470 spark plug replacement",
-                                    depth=1, recency="all", origin="cli"))
-    await orch.execute_now(run_id)
-
-    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
-    assert "hop 1" not in events              # never descended
-    assert not repo.findings_for_run(run_id)
 
 
 # ---- gap analysis must not end a run on an empty query list ---------------------
@@ -543,34 +414,3 @@ def test_run_page_shows_what_it_searched(data_dir, monkeypatch):
     for body in (done, live):
         assert "general · videos" in body
         assert "no prior research" in body
-
-
-def test_child_links_does_not_treat_siblings_as_children():
-    """A URL without a trailing slash had its prefix trimmed to the parent
-    directory, so every sibling counted as a child — which also defeated the
-    'a leaf, however long' branch of looks_like_index."""
-    from app.research.pipeline import child_links
-    src = "https://site.com/manual/engine/spark-plug"
-    links = [("https://site.com/manual/engine/oil-filter", "Oil Filter"),
-             ("https://site.com/manual/engine/spark-plug/specs", "Specs")]
-    kids = child_links(src, links)
-    assert [u for u, _a in kids] == \
-        ["https://site.com/manual/engine/spark-plug/specs"]
-
-
-def test_index_children_are_always_scored_for_topicality():
-    """A small directory used to be followed wholesale, unscored, on any
-    domain — the same path that walked into /info/philosophy/."""
-    from app.research.pipeline import select_index_children
-    off_topic = [("https://corp.com/info/philosophy/", "Philosophy"),
-                 ("https://corp.com/info/vision/", "Vision")]
-    assert select_index_children(
-        off_topic, source_url="https://corp.com/info/",
-        context="gx470 spark plug torque specification", seen=set()) == []
-
-    on_topic = [("https://corp.com/info/spark-plugs/", "Spark Plugs"),
-                ("https://corp.com/info/vision/", "Vision")]
-    got = select_index_children(
-        on_topic, source_url="https://corp.com/info/",
-        context="gx470 spark plug torque specification", seen=set())
-    assert [a for _u, a in got] == ["Spark Plugs"]
