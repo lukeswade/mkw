@@ -68,3 +68,22 @@ def test_planner_and_gap_demand_facet_spread():
     assert "step by step" in planner                 # how-to phrasing required
     gap = prompts.GAP.replace("\n", " ")
     assert "Spread them across DIFFERENT gaps" in gap
+
+
+def test_gap_queries_must_stay_searchable():
+    """Depth-10 round 3 searched "valve cover torque 7 ft-lbs vs 11 ft-lbs
+    factory manual" and similar, matched nothing useful, and burned 14 full
+    document analyses for zero keeps."""
+    from app.llm import prompts
+    gap = prompts.GAP.replace("\n", " ")
+    assert "KEEP EACH QUERY SHORT AND SEARCHABLE" in gap
+    assert "A narrow gap still needs a broad query" in gap
+
+
+def test_triage_sees_the_round_queries():
+    """Triage dropped a Tundra 4.7L thread and an NGK IFR6A11 discussion —
+    both answering queries the round was actively running."""
+    from app.llm import prompts
+    assert "{queries}" in prompts.TRIAGE
+    t = prompts.TRIAGE.replace("\n", " ")
+    assert "answers ANY of these is worth keeping" in t

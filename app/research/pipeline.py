@@ -170,7 +170,8 @@ class Pipeline:
         self.cancel_requested = False
 
     async def _triage(self, run_id: str, llm, query: str, brief: str,
-                      candidates: list, state: "_RunState") -> list:
+                      queries: list[str], candidates: list,
+                      state: "_RunState") -> list:
         """Drop candidates whose title/url/snippet already condemns them.
 
         Asked as a drop-list on purpose: an under-delivering model (lazy,
@@ -181,8 +182,10 @@ class Pipeline:
             snippet = " ".join((c.snippet or "").split())[:200]
             lines.append(f"{i}. {c.title[:120]} — {c.url[:150]} — {snippet}"
                          f" — via: {c.via_query[:80]}")
-        prompt = prompts.TRIAGE.format(query=query, brief=brief,
-                                       candidates="\n".join(lines))
+        prompt = prompts.TRIAGE.format(
+            query=query, brief=brief,
+            queries="\n".join(f"- {q}" for q in queries) or "- (none)",
+            candidates="\n".join(lines))
         try:
             out = await llm.chat_json(
                 "triage", [{"role": "user", "content": prompt}],
@@ -533,7 +536,7 @@ class Pipeline:
         # of them. Degrades to keeping everything.
         if len(candidates) > 3:
             candidates = await self._triage(run_id, llm, query, brief,
-                                            candidates, state)
+                                            queries, candidates, state)
 
         total_results = sum(len(l) for l in merged_lists)
         self.bus.publish(run_id, "searched", results=total_results,

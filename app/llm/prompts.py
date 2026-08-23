@@ -72,6 +72,10 @@ document analysis, so name the ones that are clearly NOT worth it.
 Research question: {query}
 Research brief: {brief}
 
+Queries this round is searching (a candidate that answers ANY of these is worth
+keeping, even if its title names a different product or model):
+{queries}
+
 Candidates (index. title — url — snippet — found via):
 {candidates}
 
@@ -161,7 +165,7 @@ Queries already searched (do not repeat or trivially rephrase):
 Produce a JSON object with exactly these keys:
 - "state_md": REWRITE the complete research state document in markdown, merging the new findings into it: what is now established (cite source ids like [3]), what is uncertain or disputed, what is still missing. Max 1500 words. This document is the pipeline's only memory — keep it complete and dense.
 - "saturated": boolean — true only if further searching is unlikely to add material insight on the brief
-- "next_queries": if not saturated, an array of up to {breadth} NEW targeted search queries attacking the biggest remaining gaps (plain strings, specific, no duplicates of past queries). Spread them across DIFFERENT gaps rather than several angles on one, and if a gap is procedural ("how is it actually done") phrase at least one query the way someone doing the task would search. Empty array if saturated.
+- "next_queries": if not saturated, an array of up to {breadth} NEW search queries attacking the biggest remaining gaps (plain strings, no duplicates of past queries). Spread them across DIFFERENT gaps rather than several angles on one, and if a gap is procedural ("how is it actually done") phrase at least one query the way someone doing the task would search. KEEP EACH QUERY SHORT AND SEARCHABLE — roughly 3-8 words a person would actually type. Do not encode the precise answer you are hoping for: "valve cover torque 7 ft-lbs vs 11 ft-lbs factory manual" and "best swivel socket for tight clearance rear bank" match no page and return tangential junk, while "2UZ-FE valve cover torque" and "rear spark plug socket clearance" find the pages that contain those answers. A narrow gap still needs a broad query. Empty array if saturated.
 - "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) relevant to the next_queries for fast text extraction.
 
 Respond with only the JSON object."""
