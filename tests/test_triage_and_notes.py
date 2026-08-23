@@ -543,3 +543,34 @@ def test_run_page_shows_what_it_searched(data_dir, monkeypatch):
     for body in (done, live):
         assert "general · videos" in body
         assert "no prior research" in body
+
+
+def test_child_links_does_not_treat_siblings_as_children():
+    """A URL without a trailing slash had its prefix trimmed to the parent
+    directory, so every sibling counted as a child — which also defeated the
+    'a leaf, however long' branch of looks_like_index."""
+    from app.research.pipeline import child_links
+    src = "https://site.com/manual/engine/spark-plug"
+    links = [("https://site.com/manual/engine/oil-filter", "Oil Filter"),
+             ("https://site.com/manual/engine/spark-plug/specs", "Specs")]
+    kids = child_links(src, links)
+    assert [u for u, _a in kids] == \
+        ["https://site.com/manual/engine/spark-plug/specs"]
+
+
+def test_index_children_are_always_scored_for_topicality():
+    """A small directory used to be followed wholesale, unscored, on any
+    domain — the same path that walked into /info/philosophy/."""
+    from app.research.pipeline import select_index_children
+    off_topic = [("https://corp.com/info/philosophy/", "Philosophy"),
+                 ("https://corp.com/info/vision/", "Vision")]
+    assert select_index_children(
+        off_topic, source_url="https://corp.com/info/",
+        context="gx470 spark plug torque specification", seen=set()) == []
+
+    on_topic = [("https://corp.com/info/spark-plugs/", "Spark Plugs"),
+                ("https://corp.com/info/vision/", "Vision")]
+    got = select_index_children(
+        on_topic, source_url="https://corp.com/info/",
+        context="gx470 spark plug torque specification", seen=set())
+    assert [a for _u, a in got] == ["Spark Plugs"]

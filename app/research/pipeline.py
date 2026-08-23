@@ -117,7 +117,6 @@ _INDEX_LINK_LIMIT = 4_000     # fat directories bury the good link mid-document
 _INDEX_CHILDREN = 4           # children followed per index page
 _MAX_INDEX_HOPS = 3           # section → subsection → leaf, and stop
 _INDEX_CHILD_MIN_MATCH = 0.5  # share of a child link that must be on-topic
-_INDEX_SMALL_DIRECTORY = 6    # at or below this, follow every child unscored
 
 # Link targets that are never worth a fetch: social shares and video, which
 # either have no extractable text or are pure engagement chrome.
@@ -137,8 +136,11 @@ def child_links(source_url: str,
     at the bottom points only back up through its breadcrumbs.
     """
     base = urlsplit(source_url)
-    prefix = base.path if base.path.endswith("/") \
-        else base.path.rsplit("/", 1)[0] + "/"
+    # Descend from THIS page, not from its directory. Trimming to the last
+    # slash made every sibling of a slashless URL look like a child, so
+    # /manual/engine/spark-plug "contained" /manual/engine/oil-filter and any
+    # leaf with one sibling link stopped reading as a leaf.
+    prefix = base.path if base.path.endswith("/") else base.path + "/"
     out = []
     for url, anchor in links:
         part = urlsplit(url)
@@ -206,15 +208,13 @@ def select_index_children(links: list[tuple[str, str]], *, source_url: str,
     want = _singularize(_content_tokens(context))
     if not want:
         return []
-    fresh = [(u, a) for u, a in child_links(source_url, links)
-             if canonicalize(u) not in seen]
-    # A small directory offers no choice to make, and the threshold exists to
-    # choose. Applying it anyway stops the descent one level above the answer:
-    # the charm.li "Spark Plug" shell lists only "Specifications" and
-    # "Application and ID", and "specifications" does not token-match the
-    # "specification" in the research brief.
-    if len(fresh) <= _INDEX_SMALL_DIRECTORY:
-        return fresh[:limit]
+    fresh, picked = [], set()
+    for u, a in child_links(source_url, links):
+        c = canonicalize(u)
+        if c in seen or c in picked:
+            continue
+        picked.add(c)
+        fresh.append((u, a))
     scored: list[tuple[float, str, str]] = []
     for url, anchor in fresh:
         tail = unquote(urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1])
