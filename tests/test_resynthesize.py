@@ -158,8 +158,9 @@ async def test_degenerate_synthesis_writes_a_placeholder_not_garbage():
     assert "Synthesis failed" in out and "Re-synthesize" in out
 
 
-async def test_large_source_sets_are_map_reduced():
-    """A single 16k+ token synthesis prompt ran away 30% of the time."""
+async def test_only_enormous_source_sets_are_map_reduced():
+    """Digesting is for runs too big for one call — not a safety measure.
+    One large call proved safer than several small ones sharing a prefix."""
     from app.research.notes import Finding
     from app.research.synthesizer import synthesize
     calls = []
@@ -169,11 +170,34 @@ async def test_large_source_sets_are_map_reduced():
         return "# Digest\n\nSummary [1]."
 
     llm = FakeLLM({"synth": [capture]})
-    findings = [Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}",
+    def mk(n):
+        return [Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}",
                         domain="a.com", published=None, relevance=7,
                         summary="s", notes_md="word " * 800)
-                for i in range(1, 16)]
+                for i in range(1, n + 1)]
+
+    # a typical deep run stays a single call
     await synthesize(llm, query="q", title="T", brief="b", recency_desc="any",
-                     today="t", state_md="", findings=findings)
-    assert llm.calls["synth"] > 1                 # digested, not one huge call
-    assert all(len(c) < 60_000 for c in calls)    # no single monster prompt
+                     today="t", state_md="", findings=mk(15))
+    assert llm.calls["synth"] == 1
+
+    big = FakeLLM({"synth": [capture]})
+    await synthesize(big, query="q", title="T", brief="b", recency_desc="any",
+                     today="t", state_md="", findings=mk(40))
+    assert big.calls["synth"] > 1                 # genuinely enormous: digested
+
+
+async def test_collapsed_digest_falls_back_to_raw_notes():
+    """A degenerate digest silently poisons the synthesis that eats it."""
+    from app.research.synthesizer import _map_digest
+    blocks = ["[1] alpha notes " + "word " * 50,
+              "[2] beta notes " + "word " * 50]
+
+    collapsed = FakeLLM({"synth": [LOOP]})
+    out = "\n".join(await _map_digest(collapsed, "q", blocks))
+    assert "!" * 50 not in out                 # the loop never propagates
+    assert "alpha notes" in out and "beta notes" in out   # raw notes instead
+
+    healthy = FakeLLM({"synth": ["# Digest\n\nReal content [1][2]."]})
+    out = "\n".join(await _map_digest(healthy, "q", blocks))
+    assert out.startswith("# Digest")          # a good digest is still used

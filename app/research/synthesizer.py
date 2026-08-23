@@ -13,11 +13,13 @@ from app.research.notes import Finding, render_facts
 log = logging.getLogger(__name__)
 
 # Est tokens of notes above which synthesis is map-reduced into digests.
-# Measured on a local 35B: calls with 16k+ token prompts ran away into
-# repetition loops 30% of the time versus 1% under 4k, so the threshold
-# sits well below that rather than at the context limit.
-_SINGLE_CALL_BUDGET = 12_000
-_BATCH_BUDGET = 10_000         # est tokens per map batch
+# Kept high on purpose: one big call is SAFER than several small ones. A
+# 9k-token single-call synthesis was verified clean, while the digest path
+# adds calls that share a long common prefix — which is what made a poisoned
+# KV-cache block repeat its damage across every digest of a run. Digesting is
+# for genuinely enormous runs, not a safety measure.
+_SINGLE_CALL_BUDGET = 28_000
+_BATCH_BUDGET = 20_000         # est tokens per map batch
 _PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
 
 
@@ -161,10 +163,18 @@ async def _map_digest(llm: LLM, query: str, blocks: list[str]) -> list[str]:
     for batch in batches:
         prompt = prompts.SYNTH_PARTIAL.format(query=query,
                                               notes_block="\n".join(batch))
-        digests.append(await llm.chat(
+        digest = await llm.chat(
             "synth", [{"role": "user", "content": prompt}],
             max_tokens=4000, temperature=0.3,
-        ))
+        )
+        if looks_degenerate(digest):
+            # A collapsed digest is worse than no digest: it silently poisons
+            # the synthesis that consumes it, and the failure then looks like
+            # synthesis being at fault. Fall back to this batch's raw notes.
+            log.warning("digest collapsed; using its raw notes instead")
+            digests.extend(batch)
+        else:
+            digests.append(digest)
     return digests
 
 
