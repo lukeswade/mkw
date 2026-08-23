@@ -65,6 +65,36 @@ engines:
     disabled: true
   - name: lemmy communities
     disabled: true
+  # tootfinder answers 'access denied' on every single query
+  - name: tootfinder
+    disabled: true
+
+  # --- engines we never opted into that fail on every round ---
+  # SearXNG queries these by default and WAITS for them, so each one is a
+  # slice of the per-search budget spent on a guaranteed failure. Observed
+  # across consecutive rounds of a depth-10 run: torrent trackers answering
+  # 'access denied'/'parsing error', vimeo refusing outright, bing news
+  # failing to parse. None of them can answer a research question.
+  - name: kickass
+    disabled: true
+  - name: solidtorrents
+    disabled: true
+  - name: piratebay
+    disabled: true
+  - name: 1337x
+    disabled: true
+  - name: nyaa
+    disabled: true
+  - name: btdigg
+    disabled: true
+  - name: bt4g
+    disabled: true
+  - name: tokyotoshokan
+    disabled: true
+  - name: vimeo
+    disabled: true
+  - name: bing news
+    disabled: true
 
   # --- resilient general-web engines ---
   - name: mojeek
