@@ -39,6 +39,8 @@
     <span class="chip">via {{ row['origin'] }}</span>
     {% if row['created_by'] %}<span class="user-tag" style="--hue: {{ row['created_by'] | user_hue }}" title="started by {{ row['created_by'] }}">{{ row['created_by'] }}</span>{% endif %}
     {% if row['evergreen'] %}<span class="chip chip-evergreen">auto-refreshing daily</span>{% endif %}
+    {% if row['categories'] %}<span class="chip" title="SearXNG categories this run searched">{{ row['categories'].replace(',', ' · ') }}</span>{% endif %}
+    {% if not row['use_prior'] %}<span class="chip subtle" title="Ran without context from earlier research — a fresh diagnosis">no prior research</span>{% endif %}
     {% if row['stop_reason'] %}<span class="chip subtle">{{ row['stop_reason'] }}</span>{% endif %}
   </div>
   {% if parent %}<p class="parent-note">follows up on <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}

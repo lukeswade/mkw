@@ -515,3 +515,31 @@ def test_unchecked_use_prior_box_actually_turns_it_off(data_dir, monkeypatch):
     repo = Repo(connect(cfg.db_path))
     assert bool(repo.get_run(on_id)["use_prior"]) is True
     assert bool(repo.get_run(off_id)["use_prior"]) is False
+
+
+def test_run_page_shows_what_it_searched(data_dir, monkeypatch):
+    """A finished run gave no indication of which categories it used, nor
+    whether it ran with or without earlier research."""
+    from fastapi.testclient import TestClient
+    from app.config import load_settings
+    from app.web.server import create_app
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    app = create_app(enable_worker=False, enable_bot=False)
+    cfg = load_settings(str(data_dir))
+    from app.research.storage import RunStore
+    repo = Repo(connect(cfg.db_path))
+    store = RunStore.create(cfg.research_dir, "categorised run")
+    repo.create_run(run_id=store.run_id, query="q", depth=3, recency="all",
+                    dir=store.run_id, origin="web", status="completed",
+                    categories="general,videos", use_prior=False)
+    # a queued/running run renders a different template than a finished one
+    running = RunStore.create(cfg.research_dir, "in-flight run")
+    repo.create_run(run_id=running.run_id, query="q", depth=3, recency="all",
+                    dir=running.run_id, origin="web", status="running",
+                    categories="general,videos", use_prior=False)
+    with TestClient(app) as client:
+        done = client.get(f"/runs/{store.run_id}").text
+        live = client.get(f"/runs/{running.run_id}").text
+    for body in (done, live):
+        assert "general · videos" in body
+        assert "no prior research" in body

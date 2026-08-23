@@ -10,6 +10,8 @@
     <span class="chip">{{ RECENCY_LABELS[row['recency']] | lower }}</span>
     <span class="chip">via {{ row['origin'] }}</span>
     {% if queue_position %}<span class="chip">queue position {{ queue_position }}</span>{% endif %}
+    {% if row['categories'] %}<span class="chip" title="SearXNG categories this run searches">{{ row['categories'].replace(',', ' · ') }}</span>{% endif %}
+    {% if not row['use_prior'] %}<span class="chip subtle" title="Running without context from earlier research — a fresh diagnosis">no prior research</span>{% endif %}
   </div>
   {% if parent %}<p class="parent-note">follows up on <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}
 </header>
