@@ -445,7 +445,11 @@ class Pipeline:
 
             # 1. prior knowledge from earlier runs (knowledge layer, optional)
             prior = ""
-            if self.rag is not None:
+            try:
+                use_prior = bool(row["use_prior"])
+            except (KeyError, IndexError):
+                use_prior = True       # rows from before the migration
+            if self.rag is not None and use_prior:
                 prior, related = await self.rag.prior_knowledge(query, exclude_run=run_id)
                 for other_id, score in related:
                     self.repo.add_run_link(run_id, other_id, "similar", score)

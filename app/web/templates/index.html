@@ -44,6 +44,15 @@
       <label><input type="checkbox" name="categories" value="{{ c }}"> {{ c }}</label>
       {% endfor %}
     </fieldset>
+    <label class="fresh-run"
+           title="Off = diagnose from scratch, ignoring every earlier run.">
+      <input type="checkbox" name="use_prior" value="on" checked>
+      Build on earlier research
+    </label>
+    <p class="hint">On, the planner sees what past runs on this topic already
+      established and targets the gaps instead of re-deriving them. Turn it
+      off to re-investigate something from scratch — useful when an earlier
+      conclusion was wrong and you do not want it anchoring the answer.</p>
     <script>
       (function () {
         const boxes = document.querySelectorAll("#cat-group input");

@@ -40,6 +40,10 @@ class RunParams(BaseModel):
     # SearXNG categories for this run, comma-separated. Empty = the global
     # SEARCH_CATEGORIES setting.
     categories: str = Field(default="", max_length=200)
+    # False = ignore earlier runs entirely: no prior-knowledge block in the
+    # planner and no "builds on" links. For re-diagnosing something from
+    # scratch when previous conclusions might anchor the answer.
+    use_prior: bool = True
 
     @field_validator("query")
     @classmethod

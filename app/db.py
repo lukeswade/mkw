@@ -53,6 +53,9 @@ def _migrations() -> list:
         # Per-run SearXNG categories override (empty = global setting)
         lambda conn: _add_column_if_missing(
             conn, "runs", "categories", "TEXT NOT NULL DEFAULT ''"),
+        # 0 = run without prior-run context (fresh diagnosis)
+        lambda conn: _add_column_if_missing(
+            conn, "runs", "use_prior", "BOOLEAN NOT NULL DEFAULT 1"),
     ]
 
 
@@ -94,15 +97,16 @@ class Repo:
                    dir: str, origin: str = "web", parent_run_id: str | None = None,
                    origin_chat_id: int | None = None, status: str = "queued",
                    evergreen: bool = False, created_by: str = "",
-                   categories: str = "") -> None:
+                   categories: str = "", use_prior: bool = True) -> None:
         self.conn.execute(
             "INSERT INTO runs (id, query, depth, recency, status, dir, origin,"
             " parent_run_id, origin_chat_id, evergreen, created_by, categories,"
+            " use_prior,"
             " created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, query, depth, recency, status, dir, origin,
              parent_run_id, origin_chat_id, evergreen, created_by or None,
-             categories or "", utcnow()),
+             categories or "", 1 if use_prior else 0, utcnow()),
         )
         self.conn.commit()
 

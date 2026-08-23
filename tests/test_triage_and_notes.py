@@ -440,3 +440,54 @@ async def test_gap_accepts_an_honest_saturation_verdict():
                         new_findings=[], searched=["gx470 spark plug"])
     assert out.saturated is True and out.next_queries == []
     assert llm.calls["gap"] == 1        # no pointless second call
+
+
+@respx.mock
+async def test_use_prior_false_skips_the_prior_knowledge_step(data_dir):
+    """'Diagnose this fresh': a run can be told to ignore every earlier run,
+    so a previous wrong conclusion cannot anchor the new one."""
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(
+        200, json=sx_payload([sx_result("https://example-a.com/article", "A")])))
+    respx.get("https://example-a.com/article").mock(
+        return_value=httpx.Response(200, html=article("Article A")))
+
+    class SpyRag:
+        def __init__(self):
+            self.consulted = 0
+        async def prior_knowledge(self, query, exclude_run=None):
+            self.consulted += 1
+            return "AN EARLIER RUN CONCLUDED THE PANEL IS DEAD", []
+        async def index_run(self, *a, **k):
+            return None
+        async def link_related(self, *a, **k):
+            return None
+
+    async def run_with(use_prior: bool):
+        rag = SpyRag()
+        seen: list[str] = []
+
+        def capture_planner(messages):
+            seen.append(messages[-1]["content"])
+            return {"title": "T", "brief": "Diagnose the TV.",
+                    "subqueries": ["tcl roku tv no power"], "keywords": []}
+
+        s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+        s["planner"] = [capture_planner]
+        repo = Repo(connect(cfg.db_path))
+        orch = Orchestrator(lambda: cfg, repo, ProgressBus(), rag=rag,
+                            llm_factory=lambda: FakeLLM(s))
+        run_id = orch.enqueue(RunParams(query="tcl roku tv will not turn on",
+                                        depth=1, recency="all", origin="cli",
+                                        use_prior=use_prior))
+        assert bool(repo.get_run(run_id)["use_prior"]) is use_prior
+        await orch.execute_now(run_id)
+        return rag.consulted, "".join(seen)
+
+    consulted, prompt = await run_with(True)
+    assert consulted == 1
+    assert "PANEL IS DEAD" in prompt        # earlier findings reach the planner
+
+    consulted, prompt = await run_with(False)
+    assert consulted == 0                   # never even asked
+    assert "PANEL IS DEAD" not in prompt

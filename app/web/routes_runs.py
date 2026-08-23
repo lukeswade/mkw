@@ -176,7 +176,8 @@ async def recent_runs_partial(request: Request):
 @router.post("/runs")
 async def create_run(request: Request, query: str = Form(...),
                      depth: int = Form(3), recency: str = Form("all"),
-                     parent_run_id: str = Form("")):
+                     parent_run_id: str = Form(""),
+                     use_prior: str = Form("on")):
     form = await request.form()
     categories = ",".join(str(c).strip() for c in form.getlist("categories")
                           if str(c).strip())[:200]
@@ -184,7 +185,8 @@ async def create_run(request: Request, query: str = Form(...),
         params = RunParams(query=query, depth=depth, recency=recency,
                            origin="web", parent_run_id=parent_run_id or None,
                            created_by=_initiator(request),
-                           categories=categories)
+                           categories=categories,
+                           use_prior=use_prior not in ("", "off", "0"))
     except ValidationError as e:
         ctx = _index_context(request, depth=depth if 0 <= depth <= 10 else 3)
         ctx["error"] = "; ".join(err["msg"] for err in e.errors())
