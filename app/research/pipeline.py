@@ -105,6 +105,18 @@ _DUP_CONTAINMENT = 0.7
 # lives one level down, so its own child links are worth following.
 _STUB_CHARS = 600
 
+# Index pages come in two shapes and only one of them is thin. charm.li's
+# GX470 factory manual — the single most authoritative source for that query
+# — is a 125,000-character table of contents across 4,761 links, which sails
+# past any length threshold and then scores 0/10 because a wall of navigation
+# text answers no question. The real content sits three levels below it.
+_INDEX_ANCHOR_RATIO = 0.5     # anchor text as a share of visible text
+_INDEX_MIN_LINKS = 25         # below this, a high ratio is just a short page
+_INDEX_SHELL_CHARS = 1_500    # a small page that exists to list its children
+_INDEX_LINK_LIMIT = 4_000     # fat directories bury the good link mid-document
+_INDEX_CHILDREN = 4           # children followed per index page
+_MAX_INDEX_HOPS = 3           # section → subsection → leaf, and stop
+
 # Link targets that are never worth a fetch: social shares and video, which
 # either have no extractable text or are pure engagement chrome.
 _REF_SKIP_DOMAINS = frozenset({
@@ -112,6 +124,53 @@ _REF_SKIP_DOMAINS = frozenset({
     "reddit.com", "youtube.com", "youtu.be", "pinterest.com", "t.me",
     "tiktok.com", "medium.com/m",
 })
+
+
+def child_links(source_url: str,
+                links: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Same-domain links that descend deeper into this page's own path.
+
+    This is what separates a directory from a leaf on a hierarchical
+    documentation site: an index points down at its children, while the leaf
+    at the bottom points only back up through its breadcrumbs.
+    """
+    base = urlsplit(source_url)
+    prefix = base.path if base.path.endswith("/") \
+        else base.path.rsplit("/", 1)[0] + "/"
+    out = []
+    for url, anchor in links:
+        part = urlsplit(url)
+        if part.netloc != base.netloc:
+            continue
+        if part.path.startswith(prefix) and len(part.path) > len(prefix):
+            out.append((url, anchor))
+    return out
+
+
+def looks_like_index(text: str, links: list[tuple[str, str]],
+                     source_url: str) -> bool:
+    """True when a page is a directory of links rather than content itself.
+
+    Three tiers of charm.li's GX470 service manual make the case for each
+    branch: "Repair and Diagnosis" is 125k characters of pure anchor text,
+    "Spark Plug" is 872 characters that exist only to name two children, and
+    "Spark Plug > Specifications" is 977 characters holding the actual
+    factory electrode gap. Only the first two are indexes, and no length
+    threshold alone can tell the second from the third — the tell is whether
+    a page points at children at all.
+    """
+    body = " ".join((text or "").split())
+    if not body:
+        return False
+    if len(body) < _STUB_CHARS:
+        return True            # thin section shell — the original case
+    if not child_links(source_url, links):
+        return False           # a leaf, however long
+    anchor_chars = sum(len(a) for _u, a in links)
+    if len(links) >= _INDEX_MIN_LINKS \
+            and anchor_chars / len(body) >= _INDEX_ANCHOR_RATIO:
+        return True            # fat table of contents
+    return len(body) < _INDEX_SHELL_CHARS
 
 
 def select_references(links: list[tuple[str, str]], *, source_url: str,
@@ -571,7 +630,7 @@ class Pipeline:
         kept: list[Finding] = []
         references: list[SearchResult] = []
 
-        async def process(c, harvest_refs: bool = True) -> None:
+        async def process(c, harvest_refs: bool = True, hop: int = 0) -> None:
             if self.cancel_requested:
                 return
             # Three acquisition paths: video → caption transcript, reddit →
@@ -613,8 +672,17 @@ class Pipeline:
             # copies read as on-topic, so left alone they burn a notes call
             # each and can be "kept" several times as separate sources.
             fp = text_fingerprint(doc.text)
+            # Pages reached by descending an index share their site's chrome:
+            # a manual leaf differs from its parent by a few hundred characters
+            # of actual specification wrapped in the same banner, which reads
+            # as a duplicate by containment. The clones this guard exists to
+            # catch are syndicated copies, which are cross-domain by nature —
+            # so on a descent, only judge against other domains.
+            same_site_ok = hop > 0
+            here = domain_of(final_url)
             dup = next((dom for other, dom in state.fingerprints
-                        if similarity(fp, other) >= _DUP_CONTAINMENT), None)
+                        if similarity(fp, other) >= _DUP_CONTAINMENT
+                        and not (same_site_ok and dom == here)), None)
             if dup is not None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
@@ -659,15 +727,24 @@ class Pipeline:
                         "key_facts": [f.model_dump() for f in notes.key_facts],
                         "query": c.via_query,
                     }))
-                # A thin low-scorer is often an index shell over the real
+                # A low-scoring index page is a directory over the real
                 # content (FSM section pages): follow its best child links.
-                if (harvest_refs and fetched is not None
-                        and self.cfg.reference_chasing
-                        and len(doc.text) < _STUB_CHARS):
+                # Gated on hop rather than harvest_refs — a manual's content
+                # is several levels down, so the chase has to keep descending
+                # while ordinary citation chasing stays at one hop.
+                index_links = []
+                if (fetched is not None and self.cfg.reference_chasing
+                        and hop < _MAX_INDEX_HOPS):
+                    index_links = extract_links(fetched,
+                                                limit=_INDEX_LINK_LIMIT)
+                    if not looks_like_index(doc.text, index_links, final_url):
+                        index_links = []
+                if index_links:
                     for ref_url, anchor in select_references(
-                            extract_links(fetched), source_url=final_url,
+                            index_links, source_url=final_url,
                             context=f"{query} {brief} {c.via_query}",
-                            seen=state.seen_urls, same_domain_ok=True):
+                            seen=state.seen_urls, same_domain_ok=True,
+                            per_source=_INDEX_CHILDREN):
                         references.append(SearchResult(
                             url=ref_url, title=anchor or ref_url,
                             snippet=anchor, engine="reference",
@@ -714,15 +791,22 @@ class Pipeline:
 
         await asyncio.gather(*(process(c) for c in candidates))
 
-        if references and not self.cancel_requested:
+        # Each wave may surface a deeper index, so keep descending while
+        # there is somewhere to go. Ordinary citation chasing still stops
+        # after one hop (harvest_refs=False); only index pages re-arm this.
+        hop = 0
+        while references and not self.cancel_requested and hop < _MAX_INDEX_HOPS:
             chase = pick(references, _REFS_PER_ROUND)
-            if chase:
-                self.bus.publish(
-                    run_id, "log",
-                    message=(f"chasing {len(chase)} reference(s) cited by "
-                             f"kept sources"))
-                await asyncio.gather(
-                    *(process(c, harvest_refs=False) for c in chase))
+            references = []
+            if not chase:
+                break
+            hop += 1
+            self.bus.publish(
+                run_id, "log",
+                message=(f"chasing {len(chase)} link(s) from kept sources "
+                         f"and index pages (hop {hop})"))
+            await asyncio.gather(
+                *(process(c, harvest_refs=False, hop=hop) for c in chase))
         return kept
 
     # ---- finalization ---------------------------------------------------------------

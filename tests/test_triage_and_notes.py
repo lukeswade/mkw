@@ -201,30 +201,43 @@ def test_triage_prompt_protects_sibling_models():
 
 @respx.mock
 async def test_authority_site_candidates_survive_triage(data_dir):
-    """Curating a site as authoritative outranks a title-level guess."""
+    """Curating a site as authoritative outranks a title-level guess.
+
+    Needs more than three candidates or triage never runs at all — the
+    earlier version of this test had two, so it exercised nothing and passed
+    only because one of its URLs was deliberately left unmocked and the
+    failing fetch dropped that source for it.
+    """
     cfg = make_cfg(data_dir)
     cfg.authority_sites = "charm.li — factory service manuals for cars"
     fsm = ("https://charm.li/Toyota/2006/Tundra%20V8-4.7L%20(2UZ-FE)/"
            "Spark%20Plug/")
-    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload([
-        sx_result(fsm, "Spark Plug — Tundra 2UZ-FE"),
-        sx_result("https://junk.example.com/ad", "Buy spark plugs cheap"),
-    ])))
+    junk = [f"https://junk{i}.example.com/ad" for i in range(4)]
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result(fsm, "2UZ-FE spark plugs — factory manual")]
+        + [sx_result(u, "Buy cheap online") for u in junk])))
     respx.get(fsm).mock(return_value=httpx.Response(
         200, html=article("Tundra 2UZ-FE Spark Plug")))
-    # NOTE: no route for junk.example.com — fetching it would fail the test
+    for i, u in enumerate(junk):
+        respx.get(u).mock(return_value=httpx.Response(
+            200, html=article(f"Cheap Plugs Ad {i}")))
 
     s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
-    s["triage"] = [{"drop": [0, 1]}]      # triage condemns the FSM page too
+    # index 0 is the FSM page: it shares the most words with the query, and
+    # pick() orders by that. Triage condemns it along with one junk page.
+    s["triage"] = [{"drop": [0, 1]}]
     repo = Repo(connect(cfg.db_path))
     orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
                         llm_factory=lambda: FakeLLM(s))
-    run_id = orch.enqueue(RunParams(query="gx470 2UZ-FE spark plugs", depth=1,
-                                    recency="all", origin="cli"))
+    run_id = orch.enqueue(RunParams(query="2UZ-FE spark plugs factory manual",
+                                    depth=1, recency="all", origin="cli"))
     await orch.execute_now(run_id)
 
-    findings = repo.findings_for_run(run_id)
-    assert [f["domain"] for f in findings] == ["charm.li"]
+    domains = {f["domain"] for f in repo.findings_for_run(run_id)}
+    assert "charm.li" in domains          # condemned, but curated as authority
+    assert len(domains) == 4              # the other condemned page stayed out
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert "dropped at triage" in events  # triage genuinely ran
 
 
 def test_authority_domains_parses_the_settings_blob(data_dir):
@@ -264,3 +277,84 @@ async def test_triage_cannot_cull_more_than_half_a_round(data_dir):
     # never to whichever ones happened to sort last
     domains = {f["domain"] for f in findings}
     assert "example-a.com" in domains and "example-b.com" in domains
+
+
+# ---- fat indexes and multi-level descent ----------------------------------------
+
+def test_looks_like_index_distinguishes_directories_from_leaves():
+    """The three tiers of charm.li's GX470 manual, which no length threshold
+    alone can separate: a 125k-char table of contents, an 872-char shell
+    naming two children, and a 977-char leaf holding the factory spec."""
+    from app.research.pipeline import looks_like_index
+    base = "https://charm.li/Lexus/2008/GX/Repair/"
+
+    toc_links = [(f"{base}Section%20{i}/", f"Section {i} of the manual")
+                 for i in range(200)]
+    toc_text = " ".join(a for _u, a in toc_links)
+    assert looks_like_index(toc_text, toc_links, base)
+
+    shell_links = [(base + "Spark%20Plug/Specifications/", "Specifications"),
+                   (base + "Spark%20Plug/Application/", "Application and ID")]
+    shell_text = "Spark Plug " + "banner boilerplate about LEMON manuals " * 20
+    assert len(shell_text) > 600          # too long for the stub rule
+    assert looks_like_index(shell_text, shell_links, base + "Spark%20Plug/")
+
+    leaf = base + "Spark%20Plug/Specifications/"
+    leaf_links = [(base, "Repair and Diagnosis"), ("https://charm.li/", "Home")]
+    leaf_text = ("Spark plug electrode gap 1.0 to 1.1 mm (0.039 to 0.043 in.) "
+                 "Maximum electrode gap 1.3 mm " + "boilerplate " * 60)
+    assert not looks_like_index(leaf_text, leaf_links, leaf)   # points only up
+
+
+@respx.mock
+async def test_index_chase_descends_through_multiple_levels(data_dir):
+    """A service manual buries its content three levels down. One hop reaches
+    a subsection index and stops; the leaf is only reachable by descending."""
+    cfg = make_cfg(data_dir)
+    M = "https://manuals.example.com"
+
+    def index(title, children):
+        # Varied prose on purpose: trafilatura collapses a repeated identical
+        # sentence, which would leave too little text to extract at all.
+        prose = " ".join(
+            f"Subsection {i} covers spark plug service task number {i} for "
+            f"this engine family, including inspection and torque values."
+            for i in range(8))
+        links = "".join(f"<a href='{h}'>{t}</a> " for h, t in children)
+        return (f"<html><head><title>{title}</title></head><body><main>"
+                f"<article><h1>{title}</h1><p>{prose}</p>"
+                f"{links}</article></main></body></html>")
+
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(
+        200, json=sx_payload([sx_result(f"{M}/gx470/repair/", "Repair")])))
+    respx.get(f"{M}/gx470/repair/").mock(return_value=httpx.Response(
+        200, html=index("Repair", [("/gx470/repair/spark-plug/", "Spark Plug")])))
+    respx.get(f"{M}/gx470/repair/spark-plug/").mock(return_value=httpx.Response(
+        200, html=index("Spark Plug",
+                        [("/gx470/repair/spark-plug/specifications/",
+                          "Spark plug torque specifications")])))
+    respx.get(f"{M}/gx470/repair/spark-plug/specifications/").mock(
+        return_value=httpx.Response(200, html=article("Torque Specifications")))
+
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    s["planner"] = [{"title": "T", "brief": "GX470 spark plug torque specs.",
+                     "subqueries": ["gx470 spark plug torque"]}]
+    s["notes"] = [
+        {"relevance": 1, "summary": "Directory.", "notes_md": "", 
+         "key_facts": [], "published_date": None},           # level 1 index
+        {"relevance": 1, "summary": "Directory.", "notes_md": "",
+         "key_facts": [], "published_date": None},           # level 2 index
+        {"relevance": 9, "summary": "The factory spec.", "notes_md": "n",
+         "key_facts": [], "published_date": None},           # level 3 leaf
+    ]
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(s))
+    run_id = orch.enqueue(RunParams(query="gx470 spark plug torque specs",
+                                    depth=1, recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    findings = repo.findings_for_run(run_id)
+    assert [f["url"] for f in findings] == \
+        [f"{M}/gx470/repair/spark-plug/specifications/"]
+    assert findings[0]["relevance"] == 9
