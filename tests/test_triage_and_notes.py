@@ -309,8 +309,14 @@ def test_looks_like_index_distinguishes_directories_from_leaves():
 @respx.mock
 async def test_index_chase_descends_through_multiple_levels(data_dir):
     """A service manual buries its content three levels down. One hop reaches
-    a subsection index and stops; the leaf is only reachable by descending."""
+    a subsection index and stops; the leaf is only reachable by descending.
+
+    Curated as an authority site on purpose: a fat directory is only followed
+    there. Letting any link-dense 0/10 page start a descent walked three hops
+    into a spark-plug manufacturer's company-philosophy pages.
+    """
     cfg = make_cfg(data_dir)
+    cfg.authority_sites = "manuals.example.com — factory service manuals"
     M = "https://manuals.example.com"
 
     def index(title, children):
@@ -358,3 +364,44 @@ async def test_index_chase_descends_through_multiple_levels(data_dir):
     assert [f["url"] for f in findings] == \
         [f"{M}/gx470/repair/spark-plug/specifications/"]
     assert findings[0]["relevance"] == 9
+
+
+@respx.mock
+async def test_link_dense_page_off_authority_does_not_start_a_descent(data_dir):
+    """The regression that killed a live run: a spark-plug manufacturer's
+    homepage is link-dense and scores 0/10, so it read as an index and the
+    chase walked three hops into /info/philosophy/ and /info/vision/, burning
+    twelve fetches and twelve notes calls on company boilerplate. Fat
+    directories are only followed on curated authority domains."""
+    cfg = make_cfg(data_dir)
+    cfg.authority_sites = "charm.li — factory service manuals"
+    corp = "https://plugmaker.example.com"
+    nav = "".join(f"<a href='/info/{p}/'>{p.title()} of the company</a> "
+                  for p in ("philosophy", "vision", "gallery", "history",
+                            "careers", "investors", "brands", "contact"))
+    home = ("<html><head><title>Plugmaker</title></head><body><main><article>"
+            "<h1>Plugmaker</h1><p>" +
+            " ".join(f"Corporate statement number {i} about spark plug "
+                     f"manufacturing excellence worldwide." for i in range(6))
+            + f"</p>{nav}</article></main></body></html>")
+
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(
+        200, json=sx_payload([sx_result(f"{corp}/", "Spark plugs")])))
+    respx.get(f"{corp}/").mock(return_value=httpx.Response(200, html=home))
+    # no routes for /info/* — descending into them would fail this test
+
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    s["planner"] = [{"title": "T", "brief": "GX470 spark plug replacement.",
+                     "subqueries": ["gx470 spark plug"]}]
+    s["notes"] = [{"relevance": 0, "summary": "Corporate homepage.",
+                   "notes_md": "", "key_facts": [], "published_date": None}]
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(s))
+    run_id = orch.enqueue(RunParams(query="gx470 spark plug replacement",
+                                    depth=1, recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert "hop 1" not in events              # never descended
+    assert not repo.findings_for_run(run_id)

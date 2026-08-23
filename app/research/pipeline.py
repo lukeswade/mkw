@@ -15,7 +15,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import httpx
 
@@ -31,7 +31,7 @@ from app.research import synthesizer
 from app.research import reddit, youtube
 from app.research.dedupe import (canonicalize, domain_of, interleave,
                                  lexical_overlap, rank_diverse,
-                                 similarity, text_fingerprint)
+                                 similarity, text_fingerprint, _content_tokens)
 from app.research.extractor import extract, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
@@ -116,6 +116,8 @@ _INDEX_SHELL_CHARS = 1_500    # a small page that exists to list its children
 _INDEX_LINK_LIMIT = 4_000     # fat directories bury the good link mid-document
 _INDEX_CHILDREN = 4           # children followed per index page
 _MAX_INDEX_HOPS = 3           # section → subsection → leaf, and stop
+_INDEX_CHILD_MIN_MATCH = 0.5  # share of a child link that must be on-topic
+_INDEX_SMALL_DIRECTORY = 6    # at or below this, follow every child unscored
 
 # Link targets that are never worth a fetch: social shares and video, which
 # either have no extractable text or are pure engagement chrome.
@@ -171,6 +173,61 @@ def looks_like_index(text: str, links: list[tuple[str, str]],
             and anchor_chars / len(body) >= _INDEX_ANCHOR_RATIO:
         return True            # fat table of contents
     return len(body) < _INDEX_SHELL_CHARS
+
+
+def _singularize(tokens: set[str]) -> set[str]:
+    """Crude plural folding so link text matches the brief that describes it.
+
+    Manuals title a page "Spark Plug" while a research brief asks about
+    "spark plugs", and "Specifications" never matches "specification".
+    Both sides get folded the same way, so exactness does not matter — only
+    that the two agree.
+    """
+    return {t[:-1] if len(t) > 3 and t.endswith("s") and not t.endswith("ss")
+            else t for t in tokens}
+
+
+def select_index_children(links: list[tuple[str, str]], *, source_url: str,
+                          context: str, seen: set[str],
+                          limit: int = _INDEX_CHILDREN) -> list[tuple[str, str]]:
+    """Pick the children of an index page that are actually on-topic.
+
+    Scored by how much of the LINK is relevant, not how much of the research
+    context the link covers. lexical_overlap normalises by the context, which
+    is a whole paragraph here, so every one of a directory's thousands of
+    children scores near zero and the top-N is arbitrary. Normalising by the
+    link instead separates them cleanly: "Spark Plug" is entirely on-topic,
+    "ngk-2322-bue-surface-gap-spark-plug" mostly is not, "philosophy" is not
+    at all.
+
+    Only the last path segment is scored alongside the anchor — the rest of a
+    breadcrumb path is shared with every sibling and cannot discriminate.
+    """
+    want = _singularize(_content_tokens(context))
+    if not want:
+        return []
+    fresh = [(u, a) for u, a in child_links(source_url, links)
+             if canonicalize(u) not in seen]
+    # A small directory offers no choice to make, and the threshold exists to
+    # choose. Applying it anyway stops the descent one level above the answer:
+    # the charm.li "Spark Plug" shell lists only "Specifications" and
+    # "Application and ID", and "specifications" does not token-match the
+    # "specification" in the research brief.
+    if len(fresh) <= _INDEX_SMALL_DIRECTORY:
+        return fresh[:limit]
+    scored: list[tuple[float, str, str]] = []
+    for url, anchor in fresh:
+        tail = unquote(urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1])
+        tokens = _singularize(
+            _content_tokens(f"{anchor} {re.sub(r'[_\-.]', ' ', tail)}"))
+        if not tokens:
+            continue
+        score = len(tokens & want) / len(tokens)
+        if score < _INDEX_CHILD_MIN_MATCH:
+            continue
+        scored.append((score, url, anchor))
+    scored.sort(key=lambda t: -t[0])
+    return [(u, a) for _s, u, a in scored[:limit]]
 
 
 def select_references(links: list[tuple[str, str]], *, source_url: str,
@@ -732,19 +789,30 @@ class Pipeline:
                 # Gated on hop rather than harvest_refs — a manual's content
                 # is several levels down, so the chase has to keep descending
                 # while ordinary citation chasing stays at one hop.
+                # Descend an index page toward the content it lists. A FAT
+                # directory is only followed on a curated authority domain:
+                # every corporate homepage on the web is link-dense and scores
+                # 0/10, and letting those start a descent walked three hops
+                # into NGK's company-philosophy pages and burned twelve notes
+                # calls on them. Thin stubs are still followed anywhere, which
+                # is the original behaviour.
                 index_links = []
                 if (fetched is not None and self.cfg.reference_chasing
                         and hop < _MAX_INDEX_HOPS):
-                    index_links = extract_links(fetched,
-                                                limit=_INDEX_LINK_LIMIT)
-                    if not looks_like_index(doc.text, index_links, final_url):
-                        index_links = []
+                    deep_ok = domain_of(final_url) in self._authority_domains() \
+                        or any(domain_of(final_url).endswith("." + a)
+                               for a in self._authority_domains())
+                    if deep_ok or len(doc.text) < _STUB_CHARS:
+                        index_links = extract_links(fetched,
+                                                    limit=_INDEX_LINK_LIMIT)
+                        if not looks_like_index(doc.text, index_links,
+                                                final_url):
+                            index_links = []
                 if index_links:
-                    for ref_url, anchor in select_references(
+                    for ref_url, anchor in select_index_children(
                             index_links, source_url=final_url,
                             context=f"{query} {brief} {c.via_query}",
-                            seen=state.seen_urls, same_domain_ok=True,
-                            per_source=_INDEX_CHILDREN):
+                            seen=state.seen_urls):
                         references.append(SearchResult(
                             url=ref_url, title=anchor or ref_url,
                             snippet=anchor, engine="reference",
