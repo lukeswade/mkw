@@ -37,21 +37,22 @@ async def test_triage_drops_candidates_before_any_fetch(data_dir):
     respx.get(f"{SX}/search").mock(return_value=httpx.Response(
         200, json=sx_payload(_five_candidates())))
     # routes exist ONLY for the survivors — fetching a dropped one explodes
-    for c in ("a", "c"):
+    for c in ("a", "c", "e"):
         respx.get(f"https://example-{c}.com/article").mock(
             return_value=httpx.Response(200, html=article(f"Article {c.upper()}")))
 
     s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
-    s["triage"] = [{"drop": [1, 3, 4]}]
+    s["triage"] = [{"drop": [1, 3]}]      # within the half-a-round drop cap
     repo, llm, orch, run_id = _run(make_cfg(data_dir), s)
     await orch.execute_now(run_id)
 
     cfg = orch.cfg_loader()
     findings = repo.findings_for_run(run_id)
-    assert {f["domain"] for f in findings} == {"example-a.com", "example-c.com"}
+    assert {f["domain"] for f in findings} == {"example-a.com", "example-c.com",
+                                               "example-e.com"}
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
     assert "dropped at triage" in events
-    assert llm.calls["notes"] == 2
+    assert llm.calls["notes"] == 3
 
 
 @respx.mock
@@ -235,3 +236,31 @@ def test_authority_domains_parses_the_settings_blob(data_dir):
                            "not-a-domain line\n")
     p = Pipeline(cfg, Repo(connect(cfg.db_path)), PB())
     assert p._authority_domains() == frozenset({"charm.li", "nist.gov"})
+
+
+# ---- triage may veto at most half a round ---------------------------------------
+
+@respx.mock
+async def test_triage_cannot_cull_more_than_half_a_round(data_dir):
+    """A live depth-10 run had triage drop 21, 26 and 23 of 30 candidates in
+    consecutive rounds, discarding pages that answered the round's own queries
+    by name. Three prompt revisions failed to restrain it, so the ceiling is
+    structural: the best-ranked of the condemned are reprieved."""
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(
+        200, json=sx_payload(_five_candidates())))
+    for c in "abcde":
+        respx.get(f"https://example-{c}.com/article").mock(
+            return_value=httpx.Response(200, html=article(f"Article {c.upper()}")))
+
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    s["triage"] = [{"drop": [0, 1, 2, 3]}]     # 4 of 5 — over the cap of 2
+    repo, llm, orch, run_id = _run(cfg, s)
+    await orch.execute_now(run_id)
+
+    findings = repo.findings_for_run(run_id)
+    assert len(findings) == 3                  # 5 candidates, at most 2 dropped
+    # the reprieve goes to the best-ranked condemned candidates (lowest index),
+    # never to whichever ones happened to sort last
+    domains = {f["domain"] for f in findings}
+    assert "example-a.com" in domains and "example-b.com" in domains

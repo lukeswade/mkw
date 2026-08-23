@@ -176,7 +176,8 @@ class Pipeline:
 
         Asked as a drop-list on purpose: an under-delivering model (lazy,
         truncated) then keeps extra junk — which relevance scoring catches —
-        instead of silently discarding good candidates."""
+        instead of silently discarding good candidates. An OVER-delivering
+        model is the real hazard, so its verdict is capped at half a round."""
         lines = []
         for i, c in enumerate(candidates):
             snippet = " ".join((c.snippet or "").split())[:200]
@@ -205,8 +206,24 @@ class Pipeline:
                          len(spared))
                 drop -= spared
         if len(drop) == len(candidates):
-            # condemning everything is a broken verdict, not a judgment
+            # condemning everything is a broken verdict, not a judgment —
+            # there is no signal in it to salvage, so ignore it wholesale
             return candidates
+        # Triage is a cheap-junk filter, not a gatekeeper. Three separate
+        # attempts to fix this in the prompt have failed: it keeps condemning
+        # pages that answer the round's own queries by name (a GX470-specific
+        # torque-spec page, NGK's own torque reference). So bound the damage
+        # structurally — it may veto at most half a round, and the reprieve
+        # goes to the best-ranked of the condemned. pick() already sorted
+        # candidates best-first by engine tier then query overlap, so the
+        # spared ones are those whose title/snippet most resemble the query
+        # that found them: precisely the false negatives observed.
+        cap = len(candidates) // 2
+        if len(drop) > cap:
+            spared = set(sorted(drop)[:len(drop) - cap])
+            log.info("triage over-culled (%d of %d); sparing %d best-ranked",
+                     len(drop), len(candidates), len(spared))
+            drop -= spared
         if drop:
             state.skipped += len(drop)
             for i, c in enumerate(candidates):
