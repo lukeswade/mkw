@@ -491,3 +491,27 @@ async def test_use_prior_false_skips_the_prior_knowledge_step(data_dir):
     consulted, prompt = await run_with(False)
     assert consulted == 0                   # never even asked
     assert "PANEL IS DEAD" not in prompt
+
+
+def test_unchecked_use_prior_box_actually_turns_it_off(data_dir, monkeypatch):
+    """An unchecked HTML checkbox is omitted from the POST body entirely. A
+    route default of "on" therefore makes the box impossible to clear — the
+    first version of this shipped that way and silently ran with memory on."""
+    from fastapi.testclient import TestClient
+    from app.config import load_settings
+    from app.web.server import create_app
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    app = create_app(enable_worker=False, enable_bot=False)
+    cfg = load_settings(str(data_dir))
+    base = {"query": "tcl roku tv will not turn on", "depth": "1",
+            "recency": "all", "categories": "general"}
+    with TestClient(app) as client:
+        on_id = client.post("/runs", data={**base, "use_prior": "on"},
+                            follow_redirects=False
+                            ).headers["location"].rsplit("/", 1)[-1]
+        # box unticked: the field simply is not sent at all
+        off_id = client.post("/runs", data=base, follow_redirects=False
+                             ).headers["location"].rsplit("/", 1)[-1]
+    repo = Repo(connect(cfg.db_path))
+    assert bool(repo.get_run(on_id)["use_prior"]) is True
+    assert bool(repo.get_run(off_id)["use_prior"]) is False

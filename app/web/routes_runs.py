@@ -177,7 +177,11 @@ async def recent_runs_partial(request: Request):
 async def create_run(request: Request, query: str = Form(...),
                      depth: int = Form(3), recency: str = Form("all"),
                      parent_run_id: str = Form(""),
-                     use_prior: str = Form("on")):
+                     # An unchecked checkbox is omitted from the POST
+                     # entirely, so absent MUST mean off or the box can never
+                     # be cleared. Non-form callers (CLI, Telegram) build
+                     # RunParams directly, where the default is on.
+                     use_prior: str = Form("")):
     form = await request.form()
     categories = ",".join(str(c).strip() for c in form.getlist("categories")
                           if str(c).strip())[:200]
