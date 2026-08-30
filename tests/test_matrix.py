@@ -202,3 +202,63 @@ def test_cells_cap_their_citations():
 def test_dropped_footnote_reads_cleanly():
     md = render_matrix_md(MatrixOut.model_validate(_out()), title="T", dropped=18)
     assert "Built from the highest-scoring sources; 18 lower-scoring" in md
+
+
+# ---- knowing when it finished ---------------------------------------------------
+
+def _client(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.config import load_settings
+    from app.web.server import create_app
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    app = create_app(enable_worker=False, enable_bot=False)
+    return TestClient(app), load_settings(str(data_dir))
+
+
+def _seed(cfg, kind="research", status="completed"):
+    from app.research.storage import RunStore
+    repo = Repo(connect(cfg.db_path))
+    store = RunStore.create(cfg.research_dir, f"a {kind} run")
+    repo.create_run(run_id=store.run_id, query="q", depth=3, recency="all",
+                    dir=store.run_id, origin="web", status=status, kind=kind)
+    return repo, store
+
+
+def test_matrix_status_reloads_the_page_once_the_table_exists(data_dir, monkeypatch):
+    """'Refresh in a minute' is not an answer — the button reports itself."""
+    client, cfg = _client(data_dir, monkeypatch)
+    _repo, store = _seed(cfg)
+    with client:
+        still = client.get(f"/runs/{store.run_id}/matrix-status")
+        assert still.status_code == 200
+        assert "HX-Refresh" not in still.headers          # nothing to show yet
+        assert "does not weigh two or more" in still.text  # job not running
+
+        store.write_matrix("# T — comparison\n")
+        done = client.get(f"/runs/{store.run_id}/matrix-status")
+        assert done.headers.get("HX-Refresh") == "true"
+        assert "Comparison ready" in done.text
+
+
+def test_a_non_comparison_says_so_instead_of_polling_forever(data_dir, monkeypatch):
+    """The build can legitimately produce nothing; that must end the poll."""
+    client, cfg = _client(data_dir, monkeypatch)
+    _repo, store = _seed(cfg)
+    with client:
+        r = client.get(f"/runs/{store.run_id}/matrix-status")
+    assert "hx-trigger" not in r.text                     # polling stopped
+    assert "Log tab" in r.text                            # and says where to look
+
+
+def test_library_badges_name_the_run_kind(data_dir, monkeypatch):
+    client, cfg = _client(data_dir, monkeypatch)
+    for kind in ("research", "brief", "verify"):
+        _seed(cfg, kind=kind)
+    _repo, with_matrix = _seed(cfg)
+    with_matrix.write_matrix("# T — comparison\n")
+    with client:
+        body = client.get("/library").text
+    assert 'class="kind kind-research"' in body
+    assert 'class="kind kind-brief"' in body
+    assert 'class="kind kind-verify"' in body and "claim check" in body
+    assert 'class="kind kind-matrix"' in body             # artifact, not a kind

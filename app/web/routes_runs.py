@@ -355,18 +355,50 @@ async def resynthesize_run(request: Request, run_id: str):
         'has no stored findings.</span>')
 
 
+# Polls itself until matrix.md exists, the job stops, or the page goes away.
+_MATRIX_POLL = (
+    '<span class="resynth-note" '
+    'hx-get="/runs/{run_id}/matrix-status" '
+    'hx-trigger="every 4s" hx-swap="outerHTML">'
+    '<span class="spinner-inline"></span> {note}</span>'
+)
+
+
 @router.post("/runs/{run_id}/matrix")
 async def build_matrix(request: Request, run_id: str):
     """Build a comparison table from the stored findings — no re-searching."""
     _row_or_404(request, run_id)
     started = request.app.state.orch.start_matrix(run_id)
     if started:
-        return HTMLResponse(
-            '<span class="resynth-note">Building the comparison table from '
-            'the stored sources — refresh this page in a minute.</span>')
+        # "refresh in a minute" is not an answer. Poll until the artifact
+        # lands, then reload the page so the Comparison tab is just there.
+        return HTMLResponse(_MATRIX_POLL.format(run_id=run_id,
+                                                note="Building the comparison table…"))
     return HTMLResponse(
         '<span class="resynth-note">Could not start: the run is busy or '
         'has no stored findings.</span>')
+
+
+@router.get("/runs/{run_id}/matrix-status")
+async def matrix_status(request: Request, run_id: str):
+    """Poll target for the build button. Reloads the page when it is done."""
+    row = _row_or_404(request, run_id)
+    store = _store(request, row)
+    if store.matrix_path.exists():
+        # HX-Refresh makes htmx reload, so the new tab appears without the
+        # user having to know to refresh.
+        return HTMLResponse(
+            '<span class="resynth-note">Comparison ready.</span>',
+            headers={"HX-Refresh": "true"})
+    if run_id not in request.app.state.orch.active:
+        # The job finished without writing one — almost always "this research
+        # is not a comparison", which is a legitimate answer, not an error.
+        return HTMLResponse(
+            '<span class="resynth-note">No comparison built — this run does '
+            'not weigh two or more things against each other. See the Log '
+            'tab for the reason.</span>')
+    return HTMLResponse(_MATRIX_POLL.format(run_id=run_id,
+                                            note="Building the comparison table…"))
 
 
 @router.get("/runs/{run_id}/export.pdf")

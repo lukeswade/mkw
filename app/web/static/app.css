@@ -1300,3 +1300,40 @@ input[type="checkbox"] {
   background: var(--bg-base);
 }
 .matrix-scroll .prose td { vertical-align: top; font-variant-numeric: tabular-nums; }
+
+
+/* ---- run-kind badges (library) ----
+   Hue carries the meaning, so the four are distinguishable at a glance
+   without reading: research is the default blue-grey, a brief is green
+   (it is about what is new), a claim check is amber (it is a judgement),
+   and matrix is violet (an artifact, not a kind). */
+.kind {
+  flex: 0 0 auto;
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: lowercase;
+  padding: .16rem .5rem;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.kind-research { color: #7f9cc0; background: rgba(127, 156, 192, .10); }
+.kind-brief    { color: #6bbf8a; background: rgba(107, 191, 138, .10); }
+.kind-verify   { color: #d2a24c; background: rgba(210, 162, 76, .10); }
+.kind-matrix   { color: #a98bd4; background: rgba(169, 139, 212, .10); }
+
+
+/* Small inline spinner for a background action reporting on itself. */
+.spinner-inline {
+  display: inline-block;
+  width: .7em; height: .7em;
+  margin-right: .35em;
+  vertical-align: -.05em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .spinner-inline { animation: none; } }

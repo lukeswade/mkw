@@ -36,6 +36,10 @@
     <div class="run-item-wrap">
       <a class="run-item" href="/runs/{{ r['id'] }}">
         <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
+        {% set k = r['kind'] or 'research' %}
+        <span class="kind kind-{{ k }}" title="{{ KIND_HELP[k] }}">{{ KIND_LABEL[k] }}</span>
+        {% if item.has_matrix %}<span class="kind kind-matrix"
+              title="This run has a comparison table">matrix</span>{% endif %}
         <div class="run-info">
           <span class="run-title">{{ r['title'] or r['query'] }}</span>
           <span class="run-meta">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}

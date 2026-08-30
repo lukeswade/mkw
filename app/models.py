@@ -21,6 +21,15 @@ BRIEF_DEFAULT_QUERY = "Brief: what is new across my feeds"
 # each unresolved one costs a web sub-run. The cap is reported in the output
 # rather than applied silently.
 VERIFY_CLAIM_CAP = 15
+
+# What each run kind is called in the UI. "verify" is the internal name;
+# "claim check" is what it does.
+KIND_LABEL = {"research": "research", "brief": "brief", "verify": "claim check"}
+KIND_HELP = {
+    "research": "A question researched across the web over several rounds",
+    "brief": "New items pulled from your configured feeds",
+    "verify": "A pasted document's claims checked against your library and the web",
+}
 RECENCY_CHOICES: tuple[str, ...] = (
     "week", "month", "3months", "6months", "1year", "3years", "all",
 )

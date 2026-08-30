@@ -23,8 +23,13 @@ async def library(request: Request, q: str = "", mode: str = "keyword"):
 
     if not q.strip():
         rows = repo.list_runs(limit=200)
+        research_dir = request.app.state.cfg_loader().research_dir
         ctx["runs"] = [{"row": r,
-                        "stats": json.loads(r["stats_json"]) if r["stats_json"] else {}}
+                        "stats": json.loads(r["stats_json"]) if r["stats_json"] else {},
+                        # A matrix is an artifact on a research run, not a kind
+                        # of run, so it is a separate marker rather than a
+                        # fourth badge competing with the others.
+                        "has_matrix": (research_dir / r["dir"] / "matrix.md").exists()}
                        for r in rows]
     elif mode == "semantic" and rag is not None:
         hits = await rag.semantic_search(q, limit=20)

@@ -22,7 +22,8 @@ from app import selfcheck
 from app.config import Settings, load_settings
 from app.llm import providers
 from app.db import Repo, connect
-from app.models import RECENCY_CHOICES, RECENCY_LABELS
+from app.models import (KIND_HELP, KIND_LABEL, RECENCY_CHOICES,
+                        RECENCY_LABELS)
 from app.research.orchestrator import Orchestrator
 from app.research.progress import ProgressBus
 from app.web.auth import build_login_router, install_auth, load_signer
@@ -64,6 +65,8 @@ def _build_templates() -> Jinja2Templates:
     templates.env.globals.update(
         RECENCY_CHOICES=RECENCY_CHOICES,
         RECENCY_LABELS=RECENCY_LABELS,
+        KIND_LABEL=KIND_LABEL,
+        KIND_HELP=KIND_HELP,
         PROVIDERS=providers.PROVIDERS,
         asset=_asset_url,
     )
