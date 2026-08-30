@@ -1,11 +1,21 @@
 {% if runs %}
-<h3 class="section-title">Research runs</h3>
+{% if list_heading %}<h3 class="section-title">{{ list_heading }}</h3>{% endif %}
 <div class="run-list">
   {% for item in runs %}
   {% set r = item.row %}
   <div class="run-item-wrap">
     <a class="run-item" href="/runs/{{ r['id'] }}">
-      <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
+      {# Status on top, what-it-is below: two short rows that together are no
+         taller than the title-plus-meta block beside them. #}
+      {% set k = r['kind'] or 'research' %}
+      <span class="run-flags">
+        <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
+        <span class="run-kinds">
+          <span class="kind kind-{{ k }}" title="{{ KIND_HELP[k] }}">{{ KIND_LABEL[k] }}</span>
+          {%- if item.has_matrix %}<span class="kind kind-matrix"
+                title="This run has a comparison table">matrix</span>{% endif %}
+        </span>
+      </span>
       <div class="run-info">
         <span class="run-title">{{ r['title'] or r['query'] }}</span>
         <span class="run-meta">

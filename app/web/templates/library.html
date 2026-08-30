@@ -39,34 +39,6 @@
   <p class="empty-note">Nothing found.</p>
   {% endfor %}
 {% elif runs is not none %}
-  <div class="run-list">
-    {% for item in runs %}
-    {% set r = item.row %}
-    <div class="run-item-wrap">
-      <a class="run-item" href="/runs/{{ r['id'] }}">
-        <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
-        {% set k = r['kind'] or 'research' %}
-        <span class="kind kind-{{ k }}" title="{{ KIND_HELP[k] }}">{{ KIND_LABEL[k] }}</span>
-        {% if item.has_matrix %}<span class="kind kind-matrix"
-              title="This run has a comparison table">matrix</span>{% endif %}
-        <div class="run-info">
-          <span class="run-title">{{ r['title'] or r['query'] }}</span>
-          <span class="run-meta">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
-            {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
-            · {{ r['created_at'][:16].replace('T', ' ') }}        {%- if r['created_by'] %} <span class="user-tag" style="--hue: {{ r['created_by'] | user_hue }}" title="started by {{ r['created_by'] }}">{{ r['created_by'] }}</span>{% endif %}</span>
-        </div>
-      </a>
-      {% if r['status'] == 'completed' %}{% include "partials/evergreen_star.html" %}{% endif %}
-      <button class="delete-btn outline" 
-              hx-delete="/runs/{{ r['id'] }}" 
-              hx-confirm="Are you sure you want to delete this run?"
-              hx-target="closest .run-item-wrap" 
-              hx-swap="outerHTML"
-              title="Delete run">×</button>
-    </div>
-    {% else %}
-    <p class="empty-note">No research yet.</p>
-    {% endfor %}
-  </div>
+  {% include "partials/runs_list.html" %}
 {% endif %}
 {% endblock %}

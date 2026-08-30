@@ -112,12 +112,14 @@ def _finding_cards(store: RunStore, findings) -> list[dict]:
 
 def _runs_context(request: Request, limit: int = 20) -> dict:
     repo = request.app.state.repo
+    research_dir = request.app.state.cfg_loader().research_dir
     rows = repo.list_runs(limit=limit)
     runs = []
     for r in rows:
         stats = json.loads(r["stats_json"]) if r["stats_json"] else {}
-        runs.append({"row": r, "stats": stats})
-    return {"runs": runs}
+        runs.append({"row": r, "stats": stats,
+                     "has_matrix": (research_dir / r["dir"] / "matrix.md").exists()})
+    return {"runs": runs, "list_heading": "Research runs"}
 
 
 def _index_context(request: Request, depth: int = 3) -> dict:

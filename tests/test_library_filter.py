@@ -154,3 +154,23 @@ def test_no_vector_index_says_so_rather_than_failing_quietly(lib):
         body = c.get("/library", params={"q": "tokamak"}).text
     assert "Still findable" in body
     assert "keyword only" in body
+
+
+# ---- the two lists are one template -----------------------------------------
+
+def test_the_new_tab_and_library_render_runs_identically(lib):
+    """They were separate copies of the same markup, so they drifted — the
+    Library grew kind badges and the New tab did not."""
+    app, _cfg, _repo, seed = lib
+    seed("brief", title="A brief run")
+    seed("research", title="Compared run", matrix=True)
+    with TestClient(app) as c:
+        home = c.get("/partials/recent-runs").text
+        library = c.get("/library").text
+    for body in (home, library):
+        assert 'class="run-flags"' in body          # status stacked over kind
+        assert 'class="kind kind-brief"' in body
+        assert 'class="kind kind-matrix"' in body
+    # the heading belongs to the New tab only
+    assert "Research runs" in home
+    assert "Research runs" not in library
