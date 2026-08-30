@@ -1396,3 +1396,21 @@ input[type="checkbox"] {
   letter-spacing: .05em;
 }
 .run-flags .chip { border-radius: 4px; }
+
+
+/* Add-a-feed row: an address box and its button on one line. */
+.add-feed { display: flex; gap: .5rem; align-items: stretch; margin: .5rem 0 .35rem; }
+.add-feed input { flex: 1 1 auto; margin: 0; }
+.add-feed button { flex: 0 0 auto; width: auto; margin: 0; white-space: nowrap; }
+
+/* Follow-this-source sits under a finding's notes, quiet until hovered. */
+.finding-actions { margin-top: .75rem; }
+.follow-btn {
+  width: auto; margin: 0;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-size: var(--text-xs);
+  padding: .25rem .6rem;
+}
+.follow-btn:hover { color: var(--text-primary, #fff); border-color: var(--border-bright); }

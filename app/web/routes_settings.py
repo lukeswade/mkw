@@ -5,8 +5,9 @@ import asyncio
 import logging
 
 import httpx
-from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from markupsafe import escape
 
 from app.config import SECRET_FIELDS, load_settings, mask_secret, save_settings
 from app.llm.client import LLM, LLMError
@@ -96,3 +97,77 @@ async def test_searxng(request: Request):
         msg, ok = f"✗ cannot reach SearXNG at {cfg.searxng_url}: {e}", False
     return request.app.state.templates.TemplateResponse(
         request, "partials/test_result.html", {"ok": ok, "msg": msg})
+
+
+@router.post("/settings/add-feed")
+async def add_feed(request: Request, site: str = Form("")):
+    """Turn whatever the user typed into a feed and append it.
+
+    People know a site's address, not where it keeps its feed, so asking for
+    the feed URL directly is asking them to go and find it first.
+    """
+    from app.research.feed_discovery import discover
+    from app.research.feeds import parse_feed_list
+
+    cfg = load_settings()
+    site = site.strip()
+    if not site:
+        return HTMLResponse('<span class="hint">Enter a site address.</span>')
+
+    async with httpx.AsyncClient(
+            headers={"User-Agent": cfg.user_agent}, timeout=20.0) as client:
+        found = await discover(client, site)
+
+    if found is None:
+        return HTMLResponse(
+            f'<span class="hint">No feed found at '
+            f'<code>{escape(site)}</code>. Some sites do not publish one; '
+            f'if you know the feed URL, paste it in the box above.</span>')
+
+    existing = parse_feed_list(cfg.feeds)
+    if found.url in existing:
+        return HTMLResponse(
+            f'<span class="hint">Already subscribed to '
+            f'<strong>{escape(found.title)}</strong>.</span>')
+
+    blob = (cfg.feeds.rstrip() + "\n" if cfg.feeds.strip() else "")
+    save_settings(cfg.settings_path, {"feeds": f"{blob}{found.url}\n"})
+    return HTMLResponse(
+        f'<span class="hint">Added <strong>{escape(found.title)}</strong> '
+        f'({found.entries} recent items) — <code>{escape(found.url)}</code>. '
+        f'Reload to see it in the list.</span>')
+
+
+@router.post("/settings/follow-source")
+async def follow_source(request: Request, domain: str = Form("")):
+    """Subscribe to a source that already proved useful in a run.
+
+    A feed list built by remembering sites is a chore; one built from the
+    domains your own research kept citing builds itself.
+    """
+    from app.research.feed_discovery import discover
+    from app.research.feeds import parse_feed_list
+
+    cfg = load_settings()
+    domain = domain.strip().lower()
+    if not domain:
+        return HTMLResponse('<span class="hint">No source to follow.</span>')
+
+    async with httpx.AsyncClient(
+            headers={"User-Agent": cfg.user_agent}, timeout=20.0) as client:
+        found = await discover(client, domain)
+
+    if found is None:
+        return HTMLResponse(
+            f'<span class="hint">{escape(domain)} does not publish a feed '
+            f'this could find.</span>')
+    if found.url in parse_feed_list(cfg.feeds):
+        return HTMLResponse(
+            f'<span class="hint">Already following '
+            f'<strong>{escape(found.title)}</strong>.</span>')
+
+    blob = (cfg.feeds.rstrip() + "\n" if cfg.feeds.strip() else "")
+    save_settings(cfg.settings_path, {"feeds": f"{blob}{found.url}\n"})
+    return HTMLResponse(
+        f'<span class="hint">Following <strong>{escape(found.title)}</strong> '
+        f'— it will appear in your next brief.</span>')

@@ -101,6 +101,18 @@
       <textarea name="feeds" rows="4"
                 placeholder="https://example.com/feed.xml  # weekly roundup">{{ cfg.feeds }}</textarea>
     </label>
+    <div class="add-feed">
+      <input type="text" name="site" id="add-feed-site"
+             placeholder="Add by site address — simonwillison.net, or ollama/ollama">
+      <button type="button" class="secondary outline"
+              hx-post="/settings/add-feed"
+              hx-include="#add-feed-site"
+              hx-target="#add-feed-result" hx-swap="innerHTML">Find feed</button>
+    </div>
+    <p class="hint" id="add-feed-result">Paste a site, not a feed URL — it
+      reads the page's own feed declaration, falls back to the usual paths,
+      and expands <code>owner/repo</code> to a GitHub releases feed. Saved
+      straight away; the box above updates on reload.</p>
     <p class="hint">The reading list for a <strong>brief</strong>. A brief
       ignores the search engines entirely: it reads these feeds, fetches and
       reads the new items, and writes one synthesis over all of them. Items

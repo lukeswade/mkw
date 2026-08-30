@@ -52,6 +52,14 @@
       <span class="f-meta">{{ card.row['domain'] }} · {{ card.row['published_date'] or 'undated' }} · {{ card.row['relevance'] | int }}/10</span>
     </summary>
     <div class="prose">{{ card.html | safe }}</div>
+    <div class="finding-actions">
+      <button class="follow-btn"
+              hx-post="/settings/follow-source"
+              hx-vals='{"domain": "{{ card.row['domain'] }}"}'
+              hx-swap="outerHTML"
+              title="Find this site's feed and add it to your briefs">
+        ☆ Follow {{ card.row['domain'] }}</button>
+    </div>
     <p><a href="/runs/{{ run_id }}/file/{{ card.row['path'] }}?download=1">download .md</a> ·
        <a href="{{ card.row['url'] }}" target="_blank" rel="noopener noreferrer">original source</a></p>
   </details>
