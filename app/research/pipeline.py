@@ -28,7 +28,7 @@ from app.models import RECENCY_LABELS, TriageOut
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
-from app.research import matrix, reddit, youtube
+from app.research import feeds, matrix, reddit, youtube
 from app.research.dedupe import (canonicalize, domain_of, interleave,
                                  lexical_overlap, rank_diverse,
                                  similarity, text_fingerprint)
@@ -145,6 +145,15 @@ def select_references(links: list[tuple[str, str]], *, source_url: str,
         scored.append((score, url, anchor))
     scored.sort(key=lambda t: -t[0])
     return [(url, anchor) for _s, url, anchor in scored[:per_source]]
+
+
+def _row_get(row, name: str, default):
+    """Read a column that may predate its migration."""
+    try:
+        value = row[name]
+    except (KeyError, IndexError):
+        return default
+    return default if value is None else value
 
 
 @dataclass
@@ -300,6 +309,10 @@ class Pipeline:
         query, depth, recency = row["query"], row["depth"], row["recency"]
         breadth = breadth_for_depth(depth)
         rounds = rounds_for_depth(depth)
+        if _row_get(row, "kind", "research") == "brief":
+            # There is no second round: the feeds were read, and gap analysis
+            # would only invent web searches a brief never asked for.
+            rounds = 1
         recency_desc = prompts.RECENCY_DESC[recency]
         today = datetime.now().date().isoformat()
         llm = self.llm_factory()
@@ -317,23 +330,35 @@ class Pipeline:
         limits = httpx.Limits(max_connections=cfg.fetch_concurrency * 2)
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
                                      limits=limits) as http:
-            run_categories = ""
-            try:
-                run_categories = (row["categories"] or "").strip()
-            except (KeyError, IndexError):
-                pass  # rows from before the migration
-            searcher = Searcher(cfg.searxng_url, http,
-                                categories=run_categories or cfg.search_categories,
-                                max_concurrent=cfg.search_concurrency)
+            run_categories = (_row_get(row, "categories", "") or "").strip()
+            kind = _row_get(row, "kind", "research")
+            if kind == "brief":
+                # A brief has a reading list, not a question. FeedSearcher
+                # satisfies the same surface, so nothing downstream changes.
+                feed_urls = feeds.parse_feed_list(getattr(cfg, "feeds", ""))
+                if not feed_urls:
+                    raise ValueError(
+                        "no feeds configured — add them in Settings")
+                searcher = feeds.FeedSearcher(feed_urls, http)
+                # Yesterday's items are still inside today's window, so a
+                # brief that does not remember what it already reported
+                # repeats itself on day two.
+                already = self.repo.recent_finding_urls("brief")
+                state.seen_urls |= already
+                self.bus.publish(
+                    run_id, "log",
+                    message=(f"reading {len(feed_urls)} feed(s); skipping "
+                             f"{len(already)} item(s) already briefed"))
+            else:
+                searcher = Searcher(
+                    cfg.searxng_url, http,
+                    categories=run_categories or cfg.search_categories,
+                    max_concurrent=cfg.search_concurrency)
             fetcher = Fetcher(cfg, http)
 
             # 1. prior knowledge from earlier runs (knowledge layer, optional)
             prior = ""
-            try:
-                use_prior = bool(row["use_prior"])
-            except (KeyError, IndexError):
-                use_prior = True       # rows from before the migration
-            if self.rag is not None and use_prior:
+            if self.rag is not None and bool(_row_get(row, "use_prior", 1)):
                 prior, related = await self.rag.prior_knowledge(query, exclude_run=run_id)
                 for other_id, score in related:
                     self.repo.add_run_link(run_id, other_id, "similar", score)

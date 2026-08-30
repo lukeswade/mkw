@@ -44,6 +44,9 @@ class RunParams(BaseModel):
     # planner and no "builds on" links. For re-diagnosing something from
     # scratch when previous conclusions might anchor the answer.
     use_prior: bool = True
+    # "research" searches the web for an answer; "brief" ignores the query and
+    # reads the configured feeds instead. Everything after search is identical.
+    kind: Literal["research", "brief"] = "research"
 
     @field_validator("query")
     @classmethod

@@ -15,7 +15,7 @@
 
   {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
   <form method="post" action="/runs" class="new-run card">
-    <textarea name="query" rows="3" required minlength="3" autofocus
+    <textarea name="query" rows="3" minlength="3" autofocus
       hx-get="/partials/similar" hx-trigger="keyup changed delay:700ms"
       hx-target="#similar-hint" hx-swap="innerHTML"
       placeholder="e.g. State of solid-state battery manufacturing — who is closest to mass production and what are the remaining blockers?">{{ prefill.query if prefill else "" }}</textarea>
@@ -36,6 +36,8 @@
         </select>
       </label>
       <button type="submit" class="go">Start research</button>
+      <button type="submit" class="go secondary" name="kind" value="brief"
+              title="Ignore the question and read your configured feeds instead, writing one synthesis over everything new.">Brief from feeds</button>
     </div>
     <fieldset class="cats" id="cat-group"
               title="Which search-engine categories this run queries. Your last selection is remembered.">

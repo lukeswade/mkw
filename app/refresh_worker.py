@@ -20,11 +20,17 @@ REFRESH_INTERVAL_HOURS = 24
 CHECK_EVERY_SECONDS = 900
 
 
-def _categories_of(row) -> str:
+def _col(row, name: str, default):
+    """Rows written before a column existed still have to refresh."""
     try:
-        return row["categories"] or ""
+        value = row[name]
     except (KeyError, IndexError):
-        return ""
+        return default
+    return default if value is None else value
+
+
+def _categories_of(row) -> str:
+    return _col(row, "categories", "") or ""
 
 
 async def refresh_due_runs(orchestrator, repo) -> int:
@@ -40,6 +46,12 @@ async def refresh_due_runs(orchestrator, repo) -> int:
             origin_chat_id=row["origin_chat_id"],
             created_by=row["created_by"] or "",
             categories=_categories_of(row),
+            # A refresh must stay the same kind of run as its parent, or an
+            # evergreen brief would come back as a web search. use_prior was
+            # being dropped here too — an evergreen refresh of a deliberately
+            # memory-free run silently re-enabled memory.
+            kind=_col(row, "kind", "research"),
+            use_prior=bool(_col(row, "use_prior", 1)),
         )
         new_id = orchestrator.enqueue(params)
         log.info("evergreen refresh %s queued for %s", new_id, row["id"])

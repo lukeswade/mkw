@@ -97,6 +97,15 @@
     <p class="hint">Sites full of authoritative primary documents that search
       engines barely index. When one fits the topic, the planner dedicates a
       <code>site:</code>-scoped query to it.</p>
+    <label>Feeds <small>(one RSS/Atom URL per line; # starts a comment)</small>
+      <textarea name="feeds" rows="4"
+                placeholder="https://example.com/feed.xml  # weekly roundup">{{ cfg.feeds }}</textarea>
+    </label>
+    <p class="hint">The reading list for a <strong>brief</strong>. A brief
+      ignores the search engines entirely: it reads these feeds, fetches and
+      reads the new items, and writes one synthesis over all of them. Items
+      already covered by an earlier brief are skipped, so a daily brief does
+      not repeat itself.</p>
     <label>
       <input type="checkbox" name="browser_impersonation" {{ 'checked' if cfg.browser_impersonation else '' }}>
       Retry refused fetches with a real Chrome fingerprint

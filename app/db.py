@@ -56,6 +56,9 @@ def _migrations() -> list:
         # 0 = run without prior-run context (fresh diagnosis)
         lambda conn: _add_column_if_missing(
             conn, "runs", "use_prior", "BOOLEAN NOT NULL DEFAULT 1"),
+        # "research" (default) or "brief" — which searcher the run uses
+        lambda conn: _add_column_if_missing(
+            conn, "runs", "kind", "TEXT NOT NULL DEFAULT 'research'"),
     ]
 
 
@@ -97,16 +100,17 @@ class Repo:
                    dir: str, origin: str = "web", parent_run_id: str | None = None,
                    origin_chat_id: int | None = None, status: str = "queued",
                    evergreen: bool = False, created_by: str = "",
-                   categories: str = "", use_prior: bool = True) -> None:
+                   categories: str = "", use_prior: bool = True,
+                   kind: str = "research") -> None:
         self.conn.execute(
             "INSERT INTO runs (id, query, depth, recency, status, dir, origin,"
             " parent_run_id, origin_chat_id, evergreen, created_by, categories,"
-            " use_prior,"
+            " use_prior, kind,"
             " created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, query, depth, recency, status, dir, origin,
              parent_run_id, origin_chat_id, evergreen, created_by or None,
-             categories or "", 1 if use_prior else 0, utcnow()),
+             categories or "", 1 if use_prior else 0, kind, utcnow()),
         )
         self.conn.commit()
 
@@ -193,6 +197,19 @@ class Repo:
              summary, utcnow()),
         )
         self.conn.commit()
+
+    def recent_finding_urls(self, kind: str, limit: int = 800) -> set[str]:
+        """URLs already reported by recent runs of this kind.
+
+        A daily brief re-reads the same feeds, so yesterday's items are still
+        in today's window. Without this the brief repeats itself and reads as
+        broken on day two.
+        """
+        rows = self.conn.execute(
+            "SELECT f.url FROM findings f JOIN runs r ON r.id = f.run_id"
+            " WHERE r.kind = ? ORDER BY f.id DESC LIMIT ?",
+            (kind, limit)).fetchall()
+        return {r["url"] for r in rows}
 
     def findings_for_run(self, run_id: str) -> list[sqlite3.Row]:
         return self.conn.execute(

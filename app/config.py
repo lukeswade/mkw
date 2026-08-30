@@ -48,6 +48,7 @@ ENV_MAP = {
     "reference_chasing": "REFERENCE_CHASING",
     "blocked_domains": "BLOCKED_DOMAINS",
     "authority_sites": "AUTHORITY_SITES",
+    "feeds": "FEEDS",
     "respect_robots": "RESPECT_ROBOTS",
     "allow_private_fetch": "ALLOW_PRIVATE_FETCH",
     "user_agent": "USER_AGENT",
@@ -79,6 +80,7 @@ UI_EDITABLE = {
     "reference_chasing",
     "blocked_domains",
     "authority_sites",
+    "feeds",
     "respect_robots",
     "llm_concurrency",
     "embedding_model",
@@ -151,6 +153,9 @@ class Settings:
     # on their own). One per line, "domain — what it holds".
     authority_sites: str = ("charm.li — full factory service manuals for most "
                             "cars and trucks, every make/model/year")
+    # RSS/Atom reading list for brief runs, one URL per line. Empty means
+    # briefs cannot run — the pipeline says so rather than producing nothing.
+    feeds: str = ""
     # Off by default: this fetches a handful of pages a person could
     # open by hand, at one request per second per domain, with an
     # identifiable user agent. Turn it on if you want the crawler
