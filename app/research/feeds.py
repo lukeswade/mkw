@@ -27,6 +27,10 @@ log = logging.getLogger(__name__)
 
 MAX_FEEDS = 40
 MAX_ENTRIES_PER_FEED = 25
+# Candidates one feed may contribute to a round. The web-search
+# cap of two per domain collapsed three GitHub release feeds into
+# two items total, because they share a domain.
+PER_FEED_PER_ROUND = 6
 _FEED_TIMEOUT = 20.0
 _MAX_FEED_BYTES = 8 * 1024 * 1024
 

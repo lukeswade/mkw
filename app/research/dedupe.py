@@ -101,8 +101,17 @@ def interleave(lists: Iterable[list[T]]) -> list[T]:
 
 
 def rank_diverse(results: list[SearchResult], seen: set[str], *,
-                 per_domain: int = 2, limit: int = 12) -> list[SearchResult]:
-    """Pick fetch candidates: drop seen/duplicate URLs, cap per-domain count."""
+                 per_domain: int = 2, limit: int = 12,
+                 group=None) -> list[SearchResult]:
+    """Pick fetch candidates: drop seen/duplicate URLs, cap per-source count.
+
+    `group` decides what counts as one source, defaulting to the domain. A
+    brief overrides it with the feed, because three GitHub release feeds all
+    live on github.com — capping by domain let two entries through from all
+    three combined, which is the opposite of what a curated reading list
+    should do.
+    """
+    key = group or (lambda r: domain_of(canonicalize(r.url)))
     out: list[SearchResult] = []
     taken: set[str] = set()
     domain_counts: Counter[str] = Counter()
@@ -110,7 +119,7 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
         cu = canonicalize(r.url)
         if cu in seen or cu in taken:
             continue
-        d = domain_of(cu)
+        d = key(r)
         if domain_counts[d] >= per_domain:
             continue
         taken.add(cu)

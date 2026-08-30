@@ -281,3 +281,34 @@ def test_a_research_run_still_requires_a_question(data_dir, monkeypatch):
         # the form is re-rendered with the message, under a 422
         assert r.status_code == 422
         assert "String should have at least 3 characters" in r.text
+
+
+def test_a_brief_caps_per_feed_not_per_domain(data_dir):
+    """Three GitHub release feeds share one domain. Capping by domain let two
+    items through from all three combined, which defeats a curated list."""
+    from app.research.dedupe import rank_diverse
+    from app.research.searcher import SearchResult
+
+    def r(url, feed):
+        return SearchResult(url=url, title=url, snippet="", engine="feed",
+                            published=None, score=1.0, via_query=feed)
+
+    pool = [r(f"https://github.com/{repo}/releases/tag/v{n}", f"{repo} releases")
+            for repo in ("mlx", "llama.cpp", "ollama") for n in range(1, 4)]
+
+    by_domain = rank_diverse(pool, set(), per_domain=2, limit=30)
+    assert len(by_domain) == 2                       # the bug: one domain, two items
+
+    by_feed = rank_diverse(pool, set(), per_domain=6, limit=30,
+                           group=lambda x: x.via_query)
+    assert len(by_feed) == 9                         # all three feeds represented
+    assert len({x.via_query for x in by_feed}) == 3
+
+
+def test_grouping_still_defaults_to_domain_for_web_search():
+    from app.research.dedupe import rank_diverse
+    from app.research.searcher import SearchResult
+    pool = [SearchResult(url=f"https://spam.com/{n}", title="t", snippet="",
+                         engine="google", published=None, score=1.0)
+            for n in range(6)]
+    assert len(rank_diverse(pool, set(), per_domain=2, limit=30)) == 2

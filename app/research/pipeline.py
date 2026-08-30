@@ -161,6 +161,11 @@ class _RunState:
     findings: list[Finding] = field(default_factory=list)
     weak: list[tuple[int, dict]] = field(default_factory=list)
     seen_urls: set[str] = field(default_factory=set)
+    # How many candidates one source may contribute per round, and what
+    # counts as a source. Web search caps two per domain; a brief caps per
+    # feed, since the feeds were chosen deliberately.
+    per_source: int = 2
+    group_by: object = None
     fingerprints: list[tuple[frozenset[int], str]] = field(default_factory=list)
     searched: list[str] = field(default_factory=list)
     state_md: str = ""
@@ -343,6 +348,8 @@ class Pipeline:
                 # Yesterday's items are still inside today's window, so a
                 # brief that does not remember what it already reported
                 # repeats itself on day two.
+                state.per_source = feeds.PER_FEED_PER_ROUND
+                state.group_by = lambda r: r.via_query or domain_of(r.url)
                 already = self.repo.recent_finding_urls("brief")
                 state.seen_urls |= already
                 self.bus.publish(
@@ -544,8 +551,9 @@ class Pipeline:
             pool.sort(key=lambda r: (
                 engine_tier(r.engine, promote),
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
-            chosen = rank_diverse(pool, state.seen_urls, per_domain=2,
-                                  limit=limit)
+            chosen = rank_diverse(pool, state.seen_urls,
+                                  per_domain=state.per_source,
+                                  limit=limit, group=state.group_by)
             for c in chosen:
                 state.seen_urls.add(canonicalize(c.url))
             return chosen
