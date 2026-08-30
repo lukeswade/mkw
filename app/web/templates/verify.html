@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Check claims · Deep Research{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Check claims</h1>
+  <p class="page-desc">Paste a document. Each assertion is pulled out and
+    checked — against your own research first, then the web.</p>
+</div>
+
+{% if error %}<p class="banner banner-error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/verify" class="card">
+  <label>Document
+    <textarea name="document" rows="16" required minlength="40" autofocus
+              placeholder="Paste an article, a report, or another model's answer…">{{ prefill or '' }}</textarea>
+  </label>
+  <p class="hint">Opinions, predictions and recommendations are recognised and
+    set aside rather than judged — they are not false, they are just not
+    checkable. Claims are checked most-load-bearing first, up to
+    {{ cap }} per run; anything beyond that is listed as unchecked rather
+    than quietly dropped.</p>
+  <button type="submit" class="go">Check claims</button>
+</form>
+{% endblock %}

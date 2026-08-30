@@ -24,11 +24,11 @@ from app.db import Repo, utcnow
 from app.llm import prompts
 from app.llm.client import LLM
 from app.llm.json_utils import LLMJsonError
-from app.models import BRIEF_DEFAULT_QUERY, RECENCY_LABELS, TriageOut
+from app.models import BRIEF_DEFAULT_QUERY, VERIFY_CLAIM_CAP, RECENCY_LABELS, TriageOut
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
-from app.research import feeds, matrix, reddit, youtube
+from app.research import feeds, matrix, reddit, verify, youtube
 from app.research.dedupe import (canonicalize, domain_of, interleave,
                                  lexical_overlap, rank_diverse,
                                  similarity, text_fingerprint)
@@ -145,6 +145,16 @@ def select_references(links: list[tuple[str, str]], *, source_url: str,
         scored.append((score, url, anchor))
     scored.sort(key=lambda t: -t[0])
     return [(url, anchor) for _s, url, anchor in scored[:per_source]]
+
+
+def _browser_headers(cfg) -> dict[str, str]:
+    """CDNs fingerprint on more than the UA string; a bare request reads as a bot."""
+    return {
+        "User-Agent": cfg.user_agent,
+        "Accept": ("text/html,application/xhtml+xml,application/xml;"
+                   "q=0.9,*/*;q=0.8"),
+        "Accept-Language": "en-US,en;q=0.9",
+    }
 
 
 def _row_get(row, name: str, default):
@@ -314,6 +324,12 @@ class Pipeline:
     # ---- main flow ----------------------------------------------------------------
     async def _run(self, run_id: str, row, store: RunStore) -> None:
         cfg = self.cfg
+        if _row_get(row, "kind", "research") == "verify":
+            # Verification has no rounds and no gap analysis: it is a fan-out
+            # over claims, not a search that deepens. It stays a run so it
+            # inherits the library, exports, Ask and the progress stream.
+            await self._verify_run(run_id, row, store)
+            return
         query, depth, recency = row["query"], row["depth"], row["recency"]
         breadth = breadth_for_depth(depth)
         rounds = rounds_for_depth(depth)
@@ -328,12 +344,7 @@ class Pipeline:
 
         # Browser-shaped headers to match the browser UA: CDNs fingerprint on
         # more than the UA string, and a bare request still reads as a bot.
-        headers = {
-            "User-Agent": cfg.user_agent,
-            "Accept": ("text/html,application/xhtml+xml,application/xml;"
-                       "q=0.9,*/*;q=0.8"),
-            "Accept-Language": "en-US,en;q=0.9",
-        }
+        headers = _browser_headers(cfg)
         timeout = httpx.Timeout(15.0, connect=10.0)
         limits = httpx.Limits(max_connections=cfg.fetch_concurrency * 2)
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
@@ -977,6 +988,111 @@ class Pipeline:
                               run_id)
         self.bus.publish(run_id, "log", message="overview re-synthesized")
         self.bus.publish(run_id, "resynthesized", sources=len(findings))
+
+    async def _verify_run(self, run_id: str, row, store: RunStore) -> None:
+        """Check a pasted document's claims against the library, then the web."""
+        cfg = self.cfg
+        document = store.read_document()
+        if not document.strip():
+            raise ValueError("nothing to verify — the document was empty")
+
+        llm = self.llm_factory()
+        self.bus.publish(run_id, "phase", phase="extracting claims")
+        claims, clipped = await verify.extract_claims(llm, document)
+        if not claims:
+            raise ValueError("no checkable claims were found in the document")
+
+        checked, capped = verify.select_claims(claims, VERIFY_CLAIM_CAP)
+        uncheckable = [c for c in claims if not c.checkable]
+        self.bus.publish(
+            run_id, "log",
+            message=(f"{len(claims)} claim(s) found; checking {len(checked)}"
+                     + (f", capped {len(capped)}" if capped else "")
+                     + (f", {len(uncheckable)} not checkable" if uncheckable else "")))
+
+        headers = _browser_headers(cfg)
+        timeout = httpx.Timeout(15.0, connect=10.0)
+        results: list[verify.Checked] = []
+        async with httpx.AsyncClient(headers=headers, timeout=timeout) as http:
+            searcher = Searcher(cfg.searxng_url, http,
+                                categories=cfg.search_categories,
+                                max_concurrent=cfg.search_concurrency)
+            fetcher = Fetcher(cfg, http)
+            for i, claim in enumerate(checked, 1):
+                if self.cancel_requested:
+                    break
+                self.bus.publish(run_id, "phase", phase="checking claims",
+                                 round=i)
+                results.append(await self._check_one(
+                    run_id, llm, searcher, fetcher, claim))
+
+        title = row["title"] or row["query"][:100]
+        report = verify.render_report(title, results, skipped=capped,
+                                      uncheckable=uncheckable, clipped=clipped)
+        store.write_overview(report)
+        store.write_sources(synthesizer.render_sources_md([]))
+        store.update_meta(
+            claims_checked=len(results), claims_found=len(claims),
+            verdicts={v: sum(1 for r in results if r.verdict.verdict == v)
+                      for v in ("supported", "contested", "unsupported",
+                                "unverifiable")})
+        self.repo.fts_delete_run(run_id)
+        self.repo.fts_add(run_id, "overview", title, report)
+        self.repo.update_run(run_id, title=title, status="completed",
+                             stop_reason=f"{len(results)} claim(s) checked",
+                             finished_at=utcnow())
+        store.update_meta(status="completed")
+        self.bus.publish(run_id, "status", status="completed")
+        self.bus.publish(run_id, "done", status="completed",
+                         sources=len(results),
+                         stop_reason=f"{len(results)} claim(s) checked")
+
+    async def _check_one(self, run_id: str, llm, searcher, fetcher,
+                         claim) -> "verify.Checked":
+        """Library first; the web only when the library cannot settle it."""
+        evidence = await verify.library_evidence(self.rag, claim.text)
+        verdict = await verify.judge(llm, claim.text, evidence)
+        if evidence and verify.settled(verdict):
+            self.bus.publish(run_id, "log",
+                             message=(f"“{claim.text[:70]}” — "
+                                      f"{verdict.verdict} from your library"))
+            return verify.Checked(claim=claim, verdict=verdict,
+                                  evidence=evidence, via="library")
+
+        web = await self._web_evidence(searcher, fetcher, llm, claim.text,
+                                       start_n=len(evidence) + 1)
+        combined = evidence + web
+        verdict = await verify.judge(llm, claim.text, combined)
+        self.bus.publish(run_id, "log",
+                         message=(f"“{claim.text[:70]}” — {verdict.verdict} "
+                                  f"from {len(web)} web source(s)"))
+        return verify.Checked(claim=claim, verdict=verdict,
+                              evidence=combined,
+                              via="library+web" if evidence else "web")
+
+    async def _web_evidence(self, searcher, fetcher, llm, claim: str,
+                            *, start_n: int) -> list["verify.Evidence"]:
+        try:
+            hits = await searcher.search(claim, "all")
+        except Exception as e:
+            log.warning("claim search failed: %s", e)
+            return []
+        out: list[verify.Evidence] = []
+        for r in hits[:verify._WEB_PAGES_PER_CLAIM * 2]:
+            if len(out) >= verify._WEB_PAGES_PER_CLAIM:
+                break
+            try:
+                fetched = await fetcher.fetch(r.url)
+                doc = extract(fetched)
+            except (SkipReason, Exception) as e:      # noqa: B014
+                log.debug("evidence fetch skipped %s: %s", r.url, e)
+                continue
+            if doc is None or not doc.text.strip():
+                continue
+            out.append(verify.Evidence(
+                n=start_n + len(out), label=f"{domain_of(r.url)} — {r.title}",
+                url=r.url, text=doc.text))
+        return out
 
     def _stored_findings(self, run_id: str, store: RunStore) -> list[Finding]:
         """Rebuild Findings from disk for the post-hoc actions.

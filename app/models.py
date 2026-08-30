@@ -16,6 +16,11 @@ Recency = Literal["week", "month", "3months", "6months", "1year", "3years", "all
 # needs something to orient on. When the query IS this, there is no topic
 # filter — the reader asked for everything their feeds published.
 BRIEF_DEFAULT_QUERY = "Brief: what is new across my feeds"
+
+# Verification is bounded: a long document can carry dozens of claims, and
+# each unresolved one costs a web sub-run. The cap is reported in the output
+# rather than applied silently.
+VERIFY_CLAIM_CAP = 15
 RECENCY_CHOICES: tuple[str, ...] = (
     "week", "month", "3months", "6months", "1year", "3years", "all",
 )
@@ -51,7 +56,10 @@ class RunParams(BaseModel):
     use_prior: bool = True
     # "research" searches the web for an answer; "brief" ignores the query and
     # reads the configured feeds instead. Everything after search is identical.
-    kind: Literal["research", "brief"] = "research"
+    kind: Literal["research", "brief", "verify"] = "research"
+    # The text under verification. Held on disk beside the run rather than in
+    # `query`, which rides in every prompt and is capped far below an article.
+    document: str = Field(default="", max_length=120_000)
 
     @field_validator("query")
     @classmethod
@@ -139,6 +147,27 @@ class TriageOut(BaseModel):
     laziness) the failure mode is keeping extra junk — which relevance
     scoring catches — rather than silently discarding good candidates."""
     drop: list[int] = Field(default_factory=list, max_length=64)
+
+
+class Claim(BaseModel):
+    text: str = Field(default="", max_length=600)
+    # How much the document leans on this claim. Verification is capped, so
+    # this decides what gets checked and what is reported as unchecked.
+    importance: int = Field(default=5, ge=0, le=10)
+    checkable: bool = True
+
+
+class ClaimsOut(BaseModel):
+    claims: list[Claim] = Field(default_factory=list, max_length=80)
+
+
+class VerdictOut(BaseModel):
+    verdict: Literal["supported", "contested", "unsupported",
+                     "unverifiable"] = "unverifiable"
+    confidence: int = Field(default=0, ge=0, le=10)
+    reasoning: str = Field(default="", max_length=900)
+    quote: str = Field(default="", max_length=400)
+    sources: list[int] = Field(default_factory=list, max_length=10)
 
 
 class BriefFilterOut(BaseModel):

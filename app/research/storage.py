@@ -82,6 +82,10 @@ class RunStore:
         return self.dir / "overview.md"
 
     @property
+    def document_path(self) -> Path:
+        return self.dir / "document.md"
+
+    @property
     def matrix_path(self) -> Path:
         return self.dir / "matrix.md"
 
@@ -128,6 +132,15 @@ class RunStore:
 
     def write_overview(self, md: str) -> None:
         atomic_write_text(self.overview_path, md)
+
+    def write_document(self, text: str) -> None:
+        atomic_write_text(self.document_path, text)
+
+    def read_document(self) -> str:
+        try:
+            return self.document_path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
 
     def write_matrix(self, md: str) -> None:
         atomic_write_text(self.matrix_path, md)

@@ -1,0 +1,201 @@
+"""Claim verification: check a document's assertions, one at a time.
+
+Library first, web second. Most of what gets pasted in touches something
+already researched, and retrieval answers in seconds for free; only claims
+the library cannot settle are worth a web sub-run. The order matters for
+cost, not for correctness — a claim the library settles confidently is not
+searched again.
+
+Evidence is numbered per claim and the numbers are local to that claim's
+table row, because a global bibliography across fifteen independent checks
+would be unreadable and mostly unreferenced.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+
+from app.llm import prompts
+from app.llm.client import LLM, est_tokens
+from app.models import Claim, ClaimsOut, VerdictOut
+
+log = logging.getLogger(__name__)
+
+_DOCUMENT_BUDGET = 24_000        # est tokens of document fed to extraction
+_LIBRARY_HITS = 6
+_LIBRARY_MIN_SCORE = 0.45
+# A library verdict this confident is accepted without searching the web.
+_LIBRARY_SETTLES_AT = 7
+_WEB_PAGES_PER_CLAIM = 3
+_EVIDENCE_CHARS = 1_200
+
+_VERDICT_MARK = {
+    "supported": "✓ supported",
+    "contested": "± contested",
+    "unsupported": "✗ unsupported",
+    "unverifiable": "? unverifiable",
+}
+
+
+@dataclass
+class Evidence:
+    n: int
+    label: str            # where it came from, shown to the reader
+    url: str
+    text: str
+
+
+@dataclass
+class Checked:
+    claim: Claim
+    verdict: VerdictOut
+    evidence: list[Evidence] = field(default_factory=list)
+    via: str = ""         # "library" or "web"
+
+
+def clip_document(text: str) -> tuple[str, bool]:
+    """Extraction sees the head of a long document, and says so."""
+    if est_tokens(text) <= _DOCUMENT_BUDGET:
+        return text, False
+    return text[:_DOCUMENT_BUDGET * 3].rstrip(), True
+
+
+async def extract_claims(llm: LLM, document: str) -> tuple[list[Claim], bool]:
+    body, clipped = clip_document(document)
+    out = await llm.chat_json(
+        "verify", [{"role": "user",
+                    "content": prompts.CLAIMS.format(document=body)}],
+        ClaimsOut, max_tokens=3000, temperature=0.1)
+    claims = [c for c in out.claims if c.text.strip()]
+    return claims, clipped
+
+
+def select_claims(claims: list[Claim], cap: int) -> tuple[list[Claim], list[Claim]]:
+    """(checked, skipped) — most load-bearing first, order otherwise preserved.
+
+    Opinions and predictions are separated out rather than dropped: they are
+    not false, they are not checkable, and a reader should see that they were
+    recognised rather than silently ignored.
+    """
+    checkable = [c for c in claims if c.checkable]
+    ranked = sorted(enumerate(checkable), key=lambda p: (-p[1].importance, p[0]))
+    keep_idx = {i for i, _c in ranked[:cap]}
+    checked = [c for i, c in enumerate(checkable) if i in keep_idx]
+    skipped = [c for i, c in enumerate(checkable) if i not in keep_idx]
+    return checked, skipped
+
+
+def render_evidence(items: list[Evidence]) -> str:
+    return "\n\n".join(
+        f"[{e.n}] {e.label}\n{e.text[:_EVIDENCE_CHARS]}" for e in items
+    ) or "(no evidence found)"
+
+
+async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
+    if not evidence:
+        return VerdictOut(verdict="unverifiable", confidence=0,
+                          reasoning="No evidence was found for this claim.")
+    try:
+        return await llm.chat_json(
+            "verify", [{"role": "user", "content": prompts.VERDICT.format(
+                claim=claim, evidence=render_evidence(evidence))}],
+            VerdictOut, max_tokens=900, temperature=0.1)
+    except Exception as e:
+        log.warning("verdict failed for %r: %s", claim[:60], e)
+        return VerdictOut(verdict="unverifiable", confidence=0,
+                          reasoning=f"Adjudication failed: {e}")
+
+
+async def library_evidence(rag, claim: str) -> list[Evidence]:
+    """Passages from earlier runs that bear on the claim."""
+    if rag is None:
+        return []
+    try:
+        hits = await rag.semantic_search(claim, limit=_LIBRARY_HITS)
+    except Exception as e:
+        log.warning("library lookup failed: %s", e)
+        return []
+    out: list[Evidence] = []
+    for h in hits:
+        if h.get("score", 0) < _LIBRARY_MIN_SCORE:
+            continue
+        title = h.get("title") or h.get("run_id") or "earlier research"
+        out.append(Evidence(n=len(out) + 1,
+                            label=f"your research — {title}",
+                            url=f"/runs/{h.get('run_id', '')}",
+                            text=h.get("text", "")))
+    return out
+
+
+def settled(v: VerdictOut) -> bool:
+    """Whether a library verdict is firm enough to skip the web."""
+    return v.verdict != "unverifiable" and v.confidence >= _LIBRARY_SETTLES_AT
+
+
+# ---- rendering ------------------------------------------------------------------
+
+def _cell(text: str) -> str:
+    return " ".join((text or "").split()).replace("|", "\\|")
+
+
+def render_report(title: str, results: list[Checked], *,
+                  skipped: list[Claim], uncheckable: list[Claim],
+                  clipped: bool) -> str:
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[r.verdict.verdict] = counts.get(r.verdict.verdict, 0) + 1
+    summary = ", ".join(f"{counts[k]} {_VERDICT_MARK[k].split(' ', 1)[1]}"
+                        for k in ("supported", "contested", "unsupported",
+                                  "unverifiable") if counts.get(k))
+
+    lines = [f"# {title} — claim check", ""]
+    lines.append(f"**{len(results)} claim(s) checked**"
+                 + (f" — {summary}." if summary else "."))
+    lines.append("")
+    lines.append("| Claim | Verdict | Why | Checked against |")
+    lines.append("| --- | --- | --- | --- |")
+    for r in results:
+        v = r.verdict
+        why = _cell(v.reasoning)
+        if v.quote:
+            why += f' <br>“{_cell(v.quote)[:220]}”'
+        cites = "".join(f"[{e.n}]" for e in r.evidence
+                        if e.n in set(v.sources)) or "—"
+        lines.append(f"| {_cell(r.claim.text)} "
+                     f"| {_VERDICT_MARK[v.verdict]} ({v.confidence}/10) "
+                     f"| {why} | {r.via} {cites} |")
+
+    notes = []
+    if skipped:
+        notes.append(f"_{len(skipped)} lower-importance claim(s) were not "
+                     f"checked — the run caps how many web lookups it will "
+                     f"do. They are listed below._")
+    if uncheckable:
+        notes.append(f"_{len(uncheckable)} statement(s) are opinions, "
+                     f"predictions or recommendations rather than checkable "
+                     f"facts, and were set aside._")
+    if clipped:
+        notes.append("_The document was longer than the extraction budget; "
+                     "claims were taken from its opening section only._")
+    if notes:
+        lines += ["", "  \n".join(notes)]
+
+    for heading, group in (("Not checked (capped)", skipped),
+                           ("Not checkable (opinion or prediction)", uncheckable)):
+        if group:
+            lines += ["", f"## {heading}", ""]
+            lines += [f"- {c.text}" for c in group]
+
+    lines += ["", "## Evidence", ""]
+    any_ev = False
+    for r in results:
+        if not r.evidence:
+            continue
+        any_ev = True
+        lines.append(f"**{_cell(r.claim.text)[:120]}**")
+        for e in r.evidence:
+            lines.append(f"{e.n}. {e.label} — <{e.url}>")
+        lines.append("")
+    if not any_ev:
+        lines.append("_No evidence was gathered._")
+    return "\n".join(lines).rstrip() + "\n"

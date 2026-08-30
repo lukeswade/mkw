@@ -52,6 +52,8 @@ class Orchestrator:
             "status": "queued",
             "created_at": utcnow(),
         })
+        if params.document:
+            store.write_document(params.document)
         self.repo.create_run(
             run_id=run_id, query=params.query, depth=params.depth,
             recency=params.recency, dir=run_id, origin=params.origin,
