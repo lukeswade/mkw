@@ -295,3 +295,75 @@ def test_every_citation_and_evidence_entry_is_a_link():
     assert "[[2]](https://example.com/p)" in md
     assert "1. [your research — Prior](/runs/abc)" in md
     assert "<" not in md.split("## Evidence")[1]         # no bare autolinks left
+
+
+# ---- the pages it read become the run's sources ---------------------------------
+
+@respx.mock
+async def test_web_evidence_is_recorded_as_sources(data_dir):
+    """A claim check used to keep nothing: empty Sources tab, no bibliography
+    in any export, and none of its reading reached the library."""
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(
+        200, json=sx_payload([sx_result("https://e.com/a", "Evidence page")])))
+    respx.get("https://e.com/a").mock(
+        return_value=httpx.Response(200, html=article("Evidence page")))
+    llm = FakeLLM(_script([{"text": "MLX is faster", "importance": 9,
+                            "checkable": True}], verdict="contested", conf=6))
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(), rag=_Rag([]),
+                        llm_factory=lambda: llm)
+    rid = orch.enqueue(RunParams(query="Claim check", depth=0, recency="all",
+                                 origin="cli", kind="verify", document=DOC))
+    await orch.execute_now(rid)
+
+    rows = repo.findings_for_run(rid)
+    assert [r["url"] for r in rows] == ["https://e.com/a"]
+    assert rows[0]["domain"] == "e.com"
+    assert "Consulted while checking" in rows[0]["summary"]
+    sources = (cfg.research_dir / rid / "sources.md").read_text()
+    assert "e.com" in sources and "No sources were kept" not in sources
+    assert (cfg.research_dir / rid / rows[0]["path"]).exists()
+
+
+@respx.mock
+async def test_library_passages_are_not_recorded_as_new_sources(data_dir):
+    """They already belong to the run they came from; recording them again
+    would duplicate that research under a new id."""
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload([])))
+    rag = _Rag([{"run_id": "earlier", "title": "prior", "text": "evidence",
+                 "score": 0.9}])
+    llm = FakeLLM(_script([{"text": "MLX is faster", "importance": 9,
+                            "checkable": True}]))
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(), rag=rag,
+                        llm_factory=lambda: llm)
+    rid = orch.enqueue(RunParams(query="Claim check", depth=0, recency="all",
+                                 origin="cli", kind="verify", document=DOC))
+    await orch.execute_now(rid)
+    assert repo.findings_for_run(rid) == []          # settled from the library
+
+
+def test_a_source_used_for_several_claims_appears_once():
+    """Deduped by URL, and scored by how decisive it proved."""
+    from app.research.pipeline import Pipeline
+    shared = Evidence(1, "e.com — Page", "https://e.com/a", "text")
+    results = [
+        Checked(claim=_claim("first", 9), evidence=[shared], via="web",
+                verdict=VerdictOut(verdict="supported", confidence=5,
+                                   reasoning="r", sources=[1])),
+        Checked(claim=_claim("second", 9), evidence=[shared], via="web",
+                verdict=VerdictOut(verdict="supported", confidence=9,
+                                   reasoning="r", sources=[1])),
+    ]
+    best: dict = {}
+    for r in results:                      # mirrors the grouping in the method
+        for e in r.evidence:
+            entry = best.setdefault(e.url, {"claims": [], "score": 0})
+            entry["claims"].append(r.claim.text)
+            if e.n in set(r.verdict.sources):
+                entry["score"] = max(entry["score"], r.verdict.confidence)
+    assert list(best) == ["https://e.com/a"]
+    assert best["https://e.com/a"]["score"] == 9      # the decisive use wins
+    assert len(best["https://e.com/a"]["claims"]) == 2

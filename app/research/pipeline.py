@@ -1042,7 +1042,8 @@ class Pipeline:
         report = verify.render_report(title, results, skipped=capped,
                                       uncheckable=uncheckable, clipped=clipped)
         store.write_overview(report)
-        store.write_sources(synthesizer.render_sources_md([]))
+        findings = self._record_evidence(run_id, store, results)
+        store.write_sources(synthesizer.render_sources_md(findings))
         store.update_meta(
             claims_checked=len(results), claims_found=len(claims),
             verdicts={v: sum(1 for r in results if r.verdict.verdict == v)
@@ -1050,6 +1051,13 @@ class Pipeline:
                                 "unverifiable")})
         self.repo.fts_delete_run(run_id)
         self.repo.fts_add(run_id, "overview", title, report)
+        for f in findings:
+            self.repo.fts_add(run_id, "finding", f.title, f.notes_md)
+        if self.rag is not None:
+            try:
+                await self.rag.index_run(self.repo, run_id)
+            except Exception:
+                log.exception("indexing the claim check failed for %s", run_id)
         self.repo.update_run(run_id, title=title, status="completed",
                              stop_reason=f"{len(results)} claim(s) checked",
                              finished_at=utcnow())
@@ -1058,6 +1066,52 @@ class Pipeline:
         self.bus.publish(run_id, "done", status="completed",
                          sources=len(results),
                          stop_reason=f"{len(results)} claim(s) checked")
+
+    def _record_evidence(self, run_id: str, store: RunStore,
+                         results: list) -> list[Finding]:
+        """Register the pages fetched while checking claims as this run's sources.
+
+        Without this a claim check kept nothing: no Sources tab, no
+        bibliography in any export, and nothing added to the library, so the
+        reading it did could never inform a later run. Library evidence is
+        excluded — it already belongs to the run it came from, and recording
+        it again would duplicate that research under a new id.
+
+        Relevance is the highest confidence of any verdict that leaned on the
+        page, which is the only meaningful score available here: nothing rated
+        these pages on their own, they were rated by how decisive they proved.
+        """
+        best: dict[str, dict] = {}
+        for r in results:
+            used = set(r.verdict.sources)
+            for e in r.evidence:
+                if not e.url.startswith(("http://", "https://")):
+                    continue                      # a /runs/… library passage
+                entry = best.setdefault(e.url, {"evidence": e, "claims": [],
+                                                "score": 0})
+                entry["claims"].append(r.claim.text)
+                if e.n in used:
+                    entry["score"] = max(entry["score"], r.verdict.confidence)
+
+        findings: list[Finding] = []
+        for idx, (url, entry) in enumerate(best.items(), 1):
+            e = entry["evidence"]
+            label = e.label.split(" — ", 1)[-1] if " — " in e.label else e.label
+            claims = entry["claims"]
+            summary = (f"Consulted while checking {len(claims)} claim(s), "
+                       f"starting with: {claims[0][:140]}")
+            f = Finding(idx=idx, url=url, title=label[:200] or url,
+                        domain=domain_of(url), published=None,
+                        relevance=entry["score"], summary=summary,
+                        notes_md=e.text[:6000],
+                        query="claim verification")
+            f.path = store.write_finding(idx, f.title, finding_markdown(f))
+            self.repo.add_finding(
+                run_id=run_id, idx=idx, url=f.url, title=f.title,
+                domain=f.domain, published_date=None, relevance=f.relevance,
+                path=f.path, summary=f.summary)
+            findings.append(f)
+        return findings
 
     async def _check_one(self, run_id: str, llm, searcher, fetcher,
                          claim) -> "verify.Checked":
