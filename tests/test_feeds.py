@@ -247,3 +247,37 @@ async def test_a_research_run_is_unaffected_by_the_brief_path(data_dir):
     await orch.execute_now(run_id)
     assert repo.get_run(run_id)["kind"] == "research"
     assert {f["domain"] for f in repo.findings_for_run(run_id)} == {"example-a.com"}
+
+
+def test_a_brief_can_be_started_with_no_question(data_dir, monkeypatch):
+    """The New form's textarea is optional for a brief, so the route must be
+    too — it was left required, which 422'd instead of starting the run."""
+    from fastapi.testclient import TestClient
+    from app.config import load_settings
+    from app.web.server import create_app
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    monkeypatch.setenv("FEEDS", "https://example.com/feed.xml")
+    app = create_app(enable_worker=False, enable_bot=False)
+    cfg = load_settings(str(data_dir))
+    with TestClient(app) as client:
+        r = client.post("/runs", data={"depth": "4", "recency": "week",
+                                       "kind": "brief"},
+                        follow_redirects=False)
+        assert r.status_code == 303, r.text
+        run_id = r.headers["location"].rsplit("/", 1)[-1]
+    row = Repo(connect(cfg.db_path)).get_run(run_id)
+    assert row["kind"] == "brief"
+    assert row["query"]                       # given a title-worthy default
+
+
+def test_a_research_run_still_requires_a_question(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.web.server import create_app
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    app = create_app(enable_worker=False, enable_bot=False)
+    with TestClient(app) as client:
+        r = client.post("/runs", data={"depth": "3", "recency": "all"},
+                        follow_redirects=False)
+        # the form is re-rendered with the message, under a 422
+        assert r.status_code == 422
+        assert "String should have at least 3 characters" in r.text

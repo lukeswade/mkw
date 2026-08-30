@@ -174,7 +174,11 @@ async def recent_runs_partial(request: Request):
 
 
 @router.post("/runs")
-async def create_run(request: Request, query: str = Form(...),
+async def create_run(request: Request,
+                     # Optional because a brief needs no question. A blank
+                     # research query still fails, via RunParams' min_length,
+                     # which renders the form error rather than a bare 422.
+                     query: str = Form(""),
                      depth: int = Form(3), recency: str = Form("all"),
                      parent_run_id: str = Form(""),
                      # An unchecked checkbox is omitted from the POST
