@@ -1448,6 +1448,12 @@ input[type="checkbox"] {
 .brief-edit form { margin-top: .75rem; }
 .new-brief h3 { margin-top: 0; }
 
+/* The pre-naming Settings feed list. Kept runnable, but styled as a leftover
+   rather than a peer of the named briefs above it. */
+.brief-card.legacy { border-style: dashed; opacity: .9; }
+.brief-card.legacy h3 { font-weight: 500; color: var(--text-secondary); }
+.brief-card.legacy h3 small { color: var(--text-muted); font-weight: 400; }
+
 
 @media (max-width: 560px) {
   /* Title on its own line, then every badge together on the next one: what

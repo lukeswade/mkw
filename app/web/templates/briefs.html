@@ -109,8 +109,25 @@
 {% endfor %}
 
 {% if global_feeds %}
-<p class="hint">You also have {{ global_feeds }} feed{{ '' if global_feeds == 1 else 's' }}
-  in Settings. Those still work as one unnamed brief, started from the
-  <em>Brief from feeds</em> button on the New page.</p>
+<article class="card brief-card legacy">
+  <div class="brief-head">
+    <h3>Settings feeds <small>(unnamed)</small></h3>
+    <span class="brief-actions">
+      <form method="post" action="/briefs/global/run" class="inline">
+        <button type="submit" class="secondary outline">Run now</button>
+      </form>
+      <form method="post" action="/briefs/global/adopt" class="inline">
+        <button type="submit" class="secondary outline"
+                title="Move these feeds into a named brief you can schedule">
+          Make it a named brief</button>
+      </form>
+    </span>
+  </div>
+  <p class="brief-meta">
+    {{ global_feeds }} feed{{ '' if global_feeds == 1 else 's' }} left over from
+    before briefs had names. They still run, but cannot carry a standing
+    interest or a schedule until you name them.
+  </p>
+</article>
 {% endif %}
 {% endblock %}

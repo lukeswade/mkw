@@ -12,7 +12,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
                                Response, StreamingResponse)
 from pydantic import ValidationError
 
-from app.models import BRIEF_DEFAULT_QUERY, RunParams
+from app.models import RunParams
 from app.research.estimate import estimate_run
 from app.research.progress import format_event
 from app.research.storage import SERVABLE_RE, RunStore
@@ -194,19 +194,14 @@ async def create_run(request: Request,
                      # entirely, so absent MUST mean off or the box can never
                      # be cleared. Non-form callers (CLI, Telegram) build
                      # RunParams directly, where the default is on.
-                     use_prior: str = Form(""),
-                     kind: str = Form("research")):
+                     use_prior: str = Form("")):
     form = await request.form()
     categories = ",".join(str(c).strip() for c in form.getlist("categories")
                           if str(c).strip())[:200]
-    kind = kind if kind in ("research", "brief") else "research"
-    if kind == "brief" and not query.strip():
-        # A brief is defined by its feed list, not a question — but the query
-        # is what titles the run and steers relevance scoring, so give it one.
-        query = BRIEF_DEFAULT_QUERY
+    # This form starts research runs only. Briefs are defined by a feed list
+    # rather than a question, so they are started from /briefs instead.
     try:
         params = RunParams(query=query, depth=depth, recency=recency,
-                           kind=kind,
                            origin="web", parent_run_id=parent_run_id or None,
                            created_by=_initiator(request),
                            categories=categories,

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from markupsafe import escape
 
-from app.models import RECENCY_CHOICES, RunParams
+from app.models import BRIEF_DEFAULT_QUERY, RECENCY_CHOICES, RunParams
 from app.research.feed_discovery import discover
 from app.research.feeds import parse_feed_list
 
@@ -57,6 +57,38 @@ async def create_brief(request: Request, name: str = Form(""),
         name=name[:80], topic=topic.strip()[:400],
         recency=recency if recency in RECENCY_CHOICES else "week",
         depth=max(0, min(10, depth)))
+    return RedirectResponse("/briefs", status_code=303)
+
+
+# Declared before the {brief_id} routes on purpose: FastAPI matches in
+# declaration order, and "global" would otherwise be parsed as an id.
+@router.post("/briefs/global/run")
+async def run_global_brief(request: Request):
+    """Run the pre-named global feed list, which has no brief row of its own."""
+    cfg = request.app.state.cfg_loader()
+    if not parse_feed_list(getattr(cfg, "feeds", "")):
+        return RedirectResponse("/briefs?error=No+feeds+in+Settings",
+                                status_code=303)
+    run_id = request.app.state.orch.enqueue(RunParams(
+        query=BRIEF_DEFAULT_QUERY, depth=4, recency="week", origin="web",
+        kind="brief", categories="general"))
+    return RedirectResponse(f"/runs/{run_id}", status_code=303)
+
+
+@router.post("/briefs/global/adopt")
+async def adopt_global_feeds(request: Request):
+    """Move the global list into a real brief, so it can carry an interest
+    and a schedule like every other one."""
+    from app.config import save_settings
+
+    cfg = request.app.state.cfg_loader()
+    feeds = getattr(cfg, "feeds", "")
+    if not parse_feed_list(feeds):
+        return RedirectResponse("/briefs?error=No+feeds+in+Settings",
+                                status_code=303)
+    request.app.state.repo.create_brief(name="My feeds", feeds=feeds,
+                                        recency="week", depth=4)
+    save_settings(cfg.settings_path, {"feeds": ""})
     return RedirectResponse("/briefs", status_code=303)
 
 

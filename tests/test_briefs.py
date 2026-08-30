@@ -6,7 +6,7 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 
-from app.config import load_settings
+from app.config import load_settings, save_settings
 from app.db import Repo, connect
 from app.models import RunParams
 from app.refresh_worker import run_due_briefs
@@ -190,3 +190,48 @@ async def test_a_scheduled_brief_does_not_re_fire_immediately(data_dir):
     orch = _Orch()
     assert await run_due_briefs(orch, repo) == 1
     assert await run_due_briefs(orch, repo) == 0
+
+
+# ---- the legacy global list lives on the Briefs page now --------------------
+
+def test_the_new_tab_no_longer_starts_briefs(web):
+    """Briefs outgrew the research form; they have their own page."""
+    app, _cfg, _repo = web
+    with TestClient(app) as c:
+        home = c.get("/").text
+    assert 'value="brief"' not in home
+    assert "Brief from feeds" not in home
+
+
+def test_global_feeds_appear_on_the_briefs_page_and_can_run(web):
+    app, cfg, _repo = web
+    save_settings(cfg.settings_path, {"feeds": "https://a.test/feed\n"})
+    with TestClient(app) as c:
+        assert "Settings feeds" in c.get("/briefs").text
+        r = c.post("/briefs/global/run", follow_redirects=False)
+    # "global" must not be parsed as a brief id — those routes are declared
+    # after these on purpose
+    assert r.status_code == 303 and "/runs/" in r.headers["location"]
+
+
+def test_adopting_global_feeds_moves_them_into_a_named_brief(web):
+    app, cfg, repo = web
+    save_settings(cfg.settings_path,
+                  {"feeds": "https://a.test/feed\nhttps://b.test/f\n"})
+    with TestClient(app) as c:
+        c.post("/briefs/global/adopt", follow_redirects=False)
+        body = c.get("/briefs").text
+    briefs = repo.list_briefs()
+    assert [b["name"] for b in briefs] == ["My feeds"]
+    assert "a.test" in briefs[0]["feeds"] and "b.test" in briefs[0]["feeds"]
+    # and the global list is emptied, so the same feeds are not read twice
+    assert not load_settings(str(cfg.data_path)).feeds.strip()
+    assert "Settings feeds" not in body
+
+
+def test_adopting_with_no_global_feeds_is_refused(web):
+    app, _cfg, repo = web
+    with TestClient(app) as c:
+        r = c.post("/briefs/global/adopt", follow_redirects=False)
+    assert "error" in r.headers["location"]
+    assert repo.list_briefs() == []

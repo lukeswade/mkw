@@ -280,10 +280,9 @@ async def test_a_research_run_is_unaffected_by_the_brief_path(data_dir):
     assert repo.get_run(run_id)["kind"] == "research"
     assert {f["domain"] for f in repo.findings_for_run(run_id)} == {"example-a.com"}
 
-
-def test_a_brief_can_be_started_with_no_question(data_dir, monkeypatch):
-    """The New form's textarea is optional for a brief, so the route must be
-    too — it was left required, which 422'd instead of starting the run."""
+def test_the_research_form_no_longer_starts_briefs(data_dir, monkeypatch):
+    """Briefs moved to their own page. A stray kind=brief on this form must
+    not create one behind the New tab's back."""
     from fastapi.testclient import TestClient
     from app.config import load_settings
     from app.web.server import create_app
@@ -292,14 +291,13 @@ def test_a_brief_can_be_started_with_no_question(data_dir, monkeypatch):
     app = create_app(enable_worker=False, enable_bot=False)
     cfg = load_settings(str(data_dir))
     with TestClient(app) as client:
-        r = client.post("/runs", data={"depth": "4", "recency": "week",
+        r = client.post("/runs", data={"query": "a real question here",
+                                       "depth": "4", "recency": "week",
                                        "kind": "brief"},
                         follow_redirects=False)
         assert r.status_code == 303, r.text
         run_id = r.headers["location"].rsplit("/", 1)[-1]
-    row = Repo(connect(cfg.db_path)).get_run(run_id)
-    assert row["kind"] == "brief"
-    assert row["query"]                       # given a title-worthy default
+    assert Repo(connect(cfg.db_path)).get_run(run_id)["kind"] == "research"
 
 
 def test_a_research_run_still_requires_a_question(data_dir, monkeypatch):
