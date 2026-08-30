@@ -66,6 +66,9 @@ class RunParams(BaseModel):
     # "research" searches the web for an answer; "brief" ignores the query and
     # reads the configured feeds instead. Everything after search is identical.
     kind: Literal["research", "brief", "verify"] = "research"
+    # Which saved brief a brief run belongs to. None means the unnamed brief
+    # built from the global FEEDS setting.
+    brief_id: int | None = None
     # The text under verification. Held on disk beside the run rather than in
     # `query`, which rides in every prompt and is capped far below an article.
     document: str = Field(default="", max_length=120_000)

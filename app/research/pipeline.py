@@ -354,15 +354,27 @@ class Pipeline:
             if kind == "brief":
                 # A brief has a reading list, not a question. FeedSearcher
                 # satisfies the same surface, so nothing downstream changes.
-                feed_urls = feeds.parse_feed_list(getattr(cfg, "feeds", ""))
+                # A named brief carries its own reading list and standing
+                # interest; without one we fall back to the global setting,
+                # which behaves as a single unnamed brief.
+                saved = None
+                if brief_id := _row_get(row, "brief_id", None):
+                    saved = self.repo.get_brief(int(brief_id))
+                feed_blob = saved["feeds"] if saved else getattr(cfg, "feeds", "")
+                feed_urls = feeds.parse_feed_list(feed_blob)
                 if not feed_urls:
                     raise ValueError(
+                        "no feeds configured — add them to this brief"
+                        if saved else
                         "no feeds configured — add them in Settings")
                 # For a brief the query is not a search — it is the
                 # reader's standing interest, used to narrow the week's
                 # items. A brief started with no question keeps everything.
-                topic = "" if row["query"].strip() == BRIEF_DEFAULT_QUERY \
-                    else row["query"]
+                if saved and (saved["topic"] or "").strip():
+                    topic = saved["topic"].strip()
+                else:
+                    topic = "" if row["query"].strip() == BRIEF_DEFAULT_QUERY \
+                        else row["query"]
                 searcher = feeds.FeedSearcher(feed_urls, http, topic=topic,
                                               llm=llm)
                 # Yesterday's items are still inside today's window, so a

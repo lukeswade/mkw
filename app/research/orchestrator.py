@@ -48,6 +48,7 @@ class Orchestrator:
             "categories": params.categories,
             "use_prior": params.use_prior,
             "kind": params.kind,
+            "brief_id": params.brief_id,
             "parent_run_id": params.parent_run_id,
             "status": "queued",
             "created_at": utcnow(),
@@ -60,7 +61,8 @@ class Orchestrator:
             parent_run_id=params.parent_run_id,
             origin_chat_id=params.origin_chat_id, evergreen=params.evergreen,
             created_by=params.created_by, categories=params.categories,
-            use_prior=params.use_prior, kind=params.kind)
+            use_prior=params.use_prior, kind=params.kind,
+            brief_id=params.brief_id)
         if params.parent_run_id and self.repo.get_run(params.parent_run_id):
             self.repo.add_run_link(params.parent_run_id, run_id, "followup", None)
         self.bus.attach(store)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.db import utcnow
 from app.models import RunParams
 
 log = logging.getLogger(__name__)
@@ -31,6 +32,26 @@ def _col(row, name: str, default):
 
 def _categories_of(row) -> str:
     return _col(row, "categories", "") or ""
+
+
+async def run_due_briefs(orchestrator, repo) -> int:
+    """Start each daily brief that has not run inside the window."""
+    from app.research.feeds import parse_feed_list
+
+    started = 0
+    for b in repo.briefs_due(REFRESH_INTERVAL_HOURS):
+        if not parse_feed_list(b["feeds"]):
+            continue                       # nothing to read; not an error
+        params = RunParams(query=f"Brief: {b['name']}", depth=b["depth"],
+                           recency=b["recency"], origin="web", kind="brief",
+                           brief_id=b["id"], categories="general")
+        run_id = orchestrator.enqueue(params)
+        # Stamped on enqueue, not on completion: a brief that fails should
+        # not retry every fifteen minutes for a day.
+        repo.update_brief(b["id"], last_run_at=utcnow())
+        started += 1
+        log.info("daily brief %s queued as %s", b["name"], run_id)
+    return started
 
 
 async def refresh_due_runs(orchestrator, repo) -> int:
@@ -64,6 +85,7 @@ async def refresh_loop(orchestrator, repo) -> None:
     while True:
         try:
             await refresh_due_runs(orchestrator, repo)
+            await run_due_briefs(orchestrator, repo)
         except asyncio.CancelledError:
             log.info("evergreen refresh worker stopping")
             raise

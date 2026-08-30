@@ -59,6 +59,22 @@ def _migrations() -> list:
         # "research" (default) or "brief" — which searcher the run uses
         lambda conn: _add_column_if_missing(
             conn, "runs", "kind", "TEXT NOT NULL DEFAULT 'research'"),
+        # Named briefs: a saved reading list plus a standing interest. The
+        # global FEEDS setting still works and behaves as an unnamed brief.
+        lambda conn: conn.executescript("""
+            CREATE TABLE IF NOT EXISTS briefs (
+              id          INTEGER PRIMARY KEY,
+              name        TEXT NOT NULL,
+              feeds       TEXT NOT NULL DEFAULT '',
+              topic       TEXT NOT NULL DEFAULT '',
+              recency     TEXT NOT NULL DEFAULT 'week',
+              depth       INTEGER NOT NULL DEFAULT 4,
+              daily       BOOLEAN NOT NULL DEFAULT 0,
+              created_at  TEXT NOT NULL,
+              last_run_at TEXT
+            );
+        """),
+        lambda conn: _add_column_if_missing(conn, "runs", "brief_id", "INTEGER"),
     ]
 
 
@@ -101,16 +117,17 @@ class Repo:
                    origin_chat_id: int | None = None, status: str = "queued",
                    evergreen: bool = False, created_by: str = "",
                    categories: str = "", use_prior: bool = True,
-                   kind: str = "research") -> None:
+                   kind: str = "research", brief_id: int | None = None) -> None:
         self.conn.execute(
             "INSERT INTO runs (id, query, depth, recency, status, dir, origin,"
             " parent_run_id, origin_chat_id, evergreen, created_by, categories,"
-            " use_prior, kind,"
+            " use_prior, kind, brief_id,"
             " created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, query, depth, recency, status, dir, origin,
              parent_run_id, origin_chat_id, evergreen, created_by or None,
-             categories or "", 1 if use_prior else 0, kind, utcnow()),
+             categories or "", 1 if use_prior else 0, kind, brief_id,
+             utcnow()),
         )
         self.conn.commit()
 
@@ -197,6 +214,50 @@ class Repo:
              summary, utcnow()),
         )
         self.conn.commit()
+
+    # ---- named briefs -----------------------------------------------------
+
+    def create_brief(self, *, name: str, feeds: str = "", topic: str = "",
+                     recency: str = "week", depth: int = 4) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO briefs (name, feeds, topic, recency, depth, created_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (name, feeds, topic, recency, depth, utcnow()))
+        self.conn.commit()
+        return int(cur.lastrowid)
+
+    def list_briefs(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM briefs ORDER BY name COLLATE NOCASE").fetchall()
+
+    def get_brief(self, brief_id: int) -> sqlite3.Row | None:
+        return self.conn.execute("SELECT * FROM briefs WHERE id = ?",
+                                 (brief_id,)).fetchone()
+
+    def update_brief(self, brief_id: int, **cols) -> None:
+        allowed = {"name", "feeds", "topic", "recency", "depth", "daily",
+                   "last_run_at"}
+        bad = set(cols) - allowed
+        if bad:
+            raise ValueError(f"cannot update brief columns: {sorted(bad)}")
+        if not cols:
+            return
+        sets = ", ".join(f"{c} = ?" for c in cols)
+        self.conn.execute(f"UPDATE briefs SET {sets} WHERE id = ?",
+                          (*cols.values(), brief_id))
+        self.conn.commit()
+
+    def delete_brief(self, brief_id: int) -> None:
+        self.conn.execute("DELETE FROM briefs WHERE id = ?", (brief_id,))
+        self.conn.commit()
+
+    def briefs_due(self, interval_hours: int) -> list[sqlite3.Row]:
+        """Daily briefs that have not run inside the window."""
+        return self.conn.execute(
+            "SELECT * FROM briefs WHERE daily = 1 AND ("
+            "  last_run_at IS NULL"
+            "  OR julianday('now') - julianday(last_run_at) >= ?)",
+            (interval_hours / 24.0,)).fetchall()
 
     def recent_finding_urls(self, kind: str, limit: int = 800) -> set[str]:
         """URLs already reported by recent runs of this kind.

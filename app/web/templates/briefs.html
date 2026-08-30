@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Briefs · Deep Research{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Briefs</h1>
+  <p class="page-desc">A saved reading list plus a standing interest. Each one
+    runs on its own, so you can follow several subjects without them mixing.</p>
+</div>
+
+{% if error %}<p class="banner banner-error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/briefs" class="card new-brief">
+  <h3>New brief</h3>
+  <div class="grid">
+    <label>Name
+      <input type="text" name="name" required maxlength="80"
+             placeholder="Local LLM, Automotive, Work…">
+    </label>
+    <label>Recency
+      <select name="recency">
+        {% for r in recency_choices %}
+        <option value="{{ r }}" {{ 'selected' if r == 'week' else '' }}>{{ RECENCY_LABELS[r] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Depth
+      <input type="number" name="depth" min="0" max="10" value="4">
+    </label>
+  </div>
+  <label>Interest <small>(optional — narrows each run to what you care about)</small>
+    <input type="text" name="topic" maxlength="400"
+           placeholder="local LLM inference on Apple Silicon — runtimes, releases, benchmarks">
+  </label>
+  <button type="submit" class="go">Create brief</button>
+</form>
+
+{% for item in briefs %}
+{% set b = item.row %}
+<article class="card brief-card">
+  <div class="brief-head">
+    <h3>{{ b['name'] }}</h3>
+    <span class="brief-actions">
+      <form method="post" action="/briefs/{{ b['id'] }}/run" class="inline">
+        <button type="submit" class="secondary outline"
+                {{ 'disabled' if not item.feed_count else '' }}>Run now</button>
+      </form>
+      <form method="post" action="/briefs/{{ b['id'] }}/daily" class="inline">
+        <button type="submit" class="secondary outline{{ ' is-on' if b['daily'] else '' }}"
+                title="Run this brief once a day">
+          {{ '★ daily' if b['daily'] else '☆ daily' }}</button>
+      </form>
+      <form method="post" action="/briefs/{{ b['id'] }}/delete" class="inline"
+            onsubmit="return confirm('Delete this brief? Its past runs stay in the library.')">
+        <button type="submit" class="delete-btn">Delete</button>
+      </form>
+    </span>
+  </div>
+  <p class="brief-meta">
+    {{ item.feed_count }} feed{{ '' if item.feed_count == 1 else 's' }} ·
+    depth {{ b['depth'] }} · {{ RECENCY_LABELS[b['recency']] | lower }}
+    {%- if b['last_run_at'] %} · last run {{ b['last_run_at'][:16].replace('T', ' ') }}
+    {%- else %} · never run{% endif %}
+  </p>
+  {% if b['topic'] %}<p class="brief-topic">&ldquo;{{ b['topic'] }}&rdquo;</p>{% endif %}
+
+  <div class="add-feed">
+    <input type="text" name="site" id="site-{{ b['id'] }}"
+           placeholder="Add a source — simonwillison.net, or ollama/ollama">
+    <button type="button" class="secondary outline"
+            hx-post="/briefs/{{ b['id'] }}/feeds"
+            hx-include="#site-{{ b['id'] }}"
+            hx-target="#added-{{ b['id'] }}" hx-swap="innerHTML">Find feed</button>
+  </div>
+  <p class="hint" id="added-{{ b['id'] }}"></p>
+
+  <details class="brief-edit">
+    <summary>Edit feeds and settings</summary>
+    <form method="post" action="/briefs/{{ b['id'] }}/edit">
+      <label>Name
+        <input type="text" name="name" value="{{ b['name'] }}" maxlength="80">
+      </label>
+      <label>Interest
+        <input type="text" name="topic" value="{{ b['topic'] }}" maxlength="400">
+      </label>
+      <label>Feeds <small>(one URL per line; # starts a comment)</small>
+        <textarea name="feeds" rows="5">{{ b['feeds'] }}</textarea>
+      </label>
+      <div class="grid">
+        <label>Recency
+          <select name="recency">
+            {% for r in recency_choices %}
+            <option value="{{ r }}" {{ 'selected' if b['recency'] == r else '' }}>{{ RECENCY_LABELS[r] }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Depth
+          <input type="number" name="depth" min="0" max="10" value="{{ b['depth'] }}">
+        </label>
+      </div>
+      <button type="submit" class="secondary">Save changes</button>
+    </form>
+  </details>
+</article>
+{% else %}
+<div class="empty-state">
+  <p class="empty-note">No briefs yet. Create one above, then add sources by
+    address — you do not need to know where a site keeps its feed.</p>
+</div>
+{% endfor %}
+
+{% if global_feeds %}
+<p class="hint">You also have {{ global_feeds }} feed{{ '' if global_feeds == 1 else 's' }}
+  in Settings. Those still work as one unnamed brief, started from the
+  <em>Brief from feeds</em> button on the New page.</p>
+{% endif %}
+{% endblock %}
