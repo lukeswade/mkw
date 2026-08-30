@@ -45,6 +45,12 @@
   <p class="orig-query">&ldquo;{{ row['query'] }}&rdquo;</p>
   {% endif %}
   <div class="chip-row">
+    {# What it is, before how it went — the list rows lead with the same thing. #}
+    {% set k = row['kind'] or 'research' %}
+    <span class="kind kind-{{ k }}" title="{{ KIND_HELP[k] }}">{{ KIND_LABEL[k] }}</span>
+    {% if matrix_html is defined and matrix_html %}
+    <span class="kind kind-matrix" title="This run has a comparison table">matrix</span>
+    {% endif %}
     <span class="chip status-{{ row['status'] }}">{{ row['status'] }}</span>
     <span class="chip">depth {{ row['depth'] }}</span>
     <span class="chip">{{ RECENCY_LABELS[row['recency']] | lower }}</span>

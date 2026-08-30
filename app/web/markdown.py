@@ -40,8 +40,27 @@ def strip_leading_h1(md_text: str) -> str:
     return _LEADING_H1_RE.sub("", md_text or "", count=1)
 
 
+# A claim check's verdict cell is exactly "✓ supported (9/10)" — written by
+# render_report, never by a fetched page. Markdown is rendered with html=False
+# so the generator cannot emit its own markup; this puts the colour back on
+# afterwards. The pattern is anchored to the four known words and a one- or
+# two-digit score, and the replacement is fixed markup built from those
+# groups, so nothing from the document can reach the output as HTML.
+_VERDICT_CELL_RE = re.compile(
+    r"<td>([✓±✗?]) (supported|contested|unsupported|unverifiable) "
+    r"\((\d{1,2})/10\)</td>")
+
+
+def _colour_verdicts(html: str) -> str:
+    def one(m: re.Match) -> str:
+        mark, word, conf = m.groups()
+        return (f'<td><span class="verdict verdict-{word}">{mark} {word}</span>'
+                f' <span class="verdict-conf">({conf}/10)</span></td>')
+    return _VERDICT_CELL_RE.sub(one, html)
+
+
 def render(md_text: str) -> str:
-    return _md.render(md_text or "")
+    return _colour_verdicts(_md.render(md_text or ""))
 
 
 def highlight_snippet(snippet: str) -> Markup:

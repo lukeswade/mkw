@@ -348,9 +348,16 @@ input[type="checkbox"] {
   color: var(--text-secondary);
   font-size: var(--text-base);
 }
+/* Recency has seven fixed options; a native select already sizes itself to
+   the widest ("Past 3 months"). Letting it stretch to an equal share of the
+   row bought nothing but empty space, so give that space to the slider,
+   which is the only control here that gets more usable as it gets wider. */
+.new-run .controls .recency-label { flex: 0 0 auto; }
+.new-run .controls .depth-label { flex: 1 1 380px; }
 .new-run .controls select {
   margin-top: 0.5rem;
   font-size: var(--text-base);
+  width: auto;
 }
 .new-run .controls .go {
   flex: 0 0 auto;
@@ -413,29 +420,63 @@ input[type="checkbox"] {
 }
 
 /* ---- Status Chips ---- */
-/* align-items:center, or the user pill rides high: vertical-align has
-   no effect on a flex item, and the pill's box is taller than a chip. */
 .chip-row { display: flex; flex-wrap: wrap; align-items: center;
             gap: 0.4rem; margin-top: 0.5rem; }
-.chip {
+/* ---- Badges ----
+   One mechanism for every pill in the app, because three was the bug.
+   Centring small text in a pill by padding alone does not work: the line box
+   carries the font's own asymmetric leading, so a label sits a pixel or two
+   high, and differently per family and weight. align-items:center centres the
+   glyph box instead of the line box, line-height:1 removes the leading that
+   caused the drift, and vertical-align:middle levels the pill against any
+   running text around it.
+
+   Size is one custom property per container, so every badge on a row shares a
+   height whatever each one's job is, and padding is in em so it tracks that
+   size. A context may set --badge-fs. A context must NOT set line-height,
+   display or padding on a badge — re-deriving those per context is exactly
+   what left the user pill riding above the chips beside it. */
+.chip, .kind, .user-tag, .tabs .count {
   display: inline-flex;
   align-items: center;
-  padding: 0.2rem 0.55rem;
+  justify-content: center;
+  line-height: 1;
+  vertical-align: middle;
+  font-size: var(--badge-fs, var(--text-xs));
+  padding: .34em .62em;
+  white-space: nowrap;
+}
+.chip {
   border-radius: 5px;
-  font-size: var(--text-xs);
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   background: var(--bg-elevated);
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
-  white-space: nowrap;
 }
 .chip.subtle { border: none; padding: 0; background: transparent; }
 .status-completed { color: #a1ffa1; border-color: rgba(161,255,161,0.15); background: rgba(161,255,161,0.04); }
 .status-running   { color: #fff; border-color: rgba(255,255,255,0.5); animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 .status-queued    { color: var(--text-muted); border-color: var(--border); }
 .status-failed    { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
+
+/* ---- Claim-check verdicts ----
+   A verdict is the answer, so it should not read as body text. Colour first,
+   glyph second — the marker is redundant with the colour on purpose, so the
+   table still works in grayscale and for a red/green colour deficiency. */
+.verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.verdict-supported    { color: #6bbf8a; }
+.verdict-contested    { color: #d2a24c; }
+.verdict-unsupported  { color: #e0736d; }
+.verdict-unverifiable { color: var(--text-muted); }
+.verdict-conf { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ---- Spinner ---- */
 .spinner {
@@ -482,10 +523,7 @@ input[type="checkbox"] {
   background: var(--bg-surface);
   border-color: var(--border-subtle);
 }
-.run-item .chip {
-  margin-top: 2px;
-  flex-shrink: 0;
-}
+.run-item .chip { flex-shrink: 0; }
 .run-info {
   display: flex;
   flex-direction: column;
@@ -561,8 +599,6 @@ input[type="checkbox"] {
 .tabs .count {
   background: var(--bg-elevated);
   border-radius: 4px;
-  padding: 0.1rem 0.4rem;
-  font-size: var(--text-xs);
   margin-left: 0.35rem;
   color: var(--text-secondary);
 }
@@ -1037,7 +1073,13 @@ input[type="checkbox"] {
   .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-2xl); }
   .card, article.card { padding: 1rem; margin-bottom: 1rem; }
   .new-run .controls { flex-direction: column; align-items: stretch; gap: 0.75rem; }
-  .new-run .controls label { flex: 1 1 100%; }
+  /* Column flex measures flex-basis down the page, so the desktop rule that
+     widens the slider would instead make it 380px tall. Each control is its
+     own full-width row here and takes the height its content needs. */
+  .new-run .controls label,
+  .new-run .controls .depth-label,
+  .new-run .controls .recency-label { flex: 0 0 auto; }
+  .new-run .controls select { width: 100%; }
   .new-run .controls .go { width: 100%; margin-top: 0.5rem; }
   .search-bar { flex-direction: column; }
   .search-bar button { width: 100%; }
@@ -1250,8 +1292,11 @@ input[type="checkbox"] {
   padding: 0 0 0.35rem 0;
   margin: 0;
 }
-.new-run .cats legend {
-  float: left;
+/* A <legend> is rendered out of the fieldset's flow, so a flex container
+   cannot align it with anything — hence the old float, which put it in the
+   row but left it a few pixels high. A plain span is a real flex item and
+   align-items:center simply works; the fieldset is labelled by it instead. */
+.new-run .cats .cats-legend {
   font-size: 0.82rem;
   color: var(--text-muted);
   padding-right: 0.5rem;
@@ -1264,7 +1309,10 @@ input[type="checkbox"] {
   color: var(--text-muted);
   margin: 0;
 }
-.new-run .cats input[type="checkbox"] { margin: 0; }
+/* Square, where "Build on earlier research" below is round: these seven
+   pick where to search, that one changes how the run thinks. Same control,
+   different jobs, and the shape says so at a glance. */
+.new-run .cats input[type="checkbox"] { margin: 0; border-radius: 3px; }
 
 .run-actions .resynth-btn {
   display: inline-flex;
@@ -1285,11 +1333,7 @@ input[type="checkbox"] {
 
 /* ---- Initiator tag in list rows ---- */
 .user-tag {
-  display: inline-block;
-  padding: 0.05rem 0.5rem;
   border-radius: 999px;
-  font-size: 0.72em;
-  line-height: 1.4;
   background: hsl(var(--hue, 160) 45% 22% / 0.55);
   color: hsl(var(--hue, 160) 65% 72%);
   border: 1px solid hsl(var(--hue, 160) 50% 40% / 0.5);
@@ -1317,15 +1361,11 @@ input[type="checkbox"] {
    and matrix is violet (an artifact, not a kind). */
 .kind {
   flex: 0 0 auto;
-  font-size: .68rem;
   font-weight: 600;
   letter-spacing: .04em;
   text-transform: lowercase;
-  padding: .16rem .5rem;
   border-radius: 3px;
   border: 1px solid currentColor;
-  white-space: nowrap;
-  line-height: 1.4;
 }
 .kind-research { color: #7f9cc0; background: rgba(127, 156, 192, .10); }
 .kind-brief    { color: #6bbf8a; background: rgba(107, 191, 138, .10); }
@@ -1396,16 +1436,20 @@ input[type="checkbox"] {
   gap: .45rem;
 }
 .run-kinds { display: flex; align-items: center; gap: .3rem; flex: 0 0 auto; }
-.meta-text { min-width: 0; }
-
-.run-headline .chip,
-.run-kinds .kind {
-  font-size: .625rem;
-  line-height: 1.35;
-  padding: .1rem .42rem;
-  letter-spacing: .05em;
+/* The user pill sits inside this text run, and vertical-align:middle puts a
+   box's centre on the baseline plus half an x-height — close to the line's
+   centre, never on it, which is the last pixel of drift. Flex makes the text
+   and the pill siblings, and align-items:center is exact. */
+.meta-text {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .35rem;
 }
-.run-headline .chip { border-radius: 4px; }
+
+.run-headline, .run-meta { --badge-fs: .625rem; }
+.run-headline .chip { border-radius: 4px; letter-spacing: .05em; }
 
 
 

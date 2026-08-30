@@ -180,6 +180,52 @@ def test_exports_are_served_as_opaque_downloads(data_dir, monkeypatch):
             assert "attachment" in r.headers["content-disposition"]
 
 
+def test_a_run_page_says_what_kind_of_run_it_is(data_dir, monkeypatch):
+    """The list rows lead with the type; opening one dropped that, so a claim
+    check and a brief looked like the same page."""
+    from fastapi.testclient import TestClient
+    from app.db import Repo, connect
+    from tests.test_web import make_app, seed_completed_run
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    Repo(connect(cfg.db_path)).conn.execute(
+        "UPDATE runs SET kind='verify' WHERE id=?", (run_id,)).connection.commit()
+    with TestClient(app) as client:
+        page = client.get(f"/runs/{run_id}").text
+    assert 'class="kind kind-verify"' in page
+    assert "claim check" in page
+
+
+def test_verdict_cells_are_coloured_by_outcome():
+    """A verdict is the answer; rendering all four the same white as the prose
+    made the reader parse a word to learn something a colour could say."""
+    from app.web.markdown import render
+    html = render("| Claim | Verdict |\n| --- | --- |\n"
+                  "| a | \u2713 supported (9/10) |\n"
+                  "| b | \u2717 unsupported (7/10) |\n"
+                  "| c | \u00b1 contested (5/10) |\n"
+                  "| d | ? unverifiable (0/10) |")
+    for word in ("supported", "unsupported", "contested", "unverifiable"):
+        assert f'class="verdict verdict-{word}"' in html
+    # the score stays, muted, outside the coloured span
+    assert '<span class="verdict-conf">(9/10)</span>' in html
+
+
+def test_colouring_verdicts_cannot_smuggle_markup_in():
+    """The pass runs over rendered HTML, so it must not resurrect tags the
+    html=False guard just escaped."""
+    from app.web.markdown import render
+    html = render("| Claim | Verdict |\n| --- | --- |\n"
+                  "| <b>x</b> | \u2713 supported (9/10) |")
+    assert "<b>" not in html and "&lt;b&gt;" in html
+
+
+def test_prose_that_merely_mentions_a_verdict_is_left_alone():
+    from app.web.markdown import render
+    html = render("The claim was \u2713 supported (9/10) per the table.")
+    assert "verdict-supported" not in html
+
+
 def test_bare_domains_in_text_are_not_hyperlinked():
     """"180 kgf.cm" and friends were being linkified into websites."""
     from app.web.markdown import render

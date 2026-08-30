@@ -28,7 +28,7 @@
                hx-target="#estimate" hx-swap="outerHTML"
                oninput="document.getElementById('depth-val').value = this.value == '0' ? '0 (AI answer)' : this.value">
       </label>
-      <label>Recency
+      <label class="recency-label">Recency
         <select name="recency">
           {% for r in RECENCY_CHOICES %}
           <option value="{{ r }}" {{ 'selected' if (prefill.recency if prefill else 'all') == r else '' }}>{{ RECENCY_LABELS[r] }}</option>
@@ -37,9 +37,11 @@
       </label>
       <button type="submit" class="go">Start research</button>
     </div>
-    <fieldset class="cats" id="cat-group"
+    <fieldset class="cats" id="cat-group" aria-labelledby="cats-legend"
               title="Which search-engine categories this run queries. Your last selection is remembered.">
-      <legend>Search in</legend>
+      {# A span, not a <legend>: a legend renders outside the fieldset's flow
+         and cannot be aligned with the boxes beside it. #}
+      <span class="cats-legend" id="cats-legend">Search in</span>
       {% for c in ["general", "science", "it", "news", "videos", "social media", "files"] %}
       <label><input type="checkbox" name="categories" value="{{ c }}"> {{ c }}</label>
       {% endfor %}
@@ -59,7 +61,8 @@
         let saved;
         try { saved = JSON.parse(localStorage.getItem("search_categories")); }
         catch (e) { saved = null; }
-        if (!Array.isArray(saved) || !saved.length) saved = ["general", "science"];
+        if (!Array.isArray(saved) || !saved.length)
+          saved = ["general", "videos", "social media"];
         boxes.forEach(b => { b.checked = saved.includes(b.value); });
         document.getElementById("cat-group").addEventListener("change", () => {
           const picked = [...boxes].filter(b => b.checked).map(b => b.value);
