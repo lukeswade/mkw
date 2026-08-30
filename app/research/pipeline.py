@@ -350,7 +350,13 @@ class Pipeline:
                 # repeats itself on day two.
                 state.per_source = feeds.PER_FEED_PER_ROUND
                 state.group_by = lambda r: r.via_query or domain_of(r.url)
-                already = self.repo.recent_finding_urls("brief")
+                # seen_urls holds CANONICAL urls — rank_diverse canonicalizes
+                # each candidate before the membership test. Stored finding
+                # urls keep their trailing slash, which canonicalize strips,
+                # so raw urls here silently never matched and the brief
+                # repeated itself.
+                already = {canonicalize(u)
+                           for u in self.repo.recent_finding_urls("brief")}
                 state.seen_urls |= already
                 self.bus.publish(
                     run_id, "log",

@@ -215,6 +215,38 @@ async def test_a_brief_skips_items_an_earlier_brief_already_reported(data_dir):
 
 
 @respx.mock
+async def test_suppression_survives_url_canonicalisation(data_dir):
+    """Stored finding urls keep a trailing slash; canonicalize strips it. The
+    suppression set was raw, so it never matched and briefs repeated."""
+    cfg = _brief_cfg(data_dir)
+    slashed = RSS.replace(b"https://example.com/mlx-030",
+                          b"https://example.com/mlx-030/")
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload([])))
+    respx.get("https://example.com/feed.xml").mock(
+        return_value=httpx.Response(200, content=slashed))
+    respx.get("https://example.com/mlx-030/").mock(
+        return_value=httpx.Response(200, html=article("MLX 0.30")))
+    respx.get("https://example.com/old").mock(
+        return_value=httpx.Response(200, html=article("Older post")))
+
+    repo = Repo(connect(cfg.db_path))
+
+    async def one_brief() -> set[str]:
+        orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                            llm_factory=lambda: FakeLLM(script(
+                                [{"state_md": "s", "saturated": True,
+                                  "next_queries": []}])))
+        rid = orch.enqueue(RunParams(query="Brief", depth=4, recency="all",
+                                     origin="cli", kind="brief"))
+        await orch.execute_now(rid)
+        return {f["url"] for f in repo.findings_for_run(rid)}
+
+    first = await one_brief()
+    assert any(u.rstrip("/").endswith("mlx-030") for u in first)
+    assert await one_brief() == set()      # nothing repeats, slash or no slash
+
+
+@respx.mock
 async def test_a_brief_with_no_feeds_configured_fails_loudly(data_dir):
     cfg = make_cfg(data_dir)
     cfg.feeds = ""
