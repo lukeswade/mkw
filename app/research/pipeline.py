@@ -1134,9 +1134,10 @@ class Pipeline:
             return verify.Checked(claim=claim, verdict=verdict,
                                   evidence=evidence, via="library")
 
+        kept = verify.trim_for_fallthrough(evidence)
         web = await self._web_evidence(searcher, fetcher, llm, claim.text,
-                                       start_n=len(evidence) + 1)
-        combined = evidence + web
+                                       start_n=len(kept) + 1)
+        combined = verify.renumber(kept + web)
         verdict = await verify.judge(llm, claim.text, combined)
         self.bus.publish(run_id, "log",
                          message=(f"“{claim.text[:70]}” — {verdict.verdict} "

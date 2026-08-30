@@ -27,6 +27,14 @@ _LIBRARY_HITS = 6
 # across sources instead of taken as a top-N slice.
 _LIBRARY_POOL = 24
 _LIBRARY_PER_SOURCE = 2
+# Source titles share a parent run, so a per-title cap alone still let one
+# run fill every slot — a live check drew all six passages from one research
+# run and every citation pointed back at it.
+_LIBRARY_PER_RUN = 3
+# When the library cannot settle a claim its passages are, by definition, not
+# decisive, so they should not also crowd the low citation numbers the model
+# reaches for first. Trimmed before the web evidence is appended.
+_LIBRARY_KEEP_ON_FALLTHROUGH = 3
 _LIBRARY_MIN_SCORE = 0.45
 # A library verdict this confident is accepted without searching the web.
 _LIBRARY_SETTLES_AT = 7
@@ -128,20 +136,43 @@ async def library_evidence(rag, claim: str) -> list[Evidence]:
         return []
     out: list[Evidence] = []
     per_source: dict[str, int] = {}
+    per_run: dict[str, int] = {}
     for h in hits:
         if len(out) >= _LIBRARY_HITS:
             break
         if h.get("score", 0) < _LIBRARY_MIN_SCORE:
             continue
         title = h.get("title") or h.get("run_id") or "earlier research"
+        run_id = h.get("run_id") or ""
         if per_source.get(title, 0) >= _LIBRARY_PER_SOURCE:
             continue
+        if run_id and per_run.get(run_id, 0) >= _LIBRARY_PER_RUN:
+            continue
         per_source[title] = per_source.get(title, 0) + 1
+        per_run[run_id] = per_run.get(run_id, 0) + 1
         out.append(Evidence(n=len(out) + 1,
                             label=f"your research — {title}",
                             url=f"/runs/{h.get('run_id', '')}",
                             text=h.get("text", "")))
     return out
+
+
+def renumber(items: list[Evidence]) -> list[Evidence]:
+    """Evidence numbers must be 1..n after any trim, or citations dangle."""
+    for i, e in enumerate(items, 1):
+        e.n = i
+    return items
+
+
+def trim_for_fallthrough(library: list[Evidence]) -> list[Evidence]:
+    """Keep only the strongest library passages once the web is being consulted.
+
+    The model reaches for the low numbers, and library evidence is numbered
+    first. If the library could not settle the claim, letting it also occupy
+    every low slot pushes the web evidence — the reason we are still here —
+    to the back of the list.
+    """
+    return renumber(library[:_LIBRARY_KEEP_ON_FALLTHROUGH])
 
 
 def settled(v: VerdictOut) -> bool:

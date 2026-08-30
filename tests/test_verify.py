@@ -411,3 +411,32 @@ async def test_a_page_no_verdict_cited_is_still_kept_and_marked_consulted(data_d
     assert len(rows) == 1
     assert rows[0]["summary"].startswith("Consulted while checking")
     assert rows[0]["relevance"] == 3            # consulted, not worthless
+
+
+async def test_one_run_cannot_fill_every_evidence_slot():
+    """Source titles share a parent run, so a per-title cap alone still let
+    one run supply all six passages — observed live, with every citation
+    pointing back at the same research run."""
+    from app.research.verify import library_evidence
+    hits = [{"run_id": "runA", "title": f"Source {i}", "text": f"a{i}",
+             "score": 0.9 - i * 0.01} for i in range(8)]
+    hits += [{"run_id": "runB", "title": "Other view", "text": "b", "score": 0.6},
+             {"run_id": "runC", "title": "Third view", "text": "c", "score": 0.5}]
+    ev = await library_evidence(_Rag(hits), "a claim")
+    labels = " ".join(e.text for e in ev)
+    assert sum(1 for e in ev if e.text.startswith("a")) == 3   # runA capped
+    assert "b" in labels and "c" in labels                     # others got in
+
+
+def test_library_evidence_is_trimmed_before_the_web_is_appended():
+    """The model reaches for low numbers. If the library could not settle the
+    claim, it should not also own every low slot."""
+    from app.research.verify import renumber, trim_for_fallthrough
+    library = [Evidence(i, f"lib{i}", f"/runs/{i}", "t") for i in range(1, 7)]
+    kept = trim_for_fallthrough(library)
+    assert [e.n for e in kept] == [1, 2, 3]
+    web = [Evidence(0, f"web{i}", f"https://e.com/{i}", "t") for i in range(3)]
+    combined = renumber(kept + web)
+    assert [e.n for e in combined] == [1, 2, 3, 4, 5, 6]
+    # web evidence now sits inside the range a verdict actually cites
+    assert [e.n for e in combined if e.url.startswith("http")] == [4, 5, 6]
