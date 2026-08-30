@@ -18,7 +18,7 @@ from app.research.progress import format_event
 from app.research.storage import SERVABLE_RE, RunStore
 from app.web.export import (PdfExportError, build_run_html, interactive_html,
                             render_pdf, standalone_html)
-from app.web.markdown import render, render_overview
+from app.web.markdown import render, render_overview, strip_leading_h1
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -220,7 +220,9 @@ async def run_page(request: Request, run_id: str):
     meta = store.read_meta()
 
     ctx: dict = {
-        "nav": "home",
+        # A run is reached from the Library and lives there; highlighting
+        # "New" made every click out of the list look like a page change.
+        "nav": "library",
         "row": row,
         "run_id": run_id,
         "meta": meta,
@@ -245,8 +247,10 @@ async def run_page(request: Request, run_id: str):
                  if store.matrix_path.exists() else "")
 
     ctx.update({
-        "overview_html": render_overview(overview_md, len(findings)),
-        "matrix_html": render_overview(matrix_md, len(findings)),
+        "overview_html": render_overview(strip_leading_h1(overview_md),
+                                         len(findings)),
+        "matrix_html": render_overview(strip_leading_h1(matrix_md),
+                                       len(findings)),
         "findings": findings,
         "finding_cards": finding_cards,
         "followups": meta.get("followups", []),

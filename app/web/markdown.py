@@ -25,6 +25,21 @@ _md.linkify.set({"fuzzy_link": False, "fuzzy_email": False})
 _CITE_RE = re.compile(r"\[(\d{1,3})\](?!\()")
 
 
+# A document's own H1 at the very top, which the run page's header already shows.
+_LEADING_H1_RE = re.compile(r"\A\s*#\s+[^\n]*\n+")
+
+
+def strip_leading_h1(md_text: str) -> str:
+    """Drop the document's own H1 for in-app display only.
+
+    overview.md and matrix.md keep their heading on disk — an export is a
+    standalone document and needs one — but inside the run page the header
+    above the tabs already carries the title, so rendering it again showed
+    every run's name twice.
+    """
+    return _LEADING_H1_RE.sub("", md_text or "", count=1)
+
+
 def render(md_text: str) -> str:
     return _md.render(md_text or "")
 

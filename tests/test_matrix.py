@@ -262,3 +262,62 @@ def test_library_badges_name_the_run_kind(data_dir, monkeypatch):
     assert 'class="kind kind-brief"' in body
     assert 'class="kind kind-verify"' in body and "claim check" in body
     assert 'class="kind kind-matrix"' in body             # artifact, not a kind
+
+
+# ---- run page presentation ------------------------------------------------------
+
+def test_the_run_page_does_not_print_the_title_twice(data_dir, monkeypatch):
+    """The header shows the title; the markdown's own H1 repeated it."""
+    from app.web.markdown import strip_leading_h1
+    assert strip_leading_h1("# A Title\n\nBody here.\n") == "Body here.\n"
+    assert strip_leading_h1("\n\n#  Spaced\n\nBody\n") == "Body\n"
+    # only the leading one, and only an H1
+    assert strip_leading_h1("## Sub\n\nBody\n").startswith("## Sub")
+    assert "# Later" in strip_leading_h1("# First\n\n# Later\n")
+    assert strip_leading_h1("") == ""
+
+    client, cfg = _client(data_dir, monkeypatch)
+    repo, store = _seed(cfg)
+    repo.update_run(store.run_id, title="A Distinctive Run Title")
+    store.write_overview("# A Distinctive Run Title\n\nThe body.\n")
+    with client:
+        body = client.get(f"/runs/{store.run_id}").text
+    import re
+    panel = re.search(r'id="tab-overview".*?</section>', body, re.S).group(0)
+    # the page header carries the title; the rendered markdown must not repeat it
+    assert "A Distinctive Run Title" in body            # header (and <title>)
+    assert "A Distinctive Run Title" not in panel       # but not in the body
+    assert "The body." in panel
+
+
+def test_a_run_page_keeps_the_library_tab_active(data_dir, monkeypatch):
+    """Clicking a result used to light up 'New', which reads as navigating away."""
+    client, cfg = _client(data_dir, monkeypatch)
+    _repo, store = _seed(cfg)
+    with client:
+        body = client.get(f"/runs/{store.run_id}").text
+    import re
+    active = re.findall(r'<a href="(/[a-z]*)"[^>]*class="[^"]*active', body)
+    assert active == ["/library"]
+
+
+def test_exports_still_carry_their_own_heading(data_dir, monkeypatch):
+    """Stripping is presentation-only — a standalone document needs its H1."""
+    client, cfg = _client(data_dir, monkeypatch)
+    _repo, store = _seed(cfg)
+    store.write_overview("# Keep This Heading\n\nBody.\n")
+    assert store.overview_path.read_text().startswith("# Keep This Heading")
+    with client:
+        html = client.get(f"/runs/{store.run_id}/export.html").text
+    assert "Keep This Heading" in html
+
+
+def test_claim_report_heading_does_not_repeat_itself():
+    from app.research.verify import render_report
+    md = render_report("Claim check: MLX vs llama.cpp", [], skipped=[],
+                       uncheckable=[], clipped=False)
+    assert md.splitlines()[0] == "# Claim check: MLX vs llama.cpp"
+    # a title that does not already say it still gets the suffix
+    md2 = render_report("Some Article", [], skipped=[], uncheckable=[],
+                        clipped=False)
+    assert md2.splitlines()[0] == "# Some Article — claim check"

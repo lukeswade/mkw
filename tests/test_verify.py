@@ -261,3 +261,19 @@ def test_pasted_assistant_answers_get_a_useful_title():
         "Claim check: The M4 Pro supports up to 128GB of unified memory."
 
     assert _title_for("short") == "Claim check: pasted text"
+
+
+def test_the_report_contains_no_html():
+    """Markdown is rendered with html=False as an XSS guard, so any tag in
+    generated markdown shows up as literal characters in the run page — a
+    <br> in the Why column did exactly that."""
+    import re
+    md = render_report("Doc", [_checked("a", "supported")],
+                       skipped=[_claim("x", 1)],
+                       uncheckable=[_claim("y", 1, checkable=False)],
+                       clipped=True)
+    # <https://…> is a CommonMark autolink, not a tag — the bibliography
+    # renderer uses that form deliberately.
+    without_autolinks = re.sub(r"<[a-z][a-z0-9+.-]*://[^>]*>", "", md)
+    assert not re.search(r"</?[a-zA-Z][^>]*>", without_autolinks), \
+        "generated markdown contains HTML, which renders as literal text"

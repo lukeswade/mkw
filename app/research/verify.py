@@ -183,7 +183,11 @@ def render_report(title: str, results: list[Checked], *,
                         for k in ("supported", "contested", "unsupported",
                                   "unverifiable") if counts.get(k))
 
-    lines = [f"# {title} — claim check", ""]
+    # The run is already named "Claim check: …", so appending the suffix
+    # produced "Claim check: X — claim check".
+    heading = title if title.lower().startswith("claim check") \
+        else f"{title} — claim check"
+    lines = [f"# {heading}", ""]
     lines.append(f"**{len(results)} claim(s) checked**"
                  + (f" — {summary}." if summary else "."))
     lines.append("")
@@ -193,7 +197,10 @@ def render_report(title: str, results: list[Checked], *,
         v = r.verdict
         why = _cell(v.reasoning)
         if v.quote:
-            why += f' <br>“{_cell(v.quote)[:220]}”'
+            # No HTML here. Markdown is rendered with html=False as a
+            # stored-XSS guard (source text is lifted from fetched pages), so
+            # a <br> renders as the literal characters, not a line break.
+            why += f' — “{_cell(v.quote)[:220]}”'
         cites = "".join(f"[{e.n}]" for e in r.evidence
                         if e.n in set(v.sources)) or "—"
         lines.append(f"| {_cell(r.claim.text)} "

@@ -1351,3 +1351,17 @@ input[type="checkbox"] {
   .run-info { flex: 1 0 100%; }
   .run-title { white-space: normal; overflow: visible; }
 }
+
+
+/* The run title used to share a flex row with the action buttons, which on a
+   narrow column squeezed it into a seven-line ribbon. It gets its own
+   full-width row beneath them. */
+.run-h1 {
+  margin: .9rem 0 .25rem;
+  font-size: var(--text-2xl, 1.6rem);
+  line-height: 1.2;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.run-header-top { min-width: 0; }
+.run-actions { flex-wrap: wrap; row-gap: .4rem; }

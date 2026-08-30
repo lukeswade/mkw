@@ -2,7 +2,7 @@
 {% block title %}{{ row['title'] or row['query'] }} · Deep Research{% endblock %}
 {% block content %}
 <header class="run-header">
-  <h1>{{ row['title'] or row['query'] }}</h1>
+  <h1 class="run-h1">{{ row['title'] or row['query'] }}</h1>
   <p class="orig-query">&ldquo;{{ row['query'] }}&rdquo;</p>
   <div class="chip-row">
     <span id="status-chip" class="chip status-{{ row['status'] }}">{{ row['status'] }}</span>
