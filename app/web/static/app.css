@@ -464,6 +464,10 @@ input[type="checkbox"] {
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
+  /* A flex item defaults to min-width:auto, which forbids shrinking below
+     its content — so the title's text-overflow:ellipsis could never engage
+     and every row overflowed at narrow widths. */
+  min-width: 0;
   padding: 0.85rem 1rem;
   background: transparent;
   border: 1px solid transparent;
@@ -1337,3 +1341,13 @@ input[type="checkbox"] {
   animation: spin .8s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) { .spinner-inline { animation: none; } }
+
+
+/* Narrow screens: stop competing for one line. Status and kind sit together
+   on top, the title takes the full width below them — "Claim ch…" is not a
+   title, and cramming three chips beside it leaves nothing else. */
+@media (max-width: 560px) {
+  .run-item { flex-wrap: wrap; row-gap: .4rem; }
+  .run-info { flex: 1 0 100%; }
+  .run-title { white-space: normal; overflow: visible; }
+}
