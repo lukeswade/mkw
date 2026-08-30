@@ -211,3 +211,17 @@ async def test_an_empty_document_fails_with_a_clear_reason(data_dir):
     row = repo.get_run(rid)
     assert row["status"] == "failed"
     assert "empty" in (row["error"] or "")
+
+
+def test_an_unsupported_verdict_never_settles_from_the_library_alone():
+    """The errors are not symmetric. A wrong 'supported' echoes the reader's
+    own research; a wrong 'unsupported' tells them something true is false,
+    which is the failure that matters when you are hunting for errors.
+
+    Observed live: retrieval returned six passages all on one side of a
+    genuinely disputed point and the adjudicator said unsupported at 10/10,
+    while the library's own comparison matrix recorded the opposite."""
+    assert settled(VerdictOut(verdict="supported", confidence=7))
+    assert settled(VerdictOut(verdict="contested", confidence=7))
+    assert not settled(VerdictOut(verdict="unsupported", confidence=10))
+    assert not settled(VerdictOut(verdict="unverifiable", confidence=10))

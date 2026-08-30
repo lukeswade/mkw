@@ -128,8 +128,26 @@ async def library_evidence(rag, claim: str) -> list[Evidence]:
 
 
 def settled(v: VerdictOut) -> bool:
-    """Whether a library verdict is firm enough to skip the web."""
-    return v.verdict != "unverifiable" and v.confidence >= _LIBRARY_SETTLES_AT
+    """Whether a library verdict is firm enough to skip the web.
+
+    An "unsupported" NEVER settles from the library alone, however confident.
+    The two errors are not symmetric: a wrong "supported" merely echoes
+    research the reader already has, while a wrong "unsupported" tells them
+    something true is false — and finding errors is the entire reason they
+    pasted the document.
+
+    This is not hypothetical. Asked whether llama.cpp has the faster prefill,
+    retrieval returned six passages that were all one side of a genuinely
+    disputed point (Ollama's migration note, which reports MLX prefill 57%
+    faster) while the library's own comparison matrix records the opposite.
+    The adjudicator called it unsupported at 10/10 and the shortcut stopped
+    anything from checking.
+    """
+    if v.verdict == "unverifiable":
+        return False
+    if v.verdict == "unsupported":
+        return False
+    return v.confidence >= _LIBRARY_SETTLES_AT
 
 
 # ---- rendering ------------------------------------------------------------------

@@ -259,6 +259,12 @@ Produce a JSON object with exactly these keys:
 - "quote": the single most decisive verbatim sentence from the evidence (≤300 chars), or "" if nothing is decisive
 - "sources": array of the evidence source numbers you actually relied on
 
+Before deciding, check whether the evidence agrees with ITSELF. Sources that
+contradict each other make a claim "contested", not "supported" or
+"unsupported" — report the disagreement rather than siding with whichever
+sources happen to appear first. Lower your confidence when the evidence all
+comes from one source or one vendor's own announcement.
+
 "unverifiable" is the honest answer when the evidence is off-topic or thin —
 absence of evidence is not evidence of falsehood, and a confident verdict
 built on nothing is worse than admitting the gap. Judge only the claim as
