@@ -20,6 +20,13 @@ from app.web.export import (PdfExportError, build_run_html, interactive_html,
                             render_pdf, standalone_html)
 from app.web.markdown import render, render_overview, strip_leading_h1
 
+
+def _row_get(row, name, default=""):
+    try:
+        return row[name] or default
+    except (KeyError, IndexError):
+        return default
+
 log = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -247,8 +254,13 @@ async def run_page(request: Request, run_id: str):
                  if store.matrix_path.exists() else "")
 
     ctx.update({
-        "overview_html": render_overview(strip_leading_h1(overview_md),
-                                         len(findings)),
+        # A claim check numbers evidence per claim and links each marker at
+        # its own source; render_overview would rewrite those [n] into
+        # bibliography anchors that do not exist and break the links.
+        "overview_html": (render(strip_leading_h1(overview_md))
+                          if _row_get(row, "kind") == "verify"
+                          else render_overview(strip_leading_h1(overview_md),
+                                               len(findings))),
         "matrix_html": render_overview(strip_leading_h1(matrix_md),
                                        len(findings)),
         "findings": findings,

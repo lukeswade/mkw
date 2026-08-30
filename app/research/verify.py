@@ -201,8 +201,12 @@ def render_report(title: str, results: list[Checked], *,
             # stored-XSS guard (source text is lifted from fetched pages), so
             # a <br> renders as the literal characters, not a line break.
             why += f' — “{_cell(v.quote)[:220]}”'
-        cites = "".join(f"[{e.n}]" for e in r.evidence
-                        if e.n in set(v.sources)) or "—"
+        # Link each marker straight at its source. An internal /runs/… path
+        # is not a valid autolink (no scheme), which is why library evidence
+        # rendered as plain text while web evidence came out clickable.
+        used = set(v.sources)
+        cites = "".join(f"[[{e.n}]]({e.url})" for e in r.evidence
+                        if e.n in used and e.url) or "—"
         lines.append(f"| {_cell(r.claim.text)} "
                      f"| {_VERDICT_MARK[v.verdict]} ({v.confidence}/10) "
                      f"| {why} | {r.via} {cites} |")
@@ -236,7 +240,9 @@ def render_report(title: str, results: list[Checked], *,
         any_ev = True
         lines.append(f"**{_cell(r.claim.text)[:120]}**")
         for e in r.evidence:
-            lines.append(f"{e.n}. {e.label} — <{e.url}>")
+            label = _cell(e.label) or e.url
+            lines.append(f"{e.n}. [{label}]({e.url})" if e.url
+                         else f"{e.n}. {label}")
         lines.append("")
     if not any_ev:
         lines.append("_No evidence was gathered._")

@@ -321,3 +321,35 @@ def test_claim_report_heading_does_not_repeat_itself():
     md2 = render_report("Some Article", [], skipped=[], uncheckable=[],
                         clipped=False)
     assert md2.splitlines()[0] == "# Some Article — claim check"
+
+
+def test_a_claim_check_keeps_its_own_citation_links(data_dir, monkeypatch):
+    """render_overview rewrites [n] into #src-n bibliography anchors. A claim
+    check numbers evidence per claim and links each marker at its source, so
+    that rewrite would break every link."""
+    client, cfg = _client(data_dir, monkeypatch)
+    repo, store = _seed(cfg, kind="verify")
+    store.write_overview("# T\n\nrow [[1]](/runs/other) and [[2]](https://e.com/p)\n")
+    with client:
+        body = client.get(f"/runs/{store.run_id}").text
+    assert 'href="/runs/other"' in body
+    assert 'href="https://e.com/p"' in body
+    assert "#src-1" not in body
+
+
+def test_the_subheader_does_not_echo_the_title(data_dir, monkeypatch):
+    client, cfg = _client(data_dir, monkeypatch)
+    repo, store = _seed(cfg, kind="verify")
+    repo.update_run(store.run_id, title="Claim check: Same Text")
+    repo.conn.execute("UPDATE runs SET query = ? WHERE id = ?",
+                      ("Claim check: Same Text", store.run_id))
+    repo.conn.commit()
+    with client:
+        same = client.get(f"/runs/{store.run_id}").text
+    assert 'class="orig-query"' not in same        # identical, so not repeated
+
+    _repo2, other = _seed(cfg)
+    repo.update_run(other.run_id, title="A Distilled Title")
+    with client:
+        differs = client.get(f"/runs/{other.run_id}").text
+    assert 'class="orig-query"' in differs         # a real question still shows

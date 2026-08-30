@@ -277,3 +277,21 @@ def test_the_report_contains_no_html():
     without_autolinks = re.sub(r"<[a-z][a-z0-9+.-]*://[^>]*>", "", md)
     assert not re.search(r"</?[a-zA-Z][^>]*>", without_autolinks), \
         "generated markdown contains HTML, which renders as literal text"
+
+
+def test_every_citation_and_evidence_entry_is_a_link():
+    """Library evidence rendered as plain text while web evidence came out
+    clickable: an internal /runs/… path is not a valid CommonMark autolink,
+    because it has no scheme."""
+    c = Checked(claim=_claim("a", 9),
+                evidence=[Evidence(1, "your research — Prior", "/runs/abc", "t"),
+                          Evidence(2, "example.com — Page",
+                                   "https://example.com/p", "t")],
+                via="library+web",
+                verdict=VerdictOut(verdict="supported", confidence=9,
+                                   reasoning="r", quote="q", sources=[1, 2]))
+    md = render_report("T", [c], skipped=[], uncheckable=[], clipped=False)
+    assert "[[1]](/runs/abc)" in md                      # internal, now linked
+    assert "[[2]](https://example.com/p)" in md
+    assert "1. [your research — Prior](/runs/abc)" in md
+    assert "<" not in md.split("## Evidence")[1]         # no bare autolinks left

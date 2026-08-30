@@ -413,7 +413,10 @@ input[type="checkbox"] {
 }
 
 /* ---- Status Chips ---- */
-.chip-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+/* align-items:center, or the user pill rides high: vertical-align has
+   no effect on a flex item, and the pill's box is taller than a chip. */
+.chip-row { display: flex; flex-wrap: wrap; align-items: center;
+            gap: 0.4rem; margin-top: 0.5rem; }
 .chip {
   display: inline-flex;
   align-items: center;
@@ -1284,11 +1287,10 @@ input[type="checkbox"] {
   padding: 0.05rem 0.5rem;
   border-radius: 999px;
   font-size: 0.72em;
-  line-height: 1.5;
+  line-height: 1.4;
   background: hsl(var(--hue, 160) 45% 22% / 0.55);
   color: hsl(var(--hue, 160) 65% 72%);
   border: 1px solid hsl(var(--hue, 160) 50% 40% / 0.5);
-  vertical-align: baseline;
 }
 
 

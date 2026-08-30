@@ -38,7 +38,12 @@
   </div>
 
   <h1 class="run-h1">{{ row['title'] or row['query'] }}</h1>
+  {# For research the title is a distilled restatement, so the question is
+     worth showing. A claim check names itself from its own text, so the two
+     are identical and printing both just says it twice. #}
+  {% if row['query'] and row['query'] != (row['title'] or '') %}
   <p class="orig-query">&ldquo;{{ row['query'] }}&rdquo;</p>
+  {% endif %}
   <div class="chip-row">
     <span class="chip status-{{ row['status'] }}">{{ row['status'] }}</span>
     <span class="chip">depth {{ row['depth'] }}</span>
