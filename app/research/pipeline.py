@@ -94,6 +94,9 @@ _WEAK_MAX = 4
 
 # Citation chasing: at most this many cited references are fetched per round.
 _REFS_PER_ROUND = 4
+# Relevance for a page a claim check fetched and read but no verdict cited.
+# Not zero: zero reads as "judged worthless" when it means "did not settle it".
+_CONSULTED = 3
 
 # Extracted text whose smaller fingerprint is ≥ this contained in an earlier
 # document's is the same content: a scraped SEO clone or a syndicated copy.
@@ -1077,9 +1080,12 @@ class Pipeline:
         excluded — it already belongs to the run it came from, and recording
         it again would duplicate that research under a new id.
 
-        Relevance is the highest confidence of any verdict that leaned on the
-        page, which is the only meaningful score available here: nothing rated
-        these pages on their own, they were rated by how decisive they proved.
+        Relevance reflects how the page was actually used: the confidence of
+        the best verdict that cited it, or _CONSULTED for one that was fetched
+        and read without being cited. Scoring the uncited ones 0 read as
+        "judged worthless" when the truth is "did not settle it" — and it is
+        the common case, because library passages are numbered first and a
+        verdict often cites only those.
         """
         best: dict[str, dict] = {}
         for r in results:
@@ -1088,9 +1094,11 @@ class Pipeline:
                 if not e.url.startswith(("http://", "https://")):
                     continue                      # a /runs/… library passage
                 entry = best.setdefault(e.url, {"evidence": e, "claims": [],
-                                                "score": 0})
+                                                "score": _CONSULTED,
+                                                "cited": False})
                 entry["claims"].append(r.claim.text)
                 if e.n in used:
+                    entry["cited"] = True
                     entry["score"] = max(entry["score"], r.verdict.confidence)
 
         findings: list[Finding] = []
@@ -1098,7 +1106,8 @@ class Pipeline:
             e = entry["evidence"]
             label = e.label.split(" — ", 1)[-1] if " — " in e.label else e.label
             claims = entry["claims"]
-            summary = (f"Consulted while checking {len(claims)} claim(s), "
+            how = "Cited by" if entry["cited"] else "Consulted while checking"
+            summary = (f"{how} {len(claims)} claim(s), "
                        f"starting with: {claims[0][:140]}")
             f = Finding(idx=idx, url=url, title=label[:200] or url,
                         domain=domain_of(url), published=None,

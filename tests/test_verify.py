@@ -67,10 +67,15 @@ class _Rag:
     def __init__(self, hits):
         self.hits = hits
         self.queries: list[str] = []
+        self.indexed: list[str] = []
 
     async def semantic_search(self, query, limit=20):
         self.queries.append(query)
         return self.hits
+
+    async def index_run(self, repo, run_id):
+        self.indexed.append(run_id)
+        return 0
 
 
 async def test_library_evidence_drops_weak_matches():
@@ -320,7 +325,9 @@ async def test_web_evidence_is_recorded_as_sources(data_dir):
     rows = repo.findings_for_run(rid)
     assert [r["url"] for r in rows] == ["https://e.com/a"]
     assert rows[0]["domain"] == "e.com"
-    assert "Consulted while checking" in rows[0]["summary"]
+    # this verdict cited the page, so the summary says so
+    assert rows[0]["summary"].startswith("Cited by 1 claim(s)")
+    assert rows[0]["relevance"] == 6            # the verdict's own confidence
     sources = (cfg.research_dir / rid / "sources.md").read_text()
     assert "e.com" in sources and "No sources were kept" not in sources
     assert (cfg.research_dir / rid / rows[0]["path"]).exists()
@@ -367,3 +374,40 @@ def test_a_source_used_for_several_claims_appears_once():
     assert list(best) == ["https://e.com/a"]
     assert best["https://e.com/a"]["score"] == 9      # the decisive use wins
     assert len(best["https://e.com/a"]["claims"]) == 2
+
+
+def test_an_uncited_page_is_scored_as_consulted_not_worthless():
+    """Library passages are numbered first, so a verdict often cites only
+    those and every web page scored 0 — which reads as 'judged worthless'
+    rather than 'did not settle it'. Observed on a live run: nine sources,
+    all zero."""
+    from app.research.pipeline import _CONSULTED
+    assert 0 < _CONSULTED < 5
+
+
+@respx.mock
+async def test_a_page_no_verdict_cited_is_still_kept_and_marked_consulted(data_dir):
+    """The common case: library passages are numbered first, so a verdict
+    often cites only those and the web pages it also read go uncited."""
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(
+        200, json=sx_payload([sx_result("https://e.com/a", "Evidence page")])))
+    respx.get("https://e.com/a").mock(
+        return_value=httpx.Response(200, html=article("Evidence page")))
+    # the verdict cites nothing at all
+    llm = FakeLLM({"verify": [
+        {"claims": [{"text": "MLX is faster", "importance": 9,
+                     "checkable": True}]},
+        {"verdict": "contested", "confidence": 6, "reasoning": "r",
+         "quote": "", "sources": []}]})
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(), rag=_Rag([]),
+                        llm_factory=lambda: llm)
+    rid = orch.enqueue(RunParams(query="Claim check", depth=0, recency="all",
+                                 origin="cli", kind="verify", document=DOC))
+    await orch.execute_now(rid)
+
+    rows = repo.findings_for_run(rid)
+    assert len(rows) == 1
+    assert rows[0]["summary"].startswith("Consulted while checking")
+    assert rows[0]["relevance"] == 3            # consulted, not worthless
