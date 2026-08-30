@@ -159,3 +159,35 @@ def test_following_a_source_from_a_finding(data_dir, monkeypatch):
         r = c.post("/settings/follow-source", data={"domain": "site.test"})
     assert "Following" in r.text and "The Feed" in r.text
     assert "https://site.test/atom/everything/" in load_settings(str(data_dir)).feeds
+
+
+# ---- following a source goes to a brief, not the leftover list --------------
+
+@respx.mock
+def test_following_with_one_brief_adds_it_to_that_brief(data_dir, monkeypatch):
+    from app.db import Repo, connect
+    app, cfg = _app(data_dir, monkeypatch)
+    respx.get("https://site.test/").mock(return_value=httpx.Response(200, html=PAGE))
+    respx.get("https://site.test/atom/everything/").mock(
+        return_value=httpx.Response(200, content=RSS))
+    repo = Repo(connect(cfg.db_path))
+    bid = repo.create_brief(name="Local LLM")
+    with TestClient(app) as c:
+        r = c.post("/settings/follow-source", data={"domain": "site.test"})
+    assert "Local LLM" in r.text
+    assert "https://site.test/atom/everything/" in repo.get_brief(bid)["feeds"]
+    # and not into the unnamed list it used to land in
+    assert not load_settings(str(data_dir)).feeds.strip()
+
+
+def test_following_with_several_briefs_asks_which_one(data_dir, monkeypatch):
+    """No sensible default exists, so pick before spending a fetch."""
+    from app.db import Repo, connect
+    app, cfg = _app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    a = repo.create_brief(name="Local LLM")
+    b = repo.create_brief(name="Automotive")
+    with TestClient(app) as c:
+        r = c.post("/settings/follow-source", data={"domain": "site.test"})
+    assert f"/briefs/{a}/feeds" in r.text and f"/briefs/{b}/feeds" in r.text
+    assert "Local LLM" in r.text and "Automotive" in r.text

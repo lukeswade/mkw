@@ -145,6 +145,8 @@ async def follow_source(request: Request, domain: str = Form("")):
     A feed list built by remembering sites is a chore; one built from the
     domains your own research kept citing builds itself.
     """
+    import json
+
     from app.research.feed_discovery import discover
     from app.research.feeds import parse_feed_list
 
@@ -152,6 +154,19 @@ async def follow_source(request: Request, domain: str = Form("")):
     domain = domain.strip().lower()
     if not domain:
         return HTMLResponse('<span class="hint">No source to follow.</span>')
+
+    # Which brief? With several, only the reader knows — offer the choice
+    # before spending a fetch on discovery.
+    briefs = request.app.state.repo.list_briefs()
+    if len(briefs) > 1:
+        buttons = "".join(
+            f'<button class="follow-btn" hx-post="/briefs/{b["id"]}/feeds" '
+            f'hx-vals={json.dumps(json.dumps({"site": domain}))} '
+            f'hx-swap="outerHTML">{escape(b["name"])}</button>'
+            for b in briefs)
+        return HTMLResponse(
+            f'<span class="hint">Add {escape(domain)} to which brief? '
+            f'</span>{buttons}')
 
     async with httpx.AsyncClient(
             headers={"User-Agent": cfg.user_agent}, timeout=20.0) as client:
@@ -161,13 +176,28 @@ async def follow_source(request: Request, domain: str = Form("")):
         return HTMLResponse(
             f'<span class="hint">{escape(domain)} does not publish a feed '
             f'this could find.</span>')
+
+    if briefs:
+        brief = briefs[0]
+        if found.url in parse_feed_list(brief["feeds"]):
+            return HTMLResponse(
+                f'<span class="hint">Already in <strong>'
+                f'{escape(brief["name"])}</strong>.</span>')
+        blob = (brief["feeds"].rstrip() + "\n") if brief["feeds"].strip() else ""
+        request.app.state.repo.update_brief(brief["id"],
+                                            feeds=f"{blob}{found.url}\n")
+        return HTMLResponse(
+            f'<span class="hint">Added <strong>{escape(found.title)}</strong> '
+            f'to <strong>{escape(brief["name"])}</strong>.</span>')
+
+    # No briefs yet — the unnamed Settings list is still a place to put it,
+    # and /briefs offers to turn that list into a real brief.
     if found.url in parse_feed_list(cfg.feeds):
         return HTMLResponse(
             f'<span class="hint">Already following '
             f'<strong>{escape(found.title)}</strong>.</span>')
-
     blob = (cfg.feeds.rstrip() + "\n" if cfg.feeds.strip() else "")
     save_settings(cfg.settings_path, {"feeds": f"{blob}{found.url}\n"})
     return HTMLResponse(
         f'<span class="hint">Following <strong>{escape(found.title)}</strong> '
-        f'— it will appear in your next brief.</span>')
+        f'— name a brief on the Briefs page to schedule it.</span>')
