@@ -24,13 +24,26 @@ def _tpl(request: Request):
     return request.app.state.templates
 
 
+# Assistant answers open with a compliment far more often than with a topic,
+# and that opener became the run's name in the library.
+_FILLER = ("you're absolutely right", "you are absolutely right", "great question",
+           "that's a great", "certainly", "of course", "sure thing", "happy to help",
+           "here's a comprehensive", "here is a comprehensive", "absolutely")
+
+
 def _title_for(document: str) -> str:
-    """A run needs a name; use the document's first real line."""
-    for line in document.splitlines():
-        line = line.strip().lstrip("#").strip()
-        if len(line) > 12:
+    """A run needs a name. Prefer a real heading over the opening line."""
+    lines = [l.strip() for l in document.splitlines()[:40] if l.strip()]
+    for line in lines:                       # a markdown heading names the topic
+        if line.startswith("#"):
+            head = line.lstrip("#").strip()
+            if len(head) > 8:
+                return f"Claim check: {head[:_TITLE_CHARS]}"
+    for line in lines:                       # else the first line with substance
+        low = line.lower()
+        if len(line) > 12 and not any(low.startswith(f) for f in _FILLER):
             return f"Claim check: {line[:_TITLE_CHARS]}"
-    return "Claim check: pasted document"
+    return "Claim check: pasted text"
 
 
 @router.get("/verify")

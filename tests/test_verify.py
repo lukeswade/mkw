@@ -243,3 +243,21 @@ async def test_library_evidence_is_spread_across_sources():
     assert any("Second Source" in l for l in labels)
     assert any("Third Source" in l for l in labels)
     assert [e.n for e in ev] == list(range(1, len(ev) + 1))    # renumbered
+
+
+def test_pasted_assistant_answers_get_a_useful_title():
+    """An assistant answer usually opens with a compliment, and that opener
+    was becoming the run's name in the library."""
+    from app.web.routes_verify import _title_for
+    answer = ("You're absolutely right to ask about this! Here's a breakdown.\n\n"
+              "## Local LLM inference on Apple Silicon\n\n"
+              "MLX outperforms llama.cpp.\n")
+    assert _title_for(answer) == \
+        "Claim check: Local LLM inference on Apple Silicon"
+
+    no_heading = ("Great question! Let me explain.\n\n"
+                  "The M4 Pro supports up to 128GB of unified memory.\n")
+    assert _title_for(no_heading) == \
+        "Claim check: The M4 Pro supports up to 128GB of unified memory."
+
+    assert _title_for("short") == "Claim check: pasted text"
