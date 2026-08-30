@@ -168,7 +168,9 @@ def test_the_new_tab_and_library_render_runs_identically(lib):
         home = c.get("/partials/recent-runs").text
         library = c.get("/library").text
     for body in (home, library):
-        assert 'class="run-flags"' in body          # status stacked over kind
+        # status beside the title, type badges leading the detail line
+        assert 'class="run-headline"' in body
+        assert 'class="run-kinds"' in body
         assert 'class="kind kind-brief"' in body
         assert 'class="kind kind-matrix"' in body
     # the heading belongs to the New tab only

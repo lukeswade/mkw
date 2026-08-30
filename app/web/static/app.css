@@ -1450,8 +1450,25 @@ input[type="checkbox"] {
 
 
 @media (max-width: 560px) {
-  /* A title wraps to three lines here, and a vertically centred chip then
-     floats in the middle of it. Sit it on the first line instead. */
-  .run-headline { align-items: flex-start; }
-  .run-headline .chip { margin-top: .15rem; }
+  /* Title on its own line, then every badge together on the next one: what
+     it is on the left, how it ended on the right.
+
+     display:contents dissolves the two wrapper spans so their children become
+     grid items of .run-info directly — otherwise the status chip and the type
+     badges live in different parents and can never share a row. */
+  .run-headline,
+  .run-meta { display: contents; }
+  .run-info {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    row-gap: .3rem;
+  }
+  /* Descendant, not child: display:contents drops the wrapper's box but not
+     the DOM node, so these are grid ITEMS of .run-info while remaining
+     CHILDREN of the wrappers. A `>` here matches nothing. */
+  .run-info .run-title { grid-row: 1; grid-column: 1 / -1; }
+  .run-info .run-kinds { grid-row: 2; grid-column: 1; justify-self: start; }
+  .run-info .chip      { grid-row: 2; grid-column: 2; justify-self: end; }
+  .run-info .meta-text { grid-row: 3; grid-column: 1 / -1; }
 }
