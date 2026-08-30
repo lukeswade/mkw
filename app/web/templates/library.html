@@ -7,24 +7,33 @@
 </div>
 <form method="get" action="/library" class="search-bar">
   <input type="search" name="q" value="{{ q }}" placeholder="Search across all research…">
-  <select name="mode">
-    <option value="keyword" {{ 'selected' if mode == 'keyword' else '' }}>Keyword</option>
-    <option value="semantic" {{ 'selected' if mode == 'semantic' else '' }} {{ 'disabled' if not rag_available else '' }}>Semantic{{ '' if rag_available else ' (unavailable)' }}</option>
+  <select name="kind" title="Narrow to one type of result">
+    {% for value, label in kind_filters %}
+    <option value="{{ value }}" {{ 'selected' if kind == value else '' }}>{{ label }}</option>
+    {% endfor %}
   </select>
   <button type="submit">Search</button>
 </form>
 
 {% if results is not none %}
-  <p class="result-count">{{ results | length }} match(es) for "{{ q }}" ({{ mode }})</p>
+  <p class="result-count">{{ results | length }} match(es) for &ldquo;{{ q }}&rdquo;
+    {%- if kind %} in {{ (kind_filters | selectattr('0', 'equalto', kind) | first)[1] | lower }}{% endif %}
+    {%- if not rag_available %} · keyword only, the vector index is unavailable{% endif %}</p>
   {% for hit in results %}
   <a class="hit-card card" href="/runs/{{ hit.run['id'] }}">
-    <span class="chip status-{{ hit.run['status'] }}">{{ hit.run['status'] }}</span>
+    {% set hk = hit.run['kind'] or 'research' %}
+    <span class="hit-badges">
+      <span class="chip status-{{ hit.run['status'] }}">{{ hit.run['status'] }}</span>
+      <span class="kind kind-{{ hk }}">{{ KIND_LABEL[hk] }}</span>
+      {% if hit.has_matrix %}<span class="kind kind-matrix">matrix</span>{% endif %}
+    </span>
     <span class="hit-run">{{ hit.run['title'] or hit.run['query'] }}</span>
     <span class="hit-kind">{{ hit.kind }}{% if hit.title and hit.kind == 'finding' %}: {{ hit.title }}{% endif %}</span>
     {# keyword snippets arrive pre-escaped as Markup from highlight_snippet;
        semantic snippets are plain text and get autoescaped here #}
     <span class="hit-snippet">{{ hit.snippet }}</span>
-    {% if hit.score is defined %}<span class="hit-score">similarity {{ '%.2f' | format(hit.score) }}</span>{% endif %}
+    {% if hit.both %}<span class="hit-score" title="Ranked by both keyword and meaning">keyword + meaning</span>
+    {%- elif hit.score %}<span class="hit-score">similarity {{ '%.2f' | format(hit.score) }}</span>{% endif %}
   </a>
   {% else %}
   <p class="empty-note">Nothing found.</p>

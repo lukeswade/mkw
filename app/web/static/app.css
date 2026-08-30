@@ -1367,3 +1367,10 @@ input[type="checkbox"] {
 }
 .run-header-top { min-width: 0; }
 .run-actions { flex-wrap: wrap; row-gap: .4rem; }
+
+
+/* .hit-card is a column flex container, so an inline badge stretches to the
+   full card width. Badges size to their text and sit together on one line. */
+.hit-card .chip,
+.hit-card .kind { align-self: flex-start; }
+.hit-badges { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
