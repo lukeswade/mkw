@@ -18,7 +18,7 @@ and export are shared:
 | | starts from | what you get |
 | --- | --- | --- |
 | **Research** | a question | a cited overview over dozens of sources |
-| **Brief** | your feed list | one synthesis of what is new, on a schedule |
+| **Brief** | a named reading list | one synthesis of what is new, on a schedule |
 | **Claim check** | pasted text | a verdict table, claim by claim |
 
 Everything runs on your own machine. The only thing that can leave it is the
@@ -33,12 +33,14 @@ Ollama, or MLX.
   snippet-grounded summary) up to deep-research runs budgeted for dozens of
   sources, with a fast-model triage pass so doomed candidates cost seconds,
   not full analyses.
-- **Briefs from your feeds**: point it at RSS/Atom URLs and it reads what is
-  new instead of searching, scoring items on *is this a change I should know
-  about* rather than how completely they answer a question — so a terse
-  release changelog outranks a long think-piece. Give it a topic and it
-  filters the week to that interest. Items an earlier brief already reported
-  are skipped, so a daily brief never repeats itself.
+- **Named briefs**: a saved reading list plus a standing interest, run on its
+  own schedule, so several subjects can be followed without mixing. Sources
+  are added by *site address* — it finds the feed itself, and `owner/repo`
+  becomes a GitHub releases feed — or by following a domain straight from a
+  finding in earlier research. Items are scored on *is this a change I should
+  know about* rather than how completely they answer a question, so a terse
+  release changelog outranks a long think-piece, and anything an earlier brief
+  already reported is skipped.
 - **Claim checking**: paste an article, a report, or an answer from ChatGPT,
   Gemini or Claude. It pulls out each assertion, checks your own research
   first and the web second, and returns a verdict table — supported,
@@ -239,10 +241,10 @@ keeps a short curated list ("domain — what it holds"); when a topic fits one,
 the planner dedicates a `site:`-scoped query to it. Add your own goldmines as
 you find them.
 
-**Feeds.** Settings keeps the reading list a brief works from — one RSS or
-Atom URL per line, `#` starts a comment. GitHub release atoms
-(`https://github.com/<owner>/<repo>/releases.atom`) work well for tracking a
-stack you actually run.
+**Feeds.** Reading lists live on the **Briefs** page, one per brief, and are
+built by pasting a site address rather than a feed URL. Settings also keeps a
+single global list — one URL per line, `#` starts a comment — which behaves as
+an unnamed brief and is what the *Brief from feeds* button uses.
 
 **Citation chasing.** When a source makes the cut, its most relevant outbound
 references become candidates in the same run — the links a good page chooses
@@ -287,18 +289,39 @@ run whose overview leads with **"What's new since the last look"** — the same
 delta treatment applies to any follow-up or retry, so you read the changes,
 not a rerun of what you already know. Toggle it off with the same button.
 
-**Briefs** — the *Brief from feeds* button on the new-run form. Instead of
-searching, it reads the RSS/Atom URLs in Settings → Feeds, fetches what is
-new, and writes one synthesis across all of it. Leave the question box empty
-for everything the feeds published; type an interest ("local LLM inference on
-Apple Silicon") and one pass over the entry titles narrows the week to that
-before anything is fetched. Items an earlier brief already covered are
-skipped, so day two is not day one again. Mark a brief evergreen with ☆ and
-it refreshes daily.
+**Briefs** — the **Briefs** page. A brief is a saved reading list plus a
+standing interest: name it, add sources, and run it. Instead of searching it
+reads those feeds, fetches what is new, and writes one synthesis across all
+of it.
 
-Briefs score items differently from research: the question is *is this a
+Add sources **by site address, not feed URL** — nobody knows where a site
+keeps its feed. Type `simonwillison.net` and it reads the page's own
+`<link rel="alternate">` declaration; if the page declares nothing it tries
+the usual paths; and `owner/repo` expands to that GitHub project's releases
+atom, which is the most useful feed for a stack you actually run. A candidate
+only counts if it parses *and* has entries, so a soft-404 that returns 200
+never gets subscribed to. You can also add a source from research you have
+already done: any finding on a run page offers **☆ Follow &lt;domain&gt;**,
+which resolves that site's feed and attaches it.
+
+Each brief keeps its own feeds, interest, depth and window, so following
+several subjects does not mix them. Toggle **☆ daily** and it runs once a day
+on its own. Items an earlier brief already reported are skipped, so day two is
+not day one again.
+
+An interest is optional but does real work: one pass over the entry titles
+narrows the week before anything is fetched, which is what keeps a post about
+a video game out of a local-LLM brief. Leave it empty to keep everything the
+feeds published.
+
+Briefs also score items differently from research. The question is *is this a
 change I should know about*, so a three-line release note with real changes
-beats a long post that merely restates what you already assume.
+beats a long post restating what you already assume — the research rubric
+gets that backwards, because it rewards pages that answer a question
+completely.
+
+The older global feed list in Settings still works and behaves as one unnamed
+brief, started from the *Brief from feeds* button on the New page.
 
 **Claim check** — the *Check claims* page. Paste anything that makes factual
 assertions and it extracts them one by one, resolving pronouns so each stands
