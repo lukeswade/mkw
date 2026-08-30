@@ -24,7 +24,7 @@ from app.db import Repo, utcnow
 from app.llm import prompts
 from app.llm.client import LLM
 from app.llm.json_utils import LLMJsonError
-from app.models import RECENCY_LABELS, TriageOut
+from app.models import BRIEF_DEFAULT_QUERY, RECENCY_LABELS, TriageOut
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
@@ -166,6 +166,9 @@ class _RunState:
     # feed, since the feeds were chosen deliberately.
     per_source: int = 2
     group_by: object = None
+    # Briefs score "is this a change I should know about", not "does this
+    # answer the question" — a terse changelog is high value, not low.
+    notes_template: str | None = None
     fingerprints: list[tuple[frozenset[int], str]] = field(default_factory=list)
     searched: list[str] = field(default_factory=list)
     state_md: str = ""
@@ -344,11 +347,18 @@ class Pipeline:
                 if not feed_urls:
                     raise ValueError(
                         "no feeds configured — add them in Settings")
-                searcher = feeds.FeedSearcher(feed_urls, http)
+                # For a brief the query is not a search — it is the
+                # reader's standing interest, used to narrow the week's
+                # items. A brief started with no question keeps everything.
+                topic = "" if row["query"].strip() == BRIEF_DEFAULT_QUERY \
+                    else row["query"]
+                searcher = feeds.FeedSearcher(feed_urls, http, topic=topic,
+                                              llm=llm)
                 # Yesterday's items are still inside today's window, so a
                 # brief that does not remember what it already reported
                 # repeats itself on day two.
                 state.per_source = feeds.PER_FEED_PER_ROUND
+                state.notes_template = prompts.NOTES_BRIEF
                 state.group_by = lambda r: r.via_query or domain_of(r.url)
                 # seen_urls holds CANONICAL urls — rank_diverse canonicalizes
                 # each candidate before the membership test. Stored finding
@@ -360,8 +370,10 @@ class Pipeline:
                 state.seen_urls |= already
                 self.bus.publish(
                     run_id, "log",
-                    message=(f"reading {len(feed_urls)} feed(s); skipping "
-                             f"{len(already)} item(s) already briefed"))
+                    message=(f"reading {len(feed_urls)} feed(s)"
+                             + (f", filtered to “{topic}”" if topic else "")
+                             + f"; skipping {len(already)} item(s) already "
+                               f"briefed"))
             else:
                 searcher = Searcher(
                     cfg.searxng_url, http,
@@ -679,7 +691,8 @@ class Pipeline:
             notes = await take_notes(
                 llm, brief=brief, recency_desc=recency_desc, today=today,
                 url=final_url, title=title,
-                detected_date=detected_date, text=doc.text, keywords=keywords)
+                detected_date=detected_date, text=doc.text, keywords=keywords,
+                template=state.notes_template)
             if notes is None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,

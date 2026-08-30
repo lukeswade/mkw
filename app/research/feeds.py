@@ -21,6 +21,8 @@ from urllib.parse import urljoin
 import httpx
 from lxml import etree
 
+from app.llm import prompts
+from app.models import BriefFilterOut
 from app.research.searcher import SearchResult, cutoff_for
 
 log = logging.getLogger(__name__)
@@ -178,9 +180,15 @@ class FeedSearcher:
     """
 
     def __init__(self, feed_urls: list[str], client: httpx.AsyncClient,
-                 max_concurrent: int = 4):
+                 max_concurrent: int = 4, topic: str = "", llm=None):
         self.feed_urls = feed_urls
         self.client = client
+        # A brief over unfiltered feeds reports whatever the authors wrote
+        # that week. `topic` narrows it to what the reader follows; without
+        # one, everything the feeds published is fair game.
+        self.topic = (topic or "").strip()
+        self.llm = llm
+        self.filtered_out = 0
         self._sem = asyncio.Semaphore(max(1, max_concurrent))
         # The pipeline reads these off whatever searcher it was handed.
         self.categories = ""
@@ -210,6 +218,35 @@ class FeedSearcher:
             self.blocked_engines.setdefault(url, "no entries")
         return entries
 
+    async def _by_topic(self, entries: list[FeedEntry]) -> list[FeedEntry]:
+        """Narrow the week's items to the reader's stated interest.
+
+        Titles only, one call: this decides what is worth opening, not what
+        is worth keeping — the notes stage still scores everything fetched.
+        A failure here keeps everything, because a broken filter must not
+        silently empty the brief.
+        """
+        if not self.topic or self.llm is None or not entries:
+            return entries
+        listing = "\n".join(
+            f"{i}. {e.title} — {e.feed_title}" for i, e in enumerate(entries))
+        try:
+            out = await self.llm.chat_json(
+                "triage",
+                [{"role": "user", "content": prompts.BRIEF_FILTER.format(
+                    topic=self.topic, items=listing)}],
+                BriefFilterOut, max_tokens=1200, temperature=0.0)
+        except Exception as e:
+            log.warning("brief topic filter failed, keeping everything: %s", e)
+            return entries
+        keep = {i for i in out.keep if 0 <= i < len(entries)}
+        if not keep:
+            log.warning("topic filter matched nothing; keeping all %d entries",
+                        len(entries))
+            return entries
+        self.filtered_out = len(entries) - len(keep)
+        return [e for i, e in enumerate(entries) if i in keep]
+
     async def search(self, query: str, recency: str, *,
                      pageno: int = 1) -> list[SearchResult]:
         # A feed has no page 2, and the pipeline's starved-round backfill will
@@ -223,6 +260,7 @@ class FeedSearcher:
             cutoff = cutoff_for(recency)
             seen: set[str] = set()
             results: list[SearchResult] = []
+            kept_entries: list[FeedEntry] = []
             for entry in sorted(
                     (e for batch in gathered for e in batch),
                     key=lambda e: e.published or datetime.min, reverse=True):
@@ -231,6 +269,9 @@ class FeedSearcher:
                 if cutoff and entry.published and entry.published < cutoff:
                     continue
                 seen.add(entry.url)
+                kept_entries.append(entry)
+            kept_entries = await self._by_topic(kept_entries)
+            for entry in kept_entries:
                 results.append(SearchResult(
                     url=entry.url, title=entry.title, snippet=entry.summary,
                     engine="feed", published=entry.published, score=1.0,

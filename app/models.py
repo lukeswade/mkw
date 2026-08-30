@@ -11,6 +11,11 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 Recency = Literal["week", "month", "3months", "6months", "1year", "3years", "all"]
+
+# A brief needs no question, but a run needs a title and the synthesis stage
+# needs something to orient on. When the query IS this, there is no topic
+# filter — the reader asked for everything their feeds published.
+BRIEF_DEFAULT_QUERY = "Brief: what is new across my feeds"
 RECENCY_CHOICES: tuple[str, ...] = (
     "week", "month", "3months", "6months", "1year", "3years", "all",
 )
@@ -134,6 +139,10 @@ class TriageOut(BaseModel):
     laziness) the failure mode is keeping extra junk — which relevance
     scoring catches — rather than silently discarding good candidates."""
     drop: list[int] = Field(default_factory=list, max_length=64)
+
+
+class BriefFilterOut(BaseModel):
+    keep: list[int] = Field(default_factory=list, max_length=400)
 
 
 class MatrixCell(BaseModel):

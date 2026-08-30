@@ -344,3 +344,90 @@ def test_grouping_still_defaults_to_domain_for_web_search():
                          engine="google", published=None, score=1.0)
             for n in range(6)]
     assert len(rank_diverse(pool, set(), per_domain=2, limit=30)) == 2
+
+
+# ---- topic filter + brief-specific notes ----------------------------------------
+
+class _FilterLLM:
+    """Records the prompts it sees so a test can assert which rubric ran."""
+    def __init__(self, keep):
+        self.keep = keep
+        self.prompts: list[str] = []
+
+    async def chat_json(self, kind, messages, schema, **_kw):
+        self.prompts.append(messages[-1]["content"])
+        return schema.model_validate({"keep": self.keep})
+
+
+async def test_topic_filter_narrows_entries_to_the_stated_interest():
+    from app.research.feeds import FeedEntry
+    entries = [
+        FeedEntry("https://a/1", "MLX 0.30 ships paged attention", "", None, "f"),
+        FeedEntry("https://a/2", "EVE Online moves to Python 3", "", None, "f"),
+    ]
+    llm = _FilterLLM(keep=[0])
+    s = FeedSearcher([], httpx.AsyncClient(), topic="local LLM inference", llm=llm)
+    kept = await s._by_topic(entries)
+    assert [e.url for e in kept] == ["https://a/1"]
+    assert s.filtered_out == 1
+    assert "local LLM inference" in llm.prompts[0]
+
+
+async def test_no_topic_means_no_filtering_call():
+    from app.research.feeds import FeedEntry
+    entries = [FeedEntry("https://a/1", "anything", "", None, "f")]
+    llm = _FilterLLM(keep=[])
+    s = FeedSearcher([], httpx.AsyncClient(), topic="", llm=llm)
+    assert await s._by_topic(entries) == entries
+    assert llm.prompts == []                    # the model was never asked
+
+
+async def test_a_broken_filter_keeps_everything_rather_than_emptying_the_brief():
+    from app.research.feeds import FeedEntry
+    entries = [FeedEntry("https://a/1", "t", "", None, "f"),
+               FeedEntry("https://a/2", "t2", "", None, "f")]
+
+    class Boom:
+        async def chat_json(self, *a, **k):
+            raise RuntimeError("model down")
+
+    s = FeedSearcher([], httpx.AsyncClient(), topic="x", llm=Boom())
+    assert await s._by_topic(entries) == entries
+
+    # and a filter that matches nothing is treated as a failed filter, not as
+    # "the reader wants an empty brief"
+    s2 = FeedSearcher([], httpx.AsyncClient(), topic="x", llm=_FilterLLM(keep=[]))
+    assert await s2._by_topic(entries) == entries
+
+
+@respx.mock
+async def test_a_brief_scores_news_value_not_question_answering(data_dir):
+    """A terse changelog is high value to a brief and low value to research."""
+    cfg = _brief_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload([])))
+    respx.get("https://example.com/feed.xml").mock(
+        return_value=httpx.Response(200, content=RSS))
+    for slug in ("mlx-030", "old"):
+        respx.get(f"https://example.com/{slug}").mock(
+            return_value=httpx.Response(200, html=article(slug)))
+
+    seen: list[str] = []
+
+    def capture_notes(messages):
+        seen.append(messages[-1]["content"])
+        return {"relevance": 8, "summary": "s", "notes_md": "n",
+                "key_facts": [], "published_date": None}
+
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    s["notes"] = [capture_notes]
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(s))
+    rid = orch.enqueue(RunParams(query="Brief", depth=4, recency="all",
+                                 origin="cli", kind="brief"))
+    await orch.execute_now(rid)
+
+    assert seen, "no notes calls were made"
+    joined = "".join(seen)
+    assert "CHANGE THE READER SHOULD KNOW ABOUT" in joined   # the brief rubric
+    assert "research brief" not in joined.lower()            # not the research one

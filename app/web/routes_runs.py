@@ -12,7 +12,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, RedirectResponse,
                                Response, StreamingResponse)
 from pydantic import ValidationError
 
-from app.models import RunParams
+from app.models import BRIEF_DEFAULT_QUERY, RunParams
 from app.research.estimate import estimate_run
 from app.research.progress import format_event
 from app.research.storage import SERVABLE_RE, RunStore
@@ -194,7 +194,7 @@ async def create_run(request: Request,
     if kind == "brief" and not query.strip():
         # A brief is defined by its feed list, not a question — but the query
         # is what titles the run and steers relevance scoring, so give it one.
-        query = "Brief: what is new across my feeds"
+        query = BRIEF_DEFAULT_QUERY
     try:
         params = RunParams(query=query, depth=depth, recency=recency,
                            kind=kind,
