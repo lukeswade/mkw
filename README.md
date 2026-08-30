@@ -11,6 +11,16 @@ question into targeted web searches, reads the results, writes per-source
 notes with verbatim evidence, lets the gaps steer further search rounds, and
 ends with a cited overview plus follow-up suggestions.
 
+The same machinery does three jobs, because only the *search* step is
+web-specific — fetching, extraction, note-taking, deduplication, synthesis
+and export are shared:
+
+| | starts from | what you get |
+| --- | --- | --- |
+| **Research** | a question | a cited overview over dozens of sources |
+| **Brief** | your feed list | one synthesis of what is new, on a schedule |
+| **Claim check** | pasted text | a verdict table, claim by claim |
+
 Everything runs on your own machine. The only thing that can leave it is the
 LLM call — and even that stays local if you point it at llama.cpp, LM Studio,
 Ollama, or MLX.
@@ -23,6 +33,23 @@ Ollama, or MLX.
   snippet-grounded summary) up to deep-research runs budgeted for dozens of
   sources, with a fast-model triage pass so doomed candidates cost seconds,
   not full analyses.
+- **Briefs from your feeds**: point it at RSS/Atom URLs and it reads what is
+  new instead of searching, scoring items on *is this a change I should know
+  about* rather than how completely they answer a question — so a terse
+  release changelog outranks a long think-piece. Give it a topic and it
+  filters the week to that interest. Items an earlier brief already reported
+  are skipped, so a daily brief never repeats itself.
+- **Claim checking**: paste an article, a report, or an answer from ChatGPT,
+  Gemini or Claude. It pulls out each assertion, checks your own research
+  first and the web second, and returns a verdict table — supported,
+  contested, unsupported or unverifiable — with the quote that decided each
+  one. Opinions and predictions are recognised and set aside rather than
+  judged.
+- **Comparison tables**: any finished run that weighs two or more things
+  against each other can be turned into a matrix — entities across the top,
+  the axes the sources actually cover down the side, every cell cited, and
+  disagreements flagged rather than averaged away. Built from stored
+  findings, so it works on runs you finished weeks ago.
 - **Citation chasing**: sources that make the cut get their best references
   fetched too — datasheets and primary documents search engines never surface.
 - **Reads the hard parts of the web**: YouTube videos via their caption
@@ -52,6 +79,11 @@ A finished run: a cited synthesis, the sources behind every claim, per-source
 findings with verbatim evidence, suggested follow-ups, and the full log.
 
 ![A completed run showing the cited overview, related runs and result tabs](docs/screenshots/run-overview.png)
+
+Every run in the library carries a colour-coded badge for what it is —
+research, brief, or claim check — plus a separate marker when a run has a
+comparison table, since that is an artifact on a research run rather than a
+kind of its own.
 
 Semantic search across everything you have ever researched — the library
 answers by meaning, not just keywords.
@@ -207,6 +239,11 @@ keeps a short curated list ("domain — what it holds"); when a topic fits one,
 the planner dedicates a `site:`-scoped query to it. Add your own goldmines as
 you find them.
 
+**Feeds.** Settings keeps the reading list a brief works from — one RSS or
+Atom URL per line, `#` starts a comment. GitHub release atoms
+(`https://github.com/<owner>/<repo>/releases.atom`) work well for tracking a
+stack you actually run.
+
 **Citation chasing.** When a source makes the cut, its most relevant outbound
 references become candidates in the same run — the links a good page chooses
 are often better than anything a search engine returns, and unreachable
@@ -250,6 +287,50 @@ run whose overview leads with **"What's new since the last look"** — the same
 delta treatment applies to any follow-up or retry, so you read the changes,
 not a rerun of what you already know. Toggle it off with the same button.
 
+**Briefs** — the *Brief from feeds* button on the new-run form. Instead of
+searching, it reads the RSS/Atom URLs in Settings → Feeds, fetches what is
+new, and writes one synthesis across all of it. Leave the question box empty
+for everything the feeds published; type an interest ("local LLM inference on
+Apple Silicon") and one pass over the entry titles narrows the week to that
+before anything is fetched. Items an earlier brief already covered are
+skipped, so day two is not day one again. Mark a brief evergreen with ☆ and
+it refreshes daily.
+
+Briefs score items differently from research: the question is *is this a
+change I should know about*, so a three-line release note with real changes
+beats a long post that merely restates what you already assume.
+
+**Claim check** — the *Check claims* page. Paste anything that makes factual
+assertions and it extracts them one by one, resolving pronouns so each stands
+alone, then checks each against your library first and the web second. The
+result is a table: **supported**, **contested**, **unsupported** or
+**unverifiable**, each with a confidence, a reason, and the quote that
+decided it.
+
+Two deliberate asymmetries. Opinions, predictions and recommendations are
+listed separately rather than judged — they are not false, they are not
+checkable. And an *unsupported* verdict is never accepted from your library
+alone, however confident: a wrong "supported" merely echoes research you
+already have, while a wrong "unsupported" tells you something true is false,
+which is the failure that matters when you are hunting for errors. Checking
+is capped at the 15 most load-bearing claims per run, and whatever is left
+over is listed rather than quietly dropped.
+
+**Comparison tables** — the *Build comparison* button on any finished run.
+It re-reads the stored findings, decides the axes the sources actually
+support, and writes a table into a new **Comparison** tab: entities across
+the top, axes down the side, cells cited, cells nothing could fill marked as
+gaps, and disagreements flagged with † instead of being averaged into a
+number nobody wrote. Nothing is re-searched, so it costs one model call and
+works on runs finished weeks ago. Most runs are not comparisons — those say
+so and build nothing rather than inventing two columns.
+
+**Building on earlier research** — new runs consult your library by default
+and target the gaps instead of re-deriving what you already know. Uncheck
+*Build on earlier research* to run cold: no prior context reaches the
+planner. Worth doing when an earlier conclusion was wrong and you do not want
+it anchoring the new answer.
+
 ### Telegram (optional)
 
 1. Message **@BotFather** → `/newbot` → put the token in `.env` as
@@ -270,6 +351,10 @@ docker compose exec app python -m app.cli runs
 docker compose exec app python -m app.cli ask "question over everything so far"
 docker compose exec app python -m app.cli reindex    # rebuild indexes from the .md files
 ```
+
+Briefs, claim checks and comparison tables are web-UI only — they need a feed
+list, a pasted document, or a finished run to act on, none of which fit a
+one-line command well.
 
 ---
 
