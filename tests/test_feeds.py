@@ -431,3 +431,30 @@ async def test_a_brief_scores_news_value_not_question_answering(data_dir):
     joined = "".join(seen)
     assert "CHANGE THE READER SHOULD KNOW ABOUT" in joined   # the brief rubric
     assert "research brief" not in joined.lower()            # not the research one
+
+
+@respx.mock
+async def test_the_run_log_reports_what_the_topic_filter_removed(data_dir):
+    """A filter you cannot see is a filter you cannot trust."""
+    cfg = _brief_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload([])))
+    respx.get("https://example.com/feed.xml").mock(
+        return_value=httpx.Response(200, content=RSS))
+    respx.get("https://example.com/mlx-030").mock(
+        return_value=httpx.Response(200, html=article("MLX 0.30")))
+
+    class KeepFirst(FakeLLM):
+        async def chat_json(self, kind, messages, schema, **kw):
+            if schema.__name__ == "BriefFilterOut":
+                return schema.model_validate({"keep": [0]})
+            return await super().chat_json(kind, messages, schema, **kw)
+
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: KeepFirst(s))
+    rid = orch.enqueue(RunParams(query="only MLX things", depth=4,
+                                 recency="all", origin="cli", kind="brief"))
+    await orch.execute_now(rid)
+    events = (cfg.research_dir / rid / "events.jsonl").read_text()
+    assert "topic filter set aside 1 off-topic item(s)" in events

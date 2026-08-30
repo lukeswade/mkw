@@ -613,6 +613,12 @@ class Pipeline:
         total_results = sum(len(l) for l in merged_lists)
         self.bus.publish(run_id, "searched", results=total_results,
                          candidates=len(candidates))
+        # Without this there is no way to tell a filter that narrowed the
+        # feeds from one that silently did nothing.
+        if set_aside := getattr(searcher, "filtered_out", 0):
+            self.bus.publish(
+                run_id, "log",
+                message=f"topic filter set aside {set_aside} off-topic item(s)")
         if total_results == 0 and searcher.blocked_engines:
             blocked = ", ".join(f"{k} ({v})" for k, v in
                                 sorted(searcher.blocked_engines.items()))
