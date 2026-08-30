@@ -1376,7 +1376,7 @@ input[type="checkbox"] {
 .hit-badges { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
 
 
-/* ---- run row: title first, its badges beside it ---- */
+/* ---- run row: title then status; type leads the detail line ---- */
 .run-headline {
   display: flex;
   align-items: center;
@@ -1384,25 +1384,27 @@ input[type="checkbox"] {
   min-width: 0;
 }
 .run-headline .run-title { min-width: 0; }
-.run-flags { display: flex; align-items: center; gap: .3rem; flex: 0 0 auto; }
-.run-kinds { display: flex; align-items: center; gap: .3rem; }
-.run-flags .chip,
-.run-flags .kind {
+.run-headline .chip { flex: 0 0 auto; }
+
+/* Flex so the badges sit on the text's centre line rather than its baseline. */
+.run-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+.run-kinds { display: flex; align-items: center; gap: .3rem; flex: 0 0 auto; }
+.meta-text { min-width: 0; }
+
+.run-headline .chip,
+.run-kinds .kind {
   font-size: .625rem;
   line-height: 1.35;
   padding: .1rem .42rem;
   letter-spacing: .05em;
 }
-.run-flags .chip { border-radius: 4px; }
+.run-headline .chip { border-radius: 4px; }
 
-@media (max-width: 560px) {
-  /* Badges get their own row under the title: what it is on the left, how it
-     ended on the right, so the eye can scan either column. */
-  .run-headline { flex-direction: column; align-items: stretch; gap: .3rem; }
-  .run-flags { width: 100%; }
-  .run-kinds { order: 1; }
-  .run-flags .chip { order: 2; margin-left: auto; }
-}
 
 
 /* Add-a-feed row: an address box and its button on one line. */
@@ -1445,3 +1447,11 @@ input[type="checkbox"] {
 .brief-edit summary { cursor: pointer; color: var(--text-muted); font-size: var(--text-sm); }
 .brief-edit form { margin-top: .75rem; }
 .new-brief h3 { margin-top: 0; }
+
+
+@media (max-width: 560px) {
+  /* A title wraps to three lines here, and a vertically centred chip then
+     floats in the middle of it. Sit it on the first line instead. */
+  .run-headline { align-items: flex-start; }
+  .run-headline .chip { margin-top: .15rem; }
+}
