@@ -233,6 +233,38 @@ Write a dense thematic digest (max 1200 words) of everything material in \
 these notes, keeping every [n] citation attached to its claims. Markdown, \
 no preamble."""
 
+MATRIX = """You are the comparison stage of a research pipeline. Turn the \
+source notes below into a comparison table.
+
+Research question: {query}
+
+Source notes — cite them by the id in front of each source:
+{notes_block}
+
+First decide whether this research is a comparison at all: does it weigh two
+or more named things against each other? A guide to performing one task, or an
+investigation of a single fault, is NOT a comparison — say so rather than
+inventing entities to compare.
+
+Produce a JSON object with exactly these keys:
+- "applicable": boolean — false if the research does not compare two or more named things
+- "reason": if applicable is false, one sentence naming what the research is instead. Empty string otherwise.
+- "entities": the things being compared, 2-6 of them, named as the sources name them
+- "dimensions": the axes worth comparing on, 3-9 of them, ordered most decision-relevant first. Use axes the SOURCES actually cover, not the ones you wish they did.
+- "cells": array of objects, one per entity/dimension pair you can genuinely fill:
+  - "entity": exactly one of the entities above
+  - "dimension": exactly one of the dimensions above
+  - "value": the answer, as short as it can be while staying specific — a figure with its unit, a version, a yes/no, a short phrase. Never a sentence.
+  - "sources": array of the source ids that support it
+  - "conflict": true when the sources disagree about this cell
+- "caveats_md": markdown, max 200 words — where sources disagreed and how, and which cells nothing could fill. Empty string if there is nothing to say.
+
+Omit a cell entirely rather than guessing at it. A visible gap is more useful
+than an invented value, and a cell backed by no source id is worthless.
+
+Respond with only the JSON object."""
+
+
 FOLLOWUPS = """A research run just completed. Recommend follow-up research.
 
 Research question: {query}

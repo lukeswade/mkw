@@ -1286,3 +1286,17 @@ input[type="checkbox"] {
   border: 1px solid hsl(var(--hue, 160) 50% 40% / 0.5);
   vertical-align: baseline;
 }
+
+
+/* A comparison table can be wider than the column; scroll it, never the page.
+   The first column is the dimension label, so it stays put while the entity
+   columns slide under it. */
+.matrix-scroll { overflow-x: auto; }
+.matrix-scroll .prose table { min-width: 100%; }
+.matrix-scroll .prose td:first-child,
+.matrix-scroll .prose th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--bg-base);
+}
+.matrix-scroll .prose td { vertical-align: top; font-variant-numeric: tabular-nums; }

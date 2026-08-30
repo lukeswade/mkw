@@ -28,7 +28,7 @@ from app.models import RECENCY_LABELS, TriageOut
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
-from app.research import reddit, youtube
+from app.research import matrix, reddit, youtube
 from app.research.dedupe import (canonicalize, domain_of, interleave,
                                  lexical_overlap, rank_diverse,
                                  similarity, text_fingerprint)
@@ -869,19 +869,7 @@ class Pipeline:
             raise ValueError(f"run {run_id} not found")
         store = RunStore(self.cfg.research_dir / row["dir"])
         meta = store.read_meta()
-        findings: list[Finding] = []
-        for r in self.repo.findings_for_run(run_id):
-            # The finding .md file is the full record (summary, notes, quoted
-            # evidence) — feed it whole rather than re-deriving its parts.
-            try:
-                body = (store.dir / r["path"]).read_text(encoding="utf-8")
-            except OSError:
-                body = r["summary"] or ""
-            findings.append(Finding(
-                idx=r["idx"], url=r["url"], title=r["title"],
-                domain=r["domain"], published=r["published_date"],
-                relevance=r["relevance"], summary=r["summary"] or "",
-                notes_md=body, key_facts=[]))
+        findings = self._stored_findings(run_id, store)
         if not findings:
             raise ValueError("run has no stored findings to synthesize from")
 
@@ -931,6 +919,67 @@ class Pipeline:
                               run_id)
         self.bus.publish(run_id, "log", message="overview re-synthesized")
         self.bus.publish(run_id, "resynthesized", sources=len(findings))
+
+    def _stored_findings(self, run_id: str, store: RunStore) -> list[Finding]:
+        """Rebuild Findings from disk for the post-hoc actions.
+
+        The finding .md file is the full record (summary, notes, quoted
+        evidence) — feed it whole rather than re-deriving its parts.
+        """
+        out: list[Finding] = []
+        for r in self.repo.findings_for_run(run_id):
+            try:
+                body = (store.dir / r["path"]).read_text(encoding="utf-8")
+            except OSError:
+                body = r["summary"] or ""
+            out.append(Finding(
+                idx=r["idx"], url=r["url"], title=r["title"],
+                domain=r["domain"], published=r["published_date"],
+                relevance=r["relevance"], summary=r["summary"] or "",
+                notes_md=body, key_facts=[]))
+        return out
+
+    async def build_matrix(self, run_id: str) -> None:
+        """Turn a finished run's findings into a comparison table.
+
+        Post-hoc like resynthesize: reads stored findings, writes matrix.md,
+        touches neither the search nor the fetch layer. Refuses politely when
+        the research was not a comparison in the first place.
+        """
+        row = self.repo.get_run(run_id)
+        if row is None:
+            raise ValueError(f"run {run_id} not found")
+        store = RunStore(self.cfg.research_dir / row["dir"])
+        findings = self._stored_findings(run_id, store)
+        if not findings:
+            raise ValueError("run has no stored findings to compare")
+
+        meta = store.read_meta()
+        title = meta.get("title") or row["title"] or row["query"][:120]
+        self.bus.publish(run_id, "log",
+                         message="building comparison matrix from stored sources")
+        out, dropped = await matrix.build(
+            self.llm_factory(), query=row["query"], findings=findings)
+
+        if not out.applicable or len(out.entities) < 2:
+            reason = out.reason or ("this research does not compare two or "
+                                    "more named things")
+            self.bus.publish(run_id, "log", message=f"no matrix built — {reason}")
+            raise RuntimeError(reason)
+
+        md = matrix.render_matrix_md(out, title=title, dropped=dropped)
+        md, removed = validate_citations(md, len(findings))
+        if removed:
+            self.bus.publish(run_id, "log",
+                             message=f"stripped invalid citations: {sorted(removed)}")
+        store.write_matrix(md)
+        store.update_meta(matrix_built_at=utcnow())
+        self.bus.publish(
+            run_id, "log",
+            message=(f"matrix built: {len(out.entities)} × "
+                     f"{len(out.dimensions)} from {len(findings) - dropped} sources"))
+        self.bus.publish(run_id, "matrix", entities=len(out.entities),
+                         dimensions=len(out.dimensions))
 
     # ---- helpers -----------------------------------------------------------------
     def _check_cancel(self) -> None:

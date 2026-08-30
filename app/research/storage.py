@@ -82,6 +82,10 @@ class RunStore:
         return self.dir / "overview.md"
 
     @property
+    def matrix_path(self) -> Path:
+        return self.dir / "matrix.md"
+
+    @property
     def further_path(self) -> Path:
         return self.dir / "further-research.md"
 
@@ -124,6 +128,9 @@ class RunStore:
 
     def write_overview(self, md: str) -> None:
         atomic_write_text(self.overview_path, md)
+
+    def write_matrix(self, md: str) -> None:
+        atomic_write_text(self.matrix_path, md)
 
     def write_further(self, md: str) -> None:
         atomic_write_text(self.further_path, md)

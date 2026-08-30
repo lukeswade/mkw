@@ -16,6 +16,7 @@
 <nav class="tabs" role="tablist">
   <button class="active" data-tab="overview">Overview</button>
   <button data-tab="sources">Sources <span class="count">{{ findings | length }}</span></button>
+  {% if matrix_html %}<button data-tab="matrix">Comparison</button>{% endif %}
   <button data-tab="further">Further research <span class="count">{{ followups | length }}</span></button>
   <button data-tab="log">Log</button>
 </nav>
@@ -34,6 +35,13 @@
   </ol>
   {% endif %}
 </section>
+
+{% if matrix_html %}
+<section class="tab-panel" id="tab-matrix">
+  <div class="matrix-scroll"><div class="prose">{{ matrix_html | safe }}</div></div>
+  <p class="hint">Citations link to the bibliography on the Overview tab.</p>
+</section>
+{% endif %}
 
 <section class="tab-panel" id="tab-sources">
   {% for card in finding_cards %}

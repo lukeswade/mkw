@@ -3,6 +3,18 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   // tab switching (run page)
+  // A citation on the Comparison tab points at #src-N, which lives in the
+  // Overview panel — jumping there while that panel is display:none looks
+  // like a dead link. Switch tabs first, then let the anchor resolve.
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest('a[href^="#src-"]');
+    if (!link) return;
+    const panel = document.getElementById("tab-overview");
+    if (!panel || panel.classList.contains("active")) return;
+    const btn = document.querySelector('.tabs [data-tab="overview"]');
+    if (btn) btn.click();
+  });
+
   document.querySelectorAll(".tabs [data-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".tabs [data-tab]").forEach((b) =>

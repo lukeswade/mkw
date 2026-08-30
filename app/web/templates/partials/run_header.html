@@ -16,6 +16,13 @@
          title="Download this run as a single self-contained web page — overview, sources, and collapsible notes, shareable anywhere">Export HTML</a>
       <a class="export-btn" href="/runs/{{ run_id }}/export-interactive.html"
          title="Download this run as a portable one-file mini-app: tabs, search over sources and notes, clickable citations, dark/light toggle">Export interactive</a>
+      {% if row['status'] == 'completed' %}
+      <button class="resynth-btn"
+              hx-post="/runs/{{ run_id }}/matrix"
+              hx-swap="outerHTML"
+              title="Build a comparison table from this run's stored sources — no re-searching. Only works when the research actually compares two or more things.">
+        Build comparison</button>
+      {% endif %}
       {% if row['status'] in ('completed', 'interrupted', 'failed') %}
       <button class="resynth-btn"
               hx-post="/runs/{{ run_id }}/resynthesize"

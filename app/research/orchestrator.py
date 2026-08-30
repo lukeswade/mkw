@@ -206,3 +206,35 @@ class Orchestrator:
             await pipeline.execute(run_id)
         finally:
             self.active.pop(run_id, None)
+
+
+    def start_matrix(self, run_id: str) -> bool:
+        """Build a finished run's comparison table in the background.
+
+        Same guard as re-synthesis: refused while the run is queued, running,
+        or already being worked on.
+        """
+        row = self.repo.get_run(run_id)
+        if (row is None or row["status"] in ("queued", "running")
+                or run_id in self.active):
+            return False
+        store = self._store_for(row)
+        if store is None:
+            return False
+        pipeline = Pipeline(self.cfg_loader(), self.repo, self.bus,
+                            rag=self.rag, llm_factory=self.llm_factory)
+        self.bus.attach(store)
+
+        async def _job() -> None:
+            try:
+                await pipeline.build_matrix(run_id)
+            except Exception as e:
+                log.exception("matrix build failed for %s", run_id)
+                self.bus.publish(run_id, "log", message=f"matrix failed: {e}")
+            finally:
+                self.active.pop(run_id, None)
+                self.bus.detach(run_id)
+
+        task = asyncio.create_task(_job(), name=f"matrix-{run_id}")
+        self.active[run_id] = (task, pipeline)
+        return True

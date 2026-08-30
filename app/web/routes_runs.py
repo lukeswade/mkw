@@ -230,15 +230,19 @@ async def run_page(request: Request, run_id: str):
                  if (line := format_event(e))]
     related = _related_links(repo, run_id, exclude=row["parent_run_id"])
 
+    matrix_md = (store.matrix_path.read_text(encoding="utf-8")
+                 if store.matrix_path.exists() else "")
+
     ctx.update({
         "overview_html": render_overview(overview_md, len(findings)),
+        "matrix_html": render_overview(matrix_md, len(findings)),
         "findings": findings,
         "finding_cards": finding_cards,
         "followups": meta.get("followups", []),
         "log_text": "\n".join(log_lines),
         "related": related,
-        "files": [n for n in ("overview.md", "further-research.md", "sources.md",
-                              "meta.json", "events.jsonl")
+        "files": [n for n in ("overview.md", "matrix.md", "further-research.md",
+                              "sources.md", "meta.json", "events.jsonl")
                   if (store.dir / n).exists()],
     })
     return _tpl(request).TemplateResponse(request, "run.html", ctx)
@@ -335,6 +339,20 @@ async def resynthesize_run(request: Request, run_id: str):
         return HTMLResponse(
             '<span class="resynth-note">Re-synthesizing from the stored '
             'sources — refresh this page in a few minutes.</span>')
+    return HTMLResponse(
+        '<span class="resynth-note">Could not start: the run is busy or '
+        'has no stored findings.</span>')
+
+
+@router.post("/runs/{run_id}/matrix")
+async def build_matrix(request: Request, run_id: str):
+    """Build a comparison table from the stored findings — no re-searching."""
+    _row_or_404(request, run_id)
+    started = request.app.state.orch.start_matrix(run_id)
+    if started:
+        return HTMLResponse(
+            '<span class="resynth-note">Building the comparison table from '
+            'the stored sources — refresh this page in a minute.</span>')
     return HTMLResponse(
         '<span class="resynth-note">Could not start: the run is busy or '
         'has no stored findings.</span>')

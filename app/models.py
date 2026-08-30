@@ -133,6 +133,28 @@ class TriageOut(BaseModel):
     drop: list[int] = Field(default_factory=list, max_length=64)
 
 
+class MatrixCell(BaseModel):
+    entity: str = Field(default="", max_length=140)
+    dimension: str = Field(default="", max_length=140)
+    value: str = Field(default="", max_length=300)
+    sources: list[int] = Field(default_factory=list, max_length=12)
+    conflict: bool = False
+
+
+class MatrixOut(BaseModel):
+    """A comparison table recovered from a finished run's stored findings.
+
+    `applicable` is the escape hatch: most runs are not comparisons, and the
+    model is asked to say so rather than invent two things to put in columns.
+    """
+    applicable: bool = True
+    reason: str = Field(default="", max_length=400)
+    entities: list[str] = Field(default_factory=list, max_length=8)
+    dimensions: list[str] = Field(default_factory=list, max_length=12)
+    cells: list[MatrixCell] = Field(default_factory=list, max_length=160)
+    caveats_md: str = ""
+
+
 class GapOut(BaseModel):
     state_md: str = ""
     saturated: bool = False
