@@ -23,6 +23,10 @@ log = logging.getLogger(__name__)
 
 _DOCUMENT_BUDGET = 24_000        # est tokens of document fed to extraction
 _LIBRARY_HITS = 6
+# Retrieval is asked for more than it needs so the evidence can be spread
+# across sources instead of taken as a top-N slice.
+_LIBRARY_POOL = 24
+_LIBRARY_PER_SOURCE = 2
 _LIBRARY_MIN_SCORE = 0.45
 # A library verdict this confident is accepted without searching the web.
 _LIBRARY_SETTLES_AT = 7
@@ -107,19 +111,32 @@ async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
 
 
 async def library_evidence(rag, claim: str) -> list[Evidence]:
-    """Passages from earlier runs that bear on the claim."""
+    """Passages from earlier runs that bear on the claim, spread across sources.
+
+    Plain top-N retrieval handed all six slots to one document — the same
+    source three times over — and produced a confident verdict on one side of
+    a point the library actually disputes. Capping per source buys a view of
+    the disagreement instead of the loudest match, the same reason a research
+    round caps candidates per domain.
+    """
     if rag is None:
         return []
     try:
-        hits = await rag.semantic_search(claim, limit=_LIBRARY_HITS)
+        hits = await rag.semantic_search(claim, limit=_LIBRARY_POOL)
     except Exception as e:
         log.warning("library lookup failed: %s", e)
         return []
     out: list[Evidence] = []
+    per_source: dict[str, int] = {}
     for h in hits:
+        if len(out) >= _LIBRARY_HITS:
+            break
         if h.get("score", 0) < _LIBRARY_MIN_SCORE:
             continue
         title = h.get("title") or h.get("run_id") or "earlier research"
+        if per_source.get(title, 0) >= _LIBRARY_PER_SOURCE:
+            continue
+        per_source[title] = per_source.get(title, 0) + 1
         out.append(Evidence(n=len(out) + 1,
                             label=f"your research — {title}",
                             url=f"/runs/{h.get('run_id', '')}",

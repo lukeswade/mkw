@@ -225,3 +225,21 @@ def test_an_unsupported_verdict_never_settles_from_the_library_alone():
     assert settled(VerdictOut(verdict="contested", confidence=7))
     assert not settled(VerdictOut(verdict="unsupported", confidence=10))
     assert not settled(VerdictOut(verdict="unverifiable", confidence=10))
+
+
+async def test_library_evidence_is_spread_across_sources():
+    """Top-N retrieval gave all six slots to one document — the same source
+    three times — and produced a confident verdict on one side of a point the
+    library actually disputes."""
+    loud = [{"run_id": "r1", "title": "One Loud Article",
+             "text": f"passage {i}", "score": 0.9 - i * 0.01} for i in range(10)]
+    others = [{"run_id": "r2", "title": "Second Source", "text": "other view",
+               "score": 0.7},
+              {"run_id": "r3", "title": "Third Source", "text": "third view",
+               "score": 0.6}]
+    ev = await library_evidence(_Rag(loud + others), "a disputed claim")
+    labels = [e.label for e in ev]
+    assert sum("One Loud Article" in l for l in labels) == 2   # capped
+    assert any("Second Source" in l for l in labels)
+    assert any("Third Source" in l for l in labels)
+    assert [e.n for e in ev] == list(range(1, len(ev) + 1))    # renumbered
