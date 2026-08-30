@@ -1051,6 +1051,7 @@ input[type="checkbox"] {
 
 .run-actions .delete-btn,
 .run-item-wrap .delete-btn,
+.brief-actions .delete-btn,
 .hit-card-wrap .delete-btn {
   background: transparent;
   color: var(--text-muted);
@@ -1070,6 +1071,7 @@ input[type="checkbox"] {
 }
 .run-actions .delete-btn:hover,
 .run-item-wrap .delete-btn:hover,
+.brief-actions .delete-btn:hover,
 .hit-card-wrap .delete-btn:hover {
   color: var(--danger);
   border-color: var(--danger-border);
@@ -1450,7 +1452,7 @@ input[type="checkbox"] {
 
 /* The pre-naming Settings feed list. Kept runnable, but styled as a leftover
    rather than a peer of the named briefs above it. */
-.brief-card.legacy { border-style: dashed; opacity: .9; }
+.brief-card.legacy { border-style: dashed; border-color: var(--border); }
 .brief-card.legacy h3 { font-weight: 500; color: var(--text-secondary); }
 .brief-card.legacy h3 small { color: var(--text-muted); font-weight: 400; }
 
