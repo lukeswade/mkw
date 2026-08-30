@@ -243,8 +243,9 @@ you find them.
 
 **Feeds.** Reading lists live on the **Briefs** page, one per brief, and are
 built by pasting a site address rather than a feed URL. Settings also keeps a
-single global list — one URL per line, `#` starts a comment — which behaves as
-an unnamed brief and is what the *Brief from feeds* button uses.
+single global list — one URL per line, `#` starts a comment — left over from
+before briefs had names; it appears on the Briefs page as an unnamed card that
+can be run as-is or turned into a real brief.
 
 **Citation chasing.** When a source makes the cut, its most relevant outbound
 references become candidates in the same run — the links a good page chooses
@@ -320,8 +321,9 @@ beats a long post restating what you already assume — the research rubric
 gets that backwards, because it rewards pages that answer a question
 completely.
 
-The older global feed list in Settings still works and behaves as one unnamed
-brief, started from the *Brief from feeds* button on the New page.
+The older global feed list in Settings still works. It shows on the Briefs
+page as an unnamed card with *Run now* and *Make it a named brief* — naming it
+is what lets it carry a topic and a daily schedule like the rest.
 
 **Claim check** — the *Check claims* page. Paste anything that makes factual
 assertions and it extracts them one by one, resolving pronouns so each stands
