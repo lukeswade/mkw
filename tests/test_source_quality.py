@@ -11,6 +11,7 @@ import respx
 
 from app.db import Repo, connect
 from app.models import RunParams
+from app.research import reddit
 from app.research.dedupe import similarity, text_fingerprint
 from app.research.extractor import extract
 from app.research.fetcher import Fetched, Fetcher, SkipReason, rewrite_host
@@ -669,3 +670,68 @@ def test_a_pdf_gets_a_larger_ceiling_than_html():
     from app.research.fetcher import MAX_BYTES, MAX_PDF_BYTES
     assert MAX_PDF_BYTES > MAX_BYTES
     assert MAX_PDF_BYTES >= 15_000_000
+
+# ---- when reddit refuses on every surface it owns ---------------------------
+
+@respx.mock
+async def test_a_public_archive_rebuilds_a_thread_reddit_refuses(data_dir):
+    """The .json API 403s for whole address ranges and old.reddit redirects
+    those same addresses to a login wall, so a run could lose every reddit
+    source with no recourse. Two free archives cover it."""
+    url = "https://www.reddit.com/r/rodbuilding/comments/abc123/reel_seat/"
+    respx.get(url__regex=r"https://old\.reddit\.com/r/rodbuilding/comments/abc123/reel_seat\.json.*").mock(
+        return_value=httpx.Response(403))
+    respx.get("https://old.reddit.com/r/rodbuilding/comments/abc123/reel_seat/").mock(
+        return_value=httpx.Response(302, headers={"location": "https://old.reddit.com/login/?reason=lor2"}))
+    respx.get("https://old.reddit.com/login/").mock(return_value=httpx.Response(403))
+    respx.get("https://api.pullpush.io/reddit/search/submission/").mock(
+        return_value=httpx.Response(200, json={"data": [{
+            "title": "Reel seat repair", "subreddit": "rodbuilding",
+            "selftext": "The threaded barrel is backing off the spacer. " * 8,
+            "permalink": "/r/rodbuilding/comments/abc123/reel_seat/"}]}))
+    respx.get("https://api.pullpush.io/reddit/search/comment/").mock(
+        return_value=httpx.Response(200, json={"data": [
+            {"body": "Rough up the spacer and re-bed it with slow-cure epoxy. " * 4},
+            {"body": "[deleted]"}]}))
+
+    cfg = make_cfg(data_dir)
+    # This is about the archive rung, not the escalation ladder above it.
+    cfg.browser_impersonation, cfg.browser_solver_url = False, ""
+    async with httpx.AsyncClient() as client:
+        doc, canonical = await reddit.thread(Fetcher(cfg, client), url)
+    assert "threaded barrel" in doc.text
+    assert "slow-cure epoxy" in doc.text          # comments came too
+    assert "[deleted]" not in doc.text            # and the dead ones did not
+    assert canonical.endswith("/r/rodbuilding/comments/abc123/reel_seat/")
+
+
+@respx.mock
+async def test_the_second_archive_covers_what_the_first_has_not_ingested(data_dir):
+    """PullPush lags on recent posts; Arctic Shift had one it was missing."""
+    url = "https://www.reddit.com/r/rodbuilding/comments/xyz789/help/"
+    respx.get(url__regex=r"https://old\.reddit\.com/r/rodbuilding/comments/xyz789/help\.json.*").mock(
+        return_value=httpx.Response(403))
+    respx.get("https://old.reddit.com/r/rodbuilding/comments/xyz789/help/").mock(
+        return_value=httpx.Response(403))
+    respx.get("https://api.pullpush.io/reddit/search/submission/").mock(
+        return_value=httpx.Response(200, json={"data": []}))     # not ingested
+    respx.get("https://arctic-shift.photon-reddit.com/api/posts/ids").mock(
+        return_value=httpx.Response(200, json={"data": [{
+            "title": "Help removing reel seat", "subreddit": "rodbuilding",
+            "selftext": "Heat gun on low, then acetone on the blank. " * 8}]}))
+    respx.get("https://arctic-shift.photon-reddit.com/api/comments/search").mock(
+        return_value=httpx.Response(200, json={"data": []}))
+
+    cfg = make_cfg(data_dir)
+    cfg.browser_impersonation, cfg.browser_solver_url = False, ""
+    async with httpx.AsyncClient() as client:
+        doc, _ = await reddit.thread(Fetcher(cfg, client), url)
+    assert "Heat gun" in doc.text
+
+
+def test_the_submission_id_comes_out_of_any_thread_url():
+    assert reddit.thread_id(
+        "https://www.reddit.com/r/rodbuilding/comments/1hc9je3/reel_seat/") == "1hc9je3"
+    assert reddit.thread_id(
+        "https://old.reddit.com/r/x/comments/abc/") == "abc"
+    assert reddit.thread_id("https://www.reddit.com/r/rodbuilding/") is None

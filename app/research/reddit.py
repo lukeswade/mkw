@@ -89,9 +89,95 @@ def _thread_from_html(fetched) -> tuple[str, str, list[str]]:
     return title, selftext, lines
 
 
+# Community archives of public reddit data, in order of preference. Both are
+# free, need no authentication, and answer in under a second. They exist
+# because reddit's anonymous surfaces are unreliable: the .json API 403s for
+# whole address ranges and old.reddit now redirects those same addresses to a
+# login wall, so a run can lose every reddit source with no recourse.
+#
+# Measured on the five threads one depth-10 run dropped: PullPush served three
+# in full with every comment, and Arctic Shift covered a recent post PullPush
+# had not ingested. Together they returned all of them.
+_ARCHIVES = (
+    ("pullpush",
+     "https://api.pullpush.io/reddit/search/submission/?ids={id}",
+     "https://api.pullpush.io/reddit/search/comment/?link_id={id}&size=200"),
+    ("arctic-shift",
+     "https://arctic-shift.photon-reddit.com/api/posts/ids?ids={id}",
+     "https://arctic-shift.photon-reddit.com/api/comments/search?link_id={id}&limit=200"),
+)
+_ARCHIVE_TIMEOUT = 30.0
+
+
+def thread_id(url: str) -> str | None:
+    """The submission id out of any reddit thread URL."""
+    parts = [p for p in urlsplit(url).path.split("/") if p]
+    if "comments" not in parts:
+        return None
+    i = parts.index("comments")
+    return parts[i + 1] if len(parts) > i + 1 else None
+
+
+async def _archive_fallback(client, url: str,
+                            api_err: Exception) -> tuple[Extracted, str] | None:
+    """Rebuild a thread from a public archive when reddit itself refuses.
+
+    Returns None rather than raising: this is the last of several attempts,
+    and the caller owns the error the reader eventually sees.
+    """
+    tid = thread_id(url)
+    if not tid:
+        return None
+    for name, post_url, comment_url in _ARCHIVES:
+        try:
+            r = await client.get(post_url.format(id=tid),
+                                 timeout=_ARCHIVE_TIMEOUT)
+            posts = (r.json() or {}).get("data") or []
+            if not posts:
+                continue
+            post = posts[0]
+            r = await client.get(comment_url.format(id=tid),
+                                 timeout=_ARCHIVE_TIMEOUT)
+            comments = (r.json() or {}).get("data") or []
+        except Exception as e:
+            log.debug("reddit archive %s failed for %s: %s", name, tid, e)
+            continue
+
+        title = (post.get("title") or "").strip()
+        subreddit = post.get("subreddit") or ""
+        selftext = (post.get("selftext") or "").strip()
+        parts = [f"# {title}"] if title else []
+        if selftext and selftext not in ("[deleted]", "[removed]"):
+            parts.append(selftext)
+        bodies = [b for c in comments
+                  if (b := (c.get("body") or "").strip())
+                  and b not in ("[deleted]", "[removed]")]
+        if bodies:
+            parts.append("## Comments\n\n" + "\n\n".join(bodies))
+        text = "\n\n".join(parts)
+        if len(text) < MIN_TEXT_CHARS:
+            continue
+        log.info("reddit refused %s (%s); rebuilt from %s with %d comment(s)",
+                 tid, api_err, name, len(bodies))
+        permalink = post.get("permalink")
+        return (Extracted(text=text[:MAX_TEXT_CHARS],
+                          title=(f"{title} — r/{subreddit} (reddit thread)"
+                                 if title else None),
+                          date=None),
+                f"https://www.reddit.com{permalink}" if permalink else url)
+    return None
+
+
 async def _html_fallback(fetcher: Fetcher, url: str,
                          api_err: Exception) -> tuple[Extracted, str]:
-    page = await fetcher.fetch(url)  # HTML; raises SkipReason itself
+    try:
+        page = await fetcher.fetch(url)  # HTML; raises SkipReason itself
+    except SkipReason:
+        # old.reddit now redirects blocked addresses to a login wall, so this
+        # rung fails for exactly the runs that needed it.
+        if archived := await _archive_fallback(fetcher.client, url, api_err):
+            return archived
+        raise
     title, selftext, comments = _thread_from_html(page)
     parts = [f"# {title}"] if title else []
     if selftext:
@@ -100,6 +186,8 @@ async def _html_fallback(fetcher: Fetcher, url: str,
         parts.append("## Comments\n\n" + "\n\n".join(comments))
     text = "\n\n".join(parts)
     if len(text) < MIN_TEXT_CHARS:
+        if archived := await _archive_fallback(fetcher.client, url, api_err):
+            return archived
         raise SkipReason(f"reddit thread unreadable (api: {api_err})") \
             from api_err
     log.info("reddit .json unavailable (%s); read %s via old.reddit HTML",
