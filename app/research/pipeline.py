@@ -571,7 +571,7 @@ class Pipeline:
             self._check_cancel()
             await self._finalize(run_id, store, state, llm, query, the_plan,
                                  recency, recency_desc, today, stop_reason,
-                                 searcher=searcher,
+                                 searcher=searcher, fetcher=fetcher,
                                  previous_overview=self._parent_overview(row))
 
     # ---- one search round ------------------------------------------------------------
@@ -863,7 +863,8 @@ class Pipeline:
 
     async def _finalize(self, run_id, store, state, llm, query, the_plan,
                         recency, recency_desc, today, stop_reason,
-                        searcher=None, previous_overview: str = "") -> None:
+                        searcher=None, fetcher=None,
+                        previous_overview: str = "") -> None:
         thin = False
         if not state.findings and state.weak:
             thin = True
@@ -962,6 +963,9 @@ class Pipeline:
             "sources_kept": len(findings),
             "sources_skipped": state.skipped,
             "pre_dropped": state.pre_dropped,
+            # Which rungs of the fetch ladder a run actually needed.
+            "impersonated": getattr(fetcher, "impersonated", 0),
+            "browser_solved": getattr(fetcher, "solved", 0),
             # What a healthy run of this depth would have kept, so the page
             # can tell a thin run from a normal one without re-deriving it.
             "sources_expected": max_docs_for_depth(state.depth),

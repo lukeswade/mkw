@@ -406,6 +406,9 @@ async def test_escalation_can_be_disabled(data_dir, monkeypatch):
         return_value=httpx.Response(403))
     fetcher, client = _fetcher(data_dir)
     fetcher.cfg.browser_impersonation = False
+    # The solver now defaults to the compose service, so a test about the
+    # impersonation rung has to say it is testing that rung alone.
+    fetcher.cfg.browser_solver_url = ""
 
     async def fake_curl(url, extra_types=()):
         raise AssertionError("impersonation is disabled")
@@ -511,6 +514,8 @@ async def test_js_shell_page_is_rendered_and_recovered(data_dir):
 @respx.mock
 async def test_js_shell_without_solver_skips_honestly(data_dir):
     cfg = make_cfg(data_dir)
+    # Solver off for this one: the point is what happens with no last resort.
+    cfg.browser_solver_url = ""
     assert not cfg.browser_solver_url
     respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
         [sx_result("https://spa.example.com/guide", "SPA Guide")])))
@@ -559,3 +564,44 @@ async def test_solver_fetched_pages_are_not_rendered_twice(data_dir):
     await orch.execute_now(run_id)
     assert len(solver_calls) == 1                  # exactly one render
     assert repo.findings_for_run(run_id) == []
+
+
+async def test_both_escalation_rungs_are_on_by_default(data_dir):
+    """A challenged page should get the cheap Chrome-fingerprint retry and,
+    failing that, the browser — without anyone visiting Settings first."""
+    from app.config import load_settings
+    cfg = load_settings(str(data_dir))
+    assert cfg.browser_impersonation is True
+    assert cfg.browser_solver_url == "http://flaresolverr:8191"
+    # and reference chasing, which is the other thing a fresh install
+    # silently did without
+    assert cfg.reference_chasing is True
+
+
+@respx.mock
+async def test_a_run_counts_which_escalation_rungs_it_needed(data_dir, monkeypatch):
+    """130 browser solves had happened across past runs with no mention
+    anywhere — there was no way to know which pages fought back, nor whether
+    the cheap rung would have been enough."""
+    respx.get("https://walled.example.com/page").mock(
+        return_value=httpx.Response(403))
+    respx.post("http://solver.test:8191/v1").mock(
+        return_value=httpx.Response(200, json={
+            "status": "ok",
+            "solution": {"status": 200, "url": "https://walled.example.com/page",
+                         "response": article("Solved Page")}}))
+    fetcher, client = _fetcher(data_dir)
+    fetcher.cfg.browser_solver_url = "http://solver.test:8191"
+    assert fetcher.impersonated == 0 and fetcher.solved == 0
+
+    # curl_cffi is a separate HTTP stack respx cannot intercept, so the cheap
+    # rung is stood in for — its counter lives in the real one either way.
+    async def fake_curl(url, extra_types=()):
+        fetcher.impersonated += 1
+        raise SkipReason("http 403 (impersonated)")
+    monkeypatch.setattr(fetcher, "_curl_get", fake_curl)
+
+    await fetcher.fetch("https://walled.example.com/page")
+    await client.aclose()
+    assert fetcher.impersonated == 1, "the cheap rung is tried before the browser"
+    assert fetcher.solved == 1

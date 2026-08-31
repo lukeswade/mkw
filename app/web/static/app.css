@@ -1212,6 +1212,8 @@ input[type="checkbox"] {
 }
 .banner-thin .engine-list code { color: #d2a24c; }
 
+.escalation-note { margin: 0 0 1rem; }
+
 /* ---- Live streamed output (quick chat + synthesis) ---- */
 .stream-pane {
   border-top: 1px solid var(--border);

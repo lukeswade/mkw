@@ -101,6 +101,12 @@ class Fetcher:
         self._domain_sems: dict[str, asyncio.Semaphore] = {}
         self._domain_last: dict[str, float] = {}
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+        # How often each rung of the escalation ladder was needed. Nothing
+        # logged this before: 130 browser solves had happened across past runs
+        # with zero mention anywhere, so there was no way to tell which pages
+        # fought back — or whether the cheap rung would have been enough.
+        self.impersonated = 0
+        self.solved = 0
 
     # ---- SSRF guard ---------------------------------------------------------
     async def _host_allowed(self, url: str) -> bool:
@@ -258,6 +264,7 @@ class Fetcher:
             from curl_cffi.requests import AsyncSession
         except ImportError as e:
             raise SkipReason("impersonation unavailable") from e
+        self.impersonated += 1
         allowed = ALLOWED_TYPES + extra_types
         domain = domain_of(url)
         interval = next((v for k, v in _DOMAIN_INTERVALS.items()
@@ -303,6 +310,7 @@ class Fetcher:
         through the page's JavaScript challenge and hands back the HTML."""
         if not await self._host_allowed(url):
             raise SkipReason("blocked address (SSRF guard)")
+        self.solved += 1
         base = self.cfg.browser_solver_url.rstrip("/")
         try:
             resp = await self.client.post(

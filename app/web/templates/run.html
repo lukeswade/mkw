@@ -53,6 +53,16 @@
 {% endif %}
 {% endif %}
 
+{# Which pages fought back. Silent until it happens, since on a normal run it
+   is zero and a line saying so is noise. #}
+{% if stats and (stats.get('browser_solved') or 0) %}
+<p class="hint escalation-note">{{ stats['browser_solved'] }} page{{ '' if stats['browser_solved'] == 1 else 's' }}
+   needed the browser solver{% if stats.get('impersonated') %}, after
+   {{ stats['impersonated'] }} were retried with a Chrome fingerprint first{% endif %} —
+   sites behind a bot wall cost seconds each, so a slow run with a high count here
+   is being fought, not being slow.</p>
+{% endif %}
+
 <nav class="tabs" role="tablist">
   <button class="active" data-tab="overview">Overview</button>
   <button data-tab="sources">Sources <span class="count">{{ findings | length }}</span></button>

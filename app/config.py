@@ -175,7 +175,11 @@ class Settings:
     # a FlareSolverr endpoint (docker compose --profile browser up -d, then
     # http://flaresolverr:8191). It drives a real headless browser through
     # JavaScript challenges. Empty = escalation stops at impersonation.
-    browser_solver_url: str = ""
+    # Points at the compose service. Harmless when the "browser" profile
+    # is not running: an unreachable solver refuses in ~40ms, so the only
+    # cost is that, per challenged page — and anyone who does start the
+    # profile gets the last rung with no settings change.
+    browser_solver_url: str = "http://flaresolverr:8191"
 
     # --- resolved LLM endpoint -------------------------------------------
     # Precedence: explicit generic field → legacy provider-specific field →
