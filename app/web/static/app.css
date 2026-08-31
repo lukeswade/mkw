@@ -1191,6 +1191,27 @@ input[type="checkbox"] {
   font-size: var(--text-sm);
 }
 
+/* ---- Thin-run / degraded-search banner ----
+   Amber, not red: the run completed and what it found is real, there is just
+   less of it than the depth promised. */
+.banner-thin {
+  background: rgba(210, 162, 76, 0.07);
+  border: 1px solid rgba(210, 162, 76, 0.35);
+  color: var(--text-primary);
+}
+.banner-thin summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin-top: .35rem;
+}
+.banner-thin .engine-list {
+  margin: .5rem 0 .25rem;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.banner-thin .engine-list code { color: #d2a24c; }
+
 /* ---- Live streamed output (quick chat + synthesis) ---- */
 .stream-pane {
   border-top: 1px solid var(--border);

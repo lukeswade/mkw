@@ -50,6 +50,49 @@ def domain_of(url: str) -> str:
     return _fold_host(host)
 
 
+# ---- pages nothing can read -------------------------------------------------
+# The pipeline has exactly three acquisition paths: a YouTube caption
+# transcript, a reddit .json thread, and fetch-plus-extract. A URL none of
+# them can serve is not a weak candidate, it is a guaranteed zero — and it
+# still costs a fetch (up to a 45s browser-solver attempt) before anything
+# discovers that. One depth-8 run spent 20 of 52 candidates here.
+#
+# YouTube is deliberately absent: it has a transcript path, so it is only
+# dropped later, and only when a video genuinely has no captions.
+_UNREADABLE_HOSTS = frozenset({
+    # login-walled: the fetch returns an interstitial, never the content
+    "facebook.com", "instagram.com", "tiktok.com", "threads.net",
+    "x.com", "twitter.com", "linkedin.com",
+    # video hosts with no transcript path of their own
+    "dailymotion.com", "vimeo.com", "twitch.tv", "rumble.com",
+    "bitchute.com", "odysee.com", "sepiasearch.org",
+})
+# PeerTube is a federation of hundreds of interchangeable mirrors — blocking
+# them by name is whack-a-mole, but they all share a URL shape, and one query
+# returned nine mirrors of a single video.
+_PEERTUBE_PATH = re.compile(r"^/(?:videos/watch|w)/[0-9a-f]{8}-[0-9a-f-]{20,}",
+                            re.IGNORECASE)
+
+# Noise every user would otherwise discover the hard way. Merged with the
+# user's own blocked_domains rather than replacing it.
+DEFAULT_BLOCKED = frozenset({
+    "dictionary.com", "thesaurus.com", "merriam-webster.com",
+    "thefreedictionary.com", "dictionary.cambridge.org", "vocabulary.com",
+    "wordnik.com", "definitions.net",
+    "pinterest.com", "quora.com",
+})
+
+
+def is_unreadable(url: str) -> bool:
+    """True when no acquisition path could ever return text for this URL."""
+    host = domain_of(url)
+    if host in _UNREADABLE_HOSTS:
+        return True
+    if any(host.endswith("." + h) for h in _UNREADABLE_HOSTS):
+        return True
+    return bool(_PEERTUBE_PATH.match(urlsplit(url).path or ""))
+
+
 _STOPWORDS = frozenset(
     "the and for with from that this what which how are was were been being "
     "have has had can could should would will may might must about into over "

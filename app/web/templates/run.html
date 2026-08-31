@@ -13,6 +13,46 @@
 </article>
 {% endif %}
 
+{# A run that retrieved almost nothing looked exactly like a good one: same
+   green COMPLETED chip, no explanation. The two causes are worth separating —
+   engines refusing (fixable) and a topic with no sources (not). #}
+{% if stats and row['status'] == 'completed' and row['kind'] != 'verify' %}
+{% set expected = stats.get('sources_expected') or 0 %}
+{% set kept = stats.get('sources_kept') or 0 %}
+{% set engines = stats.get('blocked_engines') or {} %}
+{% if expected and kept < (expected * 0.15) %}
+<article class="banner banner-thin">
+  <p><strong>This run kept {{ kept }} source{{ '' if kept == 1 else 's' }}</strong>
+     where depth {{ row['depth'] }} allows up to {{ expected }}.
+     {%- if engines %} {{ engines | length }} search engine{{ '' if engines|length == 1 else 's' }}
+     refused during the run, so it was searching through a narrow door.
+     {%- else %} Search worked, so the topic itself may be thinly covered — try
+     fewer, broader sub-questions or a different recency window.{% endif %}</p>
+  {% if engines %}
+  <details>
+    <summary>Which engines refused</summary>
+    <ul class="engine-list">
+      {% for name, why in engines | dictsort %}<li><code>{{ name }}</code> — {{ why }}</li>{% endfor %}
+    </ul>
+    <p class="hint">Rate limits and CAPTCHAs are tied to your network address,
+      not to this tool. A new WAN address usually clears them.</p>
+  </details>
+  {% endif %}
+</article>
+{% elif engines | length >= 4 %}
+<article class="banner banner-thin">
+  <p>{{ engines | length }} search engines refused during this run — the
+     results below came from whatever was left.</p>
+  <details>
+    <summary>Which engines refused</summary>
+    <ul class="engine-list">
+      {% for name, why in engines | dictsort %}<li><code>{{ name }}</code> — {{ why }}</li>{% endfor %}
+    </ul>
+  </details>
+</article>
+{% endif %}
+{% endif %}
+
 <nav class="tabs" role="tablist">
   <button class="active" data-tab="overview">Overview</button>
   <button data-tab="sources">Sources <span class="count">{{ findings | length }}</span></button>

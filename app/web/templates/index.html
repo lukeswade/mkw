@@ -42,7 +42,11 @@
       {# A span, not a <legend>: a legend renders outside the fieldset's flow
          and cannot be aligned with the boxes beside it. #}
       <span class="cats-legend" id="cats-legend">Search in</span>
-      {% for c in ["general", "science", "it", "news", "videos", "social media", "files"] %}
+      {# q&a is stackoverflow + askubuntu + superuser; measured working. The
+   options SearXNG advertises but has no enabled engine for (books,
+   blogs, apps, shopping, movies) are deliberately absent — they are
+   dead switches. #}
+      {% for c in ["general", "science", "it", "q&a", "news", "videos", "social media", "files"] %}
       <label><input type="checkbox" name="categories" value="{{ c }}"> {{ c }}</label>
       {% endfor %}
     </fieldset>

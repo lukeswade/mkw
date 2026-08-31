@@ -141,3 +141,26 @@ async def test_depth_zero_falls_back_to_plain_chat_when_search_is_empty(data_dir
     overview = (cfg.research_dir / run_id / "overview.md").read_text()
     assert "Just the model's answer." in overview
     assert "## Sources" not in overview
+
+
+def test_unreadable_urls_never_reach_a_fetch():
+    """A URL no acquisition path can serve is a guaranteed zero that still
+    costs a fetch — 20 of 52 candidates in one depth-8 run."""
+    from app.research.dedupe import is_unreadable
+    for url in ("https://www.dailymotion.com/video/x8skpd2",
+                "https://videos.kuoushi.com/videos/watch/a8acd1a2-4e67-4e0e-8f1d-1234567890ab",
+                "https://peertube.dngr.us/w/66ba8f3c-eb82-4423-8245-812345678901",
+                "https://www.facebook.com/Cabelas/videos/x",
+                "https://www.tiktok.com/@rods/video/762"):
+        assert is_unreadable(url), url
+    # YouTube has a caption path, so it is judged later on real captions
+    for url in ("https://www.youtube.com/watch?v=abc",
+                "https://rodbuilding.org/index.php?topic=1",
+                "https://en.wikipedia.org/wiki/Fly_rod"):
+        assert not is_unreadable(url), url
+
+
+def test_the_default_blocklist_applies_without_user_configuration():
+    from app.research.dedupe import DEFAULT_BLOCKED
+    for d in ("dictionary.com", "thesaurus.com", "merriam-webster.com"):
+        assert d in DEFAULT_BLOCKED

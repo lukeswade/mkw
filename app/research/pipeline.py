@@ -29,7 +29,8 @@ from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
 from app.research import feeds, matrix, reddit, verify, youtube
-from app.research.dedupe import (canonicalize, domain_of, interleave,
+from app.research.dedupe import (DEFAULT_BLOCKED, is_unreadable,
+                                  canonicalize, domain_of, interleave,
                                  lexical_overlap, rank_diverse,
                                  similarity, text_fingerprint)
 from app.research.extractor import extract, extract_links
@@ -196,6 +197,14 @@ class _RunState:
     state_md: str = ""
     rounds_done: int = 0
     skipped: int = 0
+    # Candidates killed before a fetch was spent on them, and every engine
+    # that refused at any point in the run — both are reported at the end so
+    # a thin run can say why it was thin.
+    pre_dropped: int = 0
+    blocked_engines: dict = field(default_factory=dict)
+    # _finalize reports how thin the run was, and needs the depth to know
+    # what "thin" means at this setting.
+    depth: int = 0
 
 
 class Pipeline:
@@ -294,9 +303,13 @@ class Pipeline:
 
     def _blocked_domains(self) -> frozenset[str]:
         raw = getattr(self.cfg, "blocked_domains", "") or ""
-        return frozenset(
+        own = frozenset(
             d.strip().lower().removeprefix("www.")
             for d in raw.replace(";", ",").split(",") if d.strip())
+        # Union, not override: dictionary and thesaurus pages are noise for
+        # every research query, and every user should not have to learn that
+        # from a wasted run.
+        return own | DEFAULT_BLOCKED
 
     # ---- entry point -----------------------------------------------------------
     async def execute(self, run_id: str) -> None:
@@ -352,7 +365,7 @@ class Pipeline:
         recency_desc = prompts.RECENCY_DESC[recency]
         today = datetime.now().date().isoformat()
         llm = self.llm_factory()
-        state = _RunState()
+        state = _RunState(depth=depth)
 
         # Browser-shaped headers to match the browser UA: CDNs fingerprint on
         # more than the UA string, and a bare request still reads as a bot.
@@ -599,8 +612,11 @@ class Pipeline:
             # title/snippet share words with their sub-query outrank engine
             # filler — every filler candidate that slips through costs a fetch
             # plus a full notes call before it scores 0/10.
-            pool = [r for r in pool
-                    if domain_of(r.url) not in self._blocked_domains()]
+            blocked = self._blocked_domains()
+            before = len(pool)
+            pool = [r for r in pool if domain_of(r.url) not in blocked
+                    and not is_unreadable(r.url)]
+            state.pre_dropped += before - len(pool)
             pool.sort(key=lambda r: (
                 engine_tier(r.engine, promote),
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
@@ -654,12 +670,20 @@ class Pipeline:
             self.bus.publish(
                 run_id, "log",
                 message=f"topic filter set aside {set_aside} off-topic item(s)")
-        if total_results == 0 and searcher.blocked_engines:
+        # Partial engine failure used to be invisible: `degraded` needs EVERY
+        # search to come back empty, so four of five web engines could sit on
+        # a CAPTCHA all run and nothing said a word — the results just quietly
+        # got worse. Report whatever refused, whether or not anything landed.
+        if searcher.blocked_engines:
+            state.blocked_engines.update(searcher.blocked_engines)
             blocked = ", ".join(f"{k} ({v})" for k, v in
                                 sorted(searcher.blocked_engines.items()))
             self.bus.publish(
                 run_id, "log",
-                message=f"no results — every engine refused: {blocked}")
+                message=(f"no results — every engine refused: {blocked}"
+                         if total_results == 0
+                         else f"{len(searcher.blocked_engines)} search engine(s) "
+                              f"refused this round: {blocked}"))
         if not candidates:
             return []
 
@@ -937,6 +961,10 @@ class Pipeline:
             "urls_considered": len(state.seen_urls),
             "sources_kept": len(findings),
             "sources_skipped": state.skipped,
+            "pre_dropped": state.pre_dropped,
+            # What a healthy run of this depth would have kept, so the page
+            # can tell a thin run from a normal one without re-deriving it.
+            "sources_expected": max_docs_for_depth(state.depth),
             "llm": llm.usage_summary(),
         }
         self.repo.set_stats(run_id, stats)
