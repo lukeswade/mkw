@@ -26,6 +26,29 @@ outgoing:
   pool_connections: 100
   pool_maxsize: 20
 
+  # SearXNG's designed answer to the CAPTCHA problem, and the one lever never
+  # tried here. Verified supported by this build:
+  #   settings_defaults.py:262  'proxies': SettingsValue((None, str, dict), None)
+  #
+  # READ THIS BEFORE BUYING A PROXY. The type decides whether it helps or
+  # hurts. DuckDuckGo and Startpage block datacenter ranges HARDER than
+  # residential ones, so a cheap VPS SOCKS5 will CAPTCHA worse than this house
+  # does — and would make the idea look disproven when it was only mistested.
+  # Residential or mobile egress works; it costs roughly $5-15/GB.
+  #
+  # Measured on 2026-08-31, three isolated DuckDuckGo queries eight seconds
+  # apart, no burst: CAPTCHA on all three, suspended_time=0. The address is
+  # already judged, so lowering request volume cannot recover it — only
+  # changing the address can.
+  #
+  # proxies:
+  #   all://:
+  #     - socks5://user:pass@host:port
+  # Per-engine egress is also possible, on the engine's own entry:
+  #   - name: duckduckgo
+  #     network:
+  #       proxies: socks5://user:pass@host:port
+
 # Engine mix matters more here than on a general-purpose instance. The stock
 # general category leans on Google/Brave/DuckDuckGo/Startpage, all of which
 # rate-limit or serve CAPTCHAs to home and datacenter IPs under research-volume
@@ -152,8 +175,24 @@ engines:
     disabled: false
   - name: wikipedia
     disabled: false
+  # Fails init on EVERY container start, reproducibly, and so never registers
+  # a processor at all — it reports "answered, matched nothing" rather than
+  # "refused", which is why it read as healthy for weeks. Failures logged
+  # 08-22, 08-23, 08-27, 08-30 and twice on 08-31.
+  #
+  #   SearxEngineAccessDeniedException: HTTP error 403 (suspended_time=180)
+  #   wikidata: engine init was not successful
+  #
+  # Not a User-Agent problem: the SPARQL endpoint returns 200 to both the
+  # stock UA and a descriptive one from this address. It is the heavy
+  # properties query init runs at startup that Wikidata refuses. That result
+  # is cached on success — but EngineCache needs valkey, and this stack has
+  # none, so it re-runs the heavy query on every start and can never stick.
+  # Off until there is a valkey to cache into; a structured-entity engine is
+  # marginal for document research, and leaving it on spends a large SPARQL
+  # request plus a 180s suspension at every boot.
   - name: wikidata
-    disabled: false
+    disabled: true
 
   # --- academic / primary sources ---
   - name: arxiv
