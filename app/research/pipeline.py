@@ -33,7 +33,7 @@ from app.research.dedupe import (DEFAULT_BLOCKED, is_unreadable,
                                   canonicalize, domain_of, interleave,
                                  lexical_overlap, rank_diverse,
                                  similarity, text_fingerprint)
-from app.research.extractor import extract, extract_links
+from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
                                 take_notes)
@@ -724,7 +724,10 @@ class Pipeline:
                         except SkipReason:
                             pass
                     if doc is None:
-                        raise SkipReason("no extractable text")
+                        raise SkipReason(
+                            "blocked by a bot wall"
+                            if fetched is not None and looks_bot_walled(fetched)
+                            else "no extractable text")
             except SkipReason as e:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url, reason=str(e))

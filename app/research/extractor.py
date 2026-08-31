@@ -48,16 +48,66 @@ def _extract_html(fetched: Fetched) -> Extracted | None:
     except Exception:  # trafilatura chokes on odd markup sometimes
         log.debug("trafilatura failed on %s", fetched.final_url, exc_info=True)
         return None
-    if doc is None:
-        return None
-    text = (getattr(doc, "text", None) or "").strip()
+    text = (getattr(doc, "text", None) or "").strip() if doc is not None else ""
     if len(text) < MIN_TEXT_CHARS:
-        return None
+        # trafilatura returns nothing at all on some forum software — SMF in
+        # particular — while a tag strip of the same bytes yields 12k chars of
+        # real discussion. Measured on one run: 37 pages discarded as "no
+        # extractable text", and forum threads are the highest-value source
+        # there is for a practical repair question. justext ships with
+        # trafilatura, uses a different algorithm, and recovers them.
+        # Second, not first: trafilatura is the better reader on articles
+        # (55k vs 46k chars on a Wikipedia page), so it keeps the first look.
+        recovered = _extract_justext(fetched)
+        if recovered is None:
+            return None
+        text = recovered
+        doc = doc if doc is not None else None
     return Extracted(
         text=text[:MAX_TEXT_CHARS],
         title=(getattr(doc, "title", None) or "").strip() or None,
         date=_clean_date(getattr(doc, "date", None)),
     )
+
+
+# Walls that answer 200 with a challenge page instead of the article. The
+# fetch "succeeds", extraction finds nothing, and the page was being filed as
+# "no extractable text" — which reads as a thin page rather than a locked
+# door. Eight fly-fishing forums in one run were behind the same ~2.6KB
+# proof-of-work wall, and the report gave no hint of it.
+_WALL_MARKERS = (
+    "pow_challenge_data",          # hashcash proof-of-work
+    "cf-browser-verification",     # cloudflare
+    "challenge-platform",          # cloudflare turnstile
+    "just a moment...",            # cloudflare interstitial
+    "checking your browser",
+    "enable javascript and cookies to continue",
+)
+
+
+def looks_bot_walled(fetched: Fetched) -> bool:
+    """True when a 200 response is a challenge page, not content."""
+    try:
+        head = fetched.body[:8000].decode("utf-8", "ignore").lower()
+    except Exception:
+        return False
+    return any(m in head for m in _WALL_MARKERS)
+
+
+def _extract_justext(fetched: Fetched) -> str | None:
+    """Boilerplate removal by a different algorithm, for pages trafilatura
+    reads as empty."""
+    try:
+        import justext
+        paragraphs = justext.justext(_decode(fetched).encode("utf-8", "ignore"),
+                                     justext.get_stoplist("English"))
+        text = "\n\n".join(p.text for p in paragraphs
+                            if not p.is_boilerplate).strip()
+    except Exception:
+        log.debug("justext fallback failed on %s", fetched.final_url,
+                  exc_info=True)
+        return None
+    return text if len(text) >= MIN_TEXT_CHARS else None
 
 
 def _extract_pdf(fetched: Fetched) -> Extracted | None:

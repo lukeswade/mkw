@@ -30,6 +30,11 @@ from app.research.dedupe import domain_of
 log = logging.getLogger(__name__)
 
 MAX_BYTES = 3_000_000
+# Oversized HTML is truncated and still readable; a truncated PDF is not, so
+# one is rejected outright. 3MB rejected a 14MB rod-building manual — exactly
+# the kind of primary document a search engine never surfaces. Only the first
+# MAX_PDF_PAGES are read regardless, so the download is the whole cost.
+MAX_PDF_BYTES = 25_000_000
 MAX_REDIRECTS = 5
 ALLOWED_TYPES = ("text/html", "application/xhtml", "text/plain", "text/xml",
                  "application/xml", "application/pdf")
@@ -183,11 +188,15 @@ class Fetcher:
                     async for chunk in resp.aiter_bytes():
                         chunks.append(chunk)
                         size += len(chunk)
-                        if size > MAX_BYTES:
+                        cap = (MAX_PDF_BYTES if ctype == "application/pdf"
+                               else MAX_BYTES)
+                        if size > cap:
                             if ctype == "application/pdf":
                                 raise SkipReason("pdf too large")
                             break  # keep the head of oversized HTML
-                    body = b"".join(chunks)[:MAX_BYTES]
+                    limit = (MAX_PDF_BYTES if ctype == "application/pdf"
+                             else MAX_BYTES)
+                    body = b"".join(chunks)[:limit]
                     return Fetched(url=url, final_url=str(resp.url),
                                    content_type=ctype, body=body)
             finally:

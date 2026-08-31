@@ -605,3 +605,67 @@ async def test_a_run_counts_which_escalation_rungs_it_needed(data_dir, monkeypat
     await client.aclose()
     assert fetcher.impersonated == 1, "the cheap rung is tried before the browser"
     assert fetcher.solved == 1
+
+
+# ---- what a forum thread costs when the reader gives up ---------------------
+
+_SMF_THREAD = """<!DOCTYPE html><html><head><title>Loose Reel Seat Repair</title></head>
+<body><div id="wrapper"><div class="navigate_section">Main Menu Home Search Login</div>
+<div id="forumposts"><div class="post">%s</div></div></body></html>""" % (
+    "The reel seat on my rod worked loose after years of use. I removed the old "
+    "epoxy with a heat gun set low, cleaned the blank with acetone, and re-bedded "
+    "the seat with a slow-cure two part epoxy. Masking tape arbors keep it "
+    "concentric while it sets. " * 12)
+
+
+def test_a_page_trafilatura_reads_as_empty_falls_back(monkeypatch):
+    """trafilatura returns nothing on some forum software while the same bytes
+    hold thousands of characters of real discussion — 37 pages were discarded
+    that way in one run, and forums are the best source a repair question has."""
+    from app.research import extractor
+    from app.research.fetcher import Fetched
+    page = Fetched(url="https://forum.test/t/1", final_url="https://forum.test/t/1",
+                   content_type="text/html", body=_SMF_THREAD.encode())
+    monkeypatch.setattr(extractor.trafilatura, "bare_extraction",
+                        lambda *a, **k: None)
+    doc = extractor.extract(page)
+    assert doc is not None, "the fallback should have recovered this"
+    assert "epoxy" in doc.text
+
+
+def test_the_fallback_does_not_displace_trafilatura():
+    """Second reader, not first: trafilatura is the better one on articles."""
+    from app.research import extractor
+    from app.research.fetcher import Fetched
+    article = ("<html><head><title>T</title></head><body><article><p>"
+               + ("A real article paragraph about rod building. " * 40)
+               + "</p></article></body></html>")
+    doc = extractor.extract(Fetched(url="https://site.test/a",
+                                    final_url="https://site.test/a",
+                                    content_type="text/html",
+                                    body=article.encode()))
+    assert doc is not None and "real article paragraph" in doc.text
+
+
+def test_a_bot_wall_is_not_reported_as_a_thin_page():
+    """Eight forums in one run answered 200 with a ~2.6KB proof-of-work
+    challenge. Filed as "no extractable text", that reads as a thin page
+    rather than a locked door."""
+    from app.research.extractor import looks_bot_walled
+    from app.research.fetcher import Fetched
+    def page(body):
+        return Fetched(url="https://f.test/t", final_url="https://f.test/t",
+                       content_type="text/html", body=body.encode())
+    assert looks_bot_walled(page(
+        "<html><head><script>window.POW_CHALLENGE_DATA={difficulty:'3'};</script>"))
+    assert looks_bot_walled(page("<html><title>Just a moment...</title>"))
+    assert not looks_bot_walled(page(_SMF_THREAD))
+
+
+def test_a_pdf_gets_a_larger_ceiling_than_html():
+    """A 14MB rod-building manual was rejected by the shared 3MB cap — the
+    kind of primary document search engines never surface. Only the first
+    pages are read either way, so the download is the whole cost."""
+    from app.research.fetcher import MAX_BYTES, MAX_PDF_BYTES
+    assert MAX_PDF_BYTES > MAX_BYTES
+    assert MAX_PDF_BYTES >= 15_000_000
