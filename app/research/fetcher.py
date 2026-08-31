@@ -25,6 +25,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from app.config import Settings
+from app.research import powwall
 from app.research.dedupe import domain_of
 
 log = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ class Fetcher:
         # fought back — or whether the cheap rung would have been enough.
         self.impersonated = 0
         self.solved = 0
+        self.pow_solved = 0
 
     # ---- SSRF guard ---------------------------------------------------------
     async def _host_allowed(self, url: str) -> bool:
@@ -162,8 +164,29 @@ class Fetcher:
             self._domain_sems[domain] = asyncio.Semaphore(2)
         return self._domain_sems[domain]
 
+    def _solve_pow(self, body: bytes, url: str) -> bool:
+        """A hashcash wall answers 200 with a challenge instead of the page.
+
+        Nothing above can see it — no status code went wrong — so this is
+        checked on the way out of a successful GET. Returns None for the
+        overwhelmingly common case of a page that is simply a page.
+        """
+        if powwall.MARKER.encode() not in body[:8000]:
+            return False
+        challenge = powwall.parse(body[:8000].decode("utf-8", "ignore"))
+        if challenge is None:
+            return False
+        answer = powwall.solve(challenge)
+        if answer is None:
+            return False
+        self.client.cookies.set("pow_bypass", answer,
+                                domain=challenge.cookie_domain or domain_of(url))
+        self.pow_solved += 1
+        return True
+
     async def _polite_get(self, url: str,
-                          extra_types: tuple[str, ...] = ()) -> httpx.Response | Fetched | None:
+                          extra_types: tuple[str, ...] = (),
+                          _pow_retry: bool = False) -> httpx.Response | Fetched | None:
         """One SSRF-checked, politeness-throttled GET without redirects."""
         allowed = ALLOWED_TYPES + extra_types
         domain = domain_of(url)
@@ -178,8 +201,13 @@ class Fetcher:
                 async with self.client.stream("GET", url, follow_redirects=False) as resp:
                     if resp.status_code in (301, 302, 303, 307, 308):
                         return resp  # caller follows
-                    if resp.status_code != 200:
+                    # 202 is how the hashcash wall answers: not an error, not
+                    # the page — a challenge carried in the body. Read it so
+                    # the wall check below can see it; if it turns out to hold
+                    # no challenge, it is still refused just as before.
+                    if resp.status_code not in (200, 202):
                         raise SkipReason(f"http {resp.status_code}")
+                    status = resp.status_code
                     ctype = (resp.headers.get("content-type") or "text/html").split(";")[0].strip().lower()
                     if not any(ctype.startswith(t) for t in allowed):
                         raise SkipReason(f"content-type {ctype}")
@@ -197,6 +225,14 @@ class Fetcher:
                     limit = (MAX_PDF_BYTES if ctype == "application/pdf"
                              else MAX_BYTES)
                     body = b"".join(chunks)[:limit]
+                    if status == 202 and not powwall.looks_challenged(body):
+                        raise SkipReason("http 202")
+                    if not _pow_retry and self._solve_pow(body, url):
+                        # Cookie is set; the same GET now returns the page.
+                        # Once only — a wall that re-challenges is not solvable
+                        # this way and must not become a loop.
+                        return await self._polite_get(url, extra_types,
+                                                      _pow_retry=True)
                     return Fetched(url=url, final_url=str(resp.url),
                                    content_type=ctype, body=body)
             finally:
