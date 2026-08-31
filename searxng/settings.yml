@@ -200,6 +200,11 @@ engines:
   # key and never the `results` key, and app/research/searcher.py reads only
   # `results`. Healthy or not, neither has ever contributed a single source to
   # a run — which is why wikipedia always read "empty" in check_engines.sh.
+  # Measured before deciding: of the eight sub-queries the planner actually
+  # wrote across two real runs, ZERO produced an infobox. They fire on bare
+  # entity names ("titanium"), and the planner writes natural-language
+  # sub-questions ("how to remove a stuck reel seat"). Where one does fire it
+  # carries a Wikipedia URL the general engines already return anyway.
   # Off, so they stop taking a slot in every query. Wikipedia articles still
   # arrive through the general engines, which return en.wikipedia.org URLs the
   # fetcher can actually read.
