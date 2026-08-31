@@ -21,6 +21,11 @@ search:
   max_page: 2
 
 outgoing:
+  # Appended to the outgoing User-Agent. Wikimedia's endpoints enforce their
+  # UA policy — a bare "SearXNG/<version>" gets HTTP 403 on a real query while
+  # the identical query with a contact URL gets 200. A URL satisfies the
+  # policy, so nothing personal goes out.
+  useragent_suffix: "(+https://github.com/lukeswade/deep-research)"
   request_timeout: 8.0
   max_request_timeout: 15.0
   pool_connections: 100
@@ -191,10 +196,25 @@ engines:
   # Off until there is a valkey to cache into; a structured-entity engine is
   # marginal for document research, and leaving it on spends a large SPARQL
   # request plus a 180s suspension at every boot.
-  # inactive, not merely disabled: `disabled` only hides an engine from the UI
-  # by default — SearXNG still loads it and still runs its init, so the 403 and
-  # its traceback kept appearing at every boot. `inactive` skips it outright.
+  # wikidata and wikipedia are INFOBOX engines: they populate the `infoboxes`
+  # key and never the `results` key, and app/research/searcher.py reads only
+  # `results`. Healthy or not, neither has ever contributed a single source to
+  # a run — which is why wikipedia always read "empty" in check_engines.sh.
+  # Off, so they stop taking a slot in every query. Wikipedia articles still
+  # arrive through the general engines, which return en.wikipedia.org URLs the
+  # fetcher can actually read.
+  #
+  # Their health was a separate matter and is now fixed: wikidata's init 403'd
+  # at every boot for weeks. I blamed the heavy startup SPARQL query and the
+  # absent valkey cache; both were wrong. The same query from the same address
+  # returns 200 the moment the User-Agent carries a contact — see
+  # outgoing.useragent_suffix above. An earlier probe that seemed to clear it
+  # used a trivial query, and Wikimedia only enforces the policy on real ones.
+  # That suffix also revived wikinews and wikibooks, which DO return results
+  # and can be switched on if ever wanted.
   - name: wikidata
+    inactive: true
+  - name: wikipedia
     inactive: true
 
   # --- academic / primary sources ---
