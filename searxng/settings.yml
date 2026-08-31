@@ -96,6 +96,53 @@ engines:
   - name: bing news
     disabled: true
 
+  # --- dead weight inside `general` ---
+  # These four sit in the general category and answer a research query with a
+  # translation, a definition or an exchange rate. Every one is a slice of the
+  # per-search budget and an outbound request against the same IP the gating
+  # engines are already judging — 4 of general's 13 engines, spent on noise.
+  - name: currency
+    disabled: true
+  - name: dictzone
+    disabled: true
+  - name: lingva
+    disabled: true
+  - name: mymemory translated
+    disabled: true
+
+  # --- indie indexes that do not gate on residential IPs ---
+  # Google, Brave, DDG, Qwant and Startpage all CAPTCHA'd simultaneously on a
+  # home connection, leaving `general` running on bing alone. These crawl and
+  # serve their own indexes, so they answer when the majors will not — and
+  # they index exactly the forum and hobbyist pages the majors bury, which is
+  # where practical repair questions are actually answered.
+  #
+  # Measured on 2026-08-31 against a real failing query, at four query
+  # lengths. These three answer, but only for SHORT queries — their indexes
+  # are small and match closer to AND than to a sentence:
+  #                       7w   5w   3w   2w
+  #   boardreader          0    0    8    8
+  #   searchmysite         1    4   10   10
+  #   wiby                 0    1   12   12
+  # The planner writes 5-8 word sub-queries, so today they contribute only
+  # when it happens to write a short one. Worth revisiting by sending them a
+  # keyword-shortened variant — not done yet, because a second query per
+  # sub-query is more outbound volume against the IP the majors are already
+  # rate-limiting.
+  - name: boardreader        # forum search, also feeds `social media`
+    disabled: false
+  - name: searchmysite       # independent personal sites, also feeds `blogs`
+    disabled: false
+  - name: wiby               # small hand-made pages the majors rank last
+    disabled: false
+  # Measured dead, left off rather than left to burn a slice of every search:
+  #   crowdview  0 results at every query length
+  #   mwmbl      unresponsive on every query
+  - name: crowdview
+    disabled: true
+  - name: mwmbl
+    disabled: true
+
   # --- resilient general-web engines ---
   - name: mojeek
     disabled: false
