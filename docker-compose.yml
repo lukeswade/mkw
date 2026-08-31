@@ -35,12 +35,23 @@ services:
     # then update this digest.
     image: searxng/searxng@sha256:f4c8e59de166ed71f6380c0847c312ca51f0d41996e31d0559163b6b09ecde52
     volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./searxng/settings.yml:/settings.src.yml:ro
+      - ./searxng/render-settings.sh:/render-settings.sh:ro
+    # /etc/searxng must be writable: the entrypoint renders the committed
+    # template into it with any API keys from the environment.
+    tmpfs:
+      - /etc/searxng
+    # Renders api_key values from the environment into a writable copy, then
+    # execs the image's own entrypoint. Absent keys change nothing.
+    entrypoint: ["/bin/sh", "/render-settings.sh"]
     environment:
       # A real secret is strongly preferred (see .env.example), but this
       # service has no published ports and is reachable only from the
       # internal network, so a missing one must not block a first run.
       SEARXNG_SECRET: ${SEARXNG_SECRET:-insecure-default-change-me}
+      # Optional. Set in .env; each one that is present adds its engine.
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      MARGINALIA_API_KEY: ${MARGINALIA_API_KEY:-}
     restart: unless-stopped
     # No ports: only reachable from the internal Docker network.
 

@@ -191,8 +191,11 @@ engines:
   # Off until there is a valkey to cache into; a structured-entity engine is
   # marginal for document research, and leaving it on spends a large SPARQL
   # request plus a 180s suspension at every boot.
+  # inactive, not merely disabled: `disabled` only hides an engine from the UI
+  # by default — SearXNG still loads it and still runs its init, so the 403 and
+  # its traceback kept appearing at every boot. `inactive` skips it outright.
   - name: wikidata
-    disabled: true
+    inactive: true
 
   # --- academic / primary sources ---
   - name: arxiv
@@ -221,3 +224,9 @@ engines:
     timeout: 5.0
   - name: startpage
     timeout: 5.0
+
+  # Engines whose api_key comes from the environment are inserted here at
+  # container start by render-settings.sh — never committed. Keep this marker
+  # as the LAST line of the engines list; keep any new top-level section above
+  # `engines:`, not below this.
+  # @@ API_ENGINES @@
