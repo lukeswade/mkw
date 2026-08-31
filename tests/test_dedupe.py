@@ -74,3 +74,17 @@ def test_lexical_overlap_is_case_insensitive():
     from app.research.dedupe import lexical_overlap
 
     assert lexical_overlap("ESP32 LoRa", "esp32 lora field report") == 1.0
+
+
+def test_www_and_mobile_hosts_are_the_same_page():
+    """domain_of folded www. but canonicalize did not, so the same page was
+    fetched and read twice; en.m.wikipedia.org also bought a second slot
+    against the per-domain diversity cap."""
+    from app.research.dedupe import canonicalize, domain_of
+    assert canonicalize("https://example.com/a") == canonicalize("https://www.example.com/a")
+    assert canonicalize("https://example.com/a") == canonicalize("https://m.example.com/a")
+    assert canonicalize("https://en.wikipedia.org/wiki/X") == \
+        canonicalize("https://en.m.wikipedia.org/wiki/X")
+    assert domain_of("https://en.m.wikipedia.org/wiki/X") == "en.wikipedia.org"
+    # a host that merely starts with m is not a mobile host
+    assert canonicalize("https://maps.example.com/a") != canonicalize("https://example.com/a")

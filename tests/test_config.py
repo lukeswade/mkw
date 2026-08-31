@@ -11,17 +11,17 @@ def test_defaults(data_dir):
     s = load_settings(str(data_dir))
     assert s.llm_provider == "deepseek"
     assert s.resolved_base_url == "https://api.deepseek.com"
-    assert s.results_per_query == 8
+    assert s.llm_concurrency == 4
     assert s.respect_robots is False
 
 
 def test_env_overrides_default(data_dir, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-env")
-    monkeypatch.setenv("RESULTS_PER_QUERY", "5")
+    monkeypatch.setenv("LLM_CONCURRENCY", "5")
     monkeypatch.setenv("RESPECT_ROBOTS", "true")
     s = load_settings(str(data_dir))
     assert s.deepseek_api_key == "sk-env"
-    assert s.results_per_query == 5
+    assert s.llm_concurrency == 5
     assert s.respect_robots is True
 
 
@@ -46,9 +46,9 @@ def test_corrupt_settings_json_ignored(data_dir):
 
 
 def test_int_coercion_garbage_falls_back(data_dir, monkeypatch):
-    monkeypatch.setenv("RESULTS_PER_QUERY", "lots")
+    monkeypatch.setenv("LLM_CONCURRENCY", "lots")
     s = load_settings(str(data_dir))
-    assert s.results_per_query == 8
+    assert s.llm_concurrency == 4
 
 
 def test_save_settings_atomic_0600_and_merge(data_dir):

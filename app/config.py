@@ -41,7 +41,6 @@ ENV_MAP = {
     "embedding_base_url": "EMBEDDING_BASE_URL",
     "embedding_api_key": "EMBEDDING_API_KEY",
     "llm_timeout": "LLM_TIMEOUT",
-    "results_per_query": "RESULTS_PER_QUERY",
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
@@ -74,7 +73,6 @@ UI_EDITABLE = {
     "web_password",
     "lan_user_label",
     "searxng_url",
-    "results_per_query",
     "search_categories",
     "relevance_threshold",
     "reference_chasing",
@@ -135,7 +133,6 @@ class Settings:
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     llm_timeout: int = 180
-    results_per_query: int = 8
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"

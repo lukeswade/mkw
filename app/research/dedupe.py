@@ -14,6 +14,19 @@ _TRACKING_KEYS = {"fbclid", "gclid", "msclkid", "igshid", "mc_cid", "mc_eid",
 T = TypeVar("T")
 
 
+def _fold_host(host: str) -> str:
+    """www. and mobile hosts serve the same page under a different name.
+
+    domain_of already stripped www., so diversity capping saw one domain
+    while canonicalize saw two URLs — the same page fetched and read twice,
+    at the cost of a notes call each. en.m.wikipedia.org turned up alongside
+    en.wikipedia.org in a live run, and mobile hosts additionally bought a
+    second slot against the per-domain cap.
+    """
+    host = host.removeprefix("www.").removeprefix("m.")
+    return host.replace(".m.", ".", 1)
+
+
 def canonicalize(url: str) -> str:
     parts = urlsplit(url.strip())
     scheme = (parts.scheme or "https").lower()
@@ -21,6 +34,7 @@ def canonicalize(url: str) -> str:
     for default in (":80", ":443"):
         if netloc.endswith(default):
             netloc = netloc.rsplit(":", 1)[0]
+    netloc = _fold_host(netloc)
     path = parts.path or "/"
     if len(path) > 1 and path.endswith("/"):
         path = path.rstrip("/")
@@ -33,7 +47,7 @@ def canonicalize(url: str) -> str:
 
 def domain_of(url: str) -> str:
     host = urlsplit(url).netloc.lower().rsplit("@", 1)[-1].split(":")[0]
-    return host.removeprefix("www.")
+    return _fold_host(host)
 
 
 _STOPWORDS = frozenset(

@@ -44,11 +44,6 @@ async def settings_save(request: Request):
             updates["llm_concurrency"] = max(1, min(16, int(str(form["llm_concurrency"]))))
         except ValueError:
             pass
-    if "results_per_query" in form:
-        try:
-            updates["results_per_query"] = max(1, min(20, int(str(form["results_per_query"]))))
-        except ValueError:
-            pass
     updates["respect_robots"] = form.get("respect_robots") == "on"
     updates["reference_chasing"] = form.get("reference_chasing") == "on"
     updates["browser_impersonation"] = form.get("browser_impersonation") == "on"

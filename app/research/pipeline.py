@@ -72,12 +72,21 @@ def candidates_per_round(breadth: int) -> int:
     # wider net costs only fetches for candidates the ranker put below the
     # old cut line — the notes-call budget is still governed by triage and
     # relevance.
-    return breadth * 4 + 2
+    #
+    # Doubled again (was *4+2) because triage is ONE call per round over the
+    # whole list, so a wider pool costs a longer prompt rather than more LLM
+    # calls. 2.5x was tempting and rejected: at depth 8 it would put ~33 notes
+    # calls in a round against a 153-call ceiling, so the last round would die
+    # on "LLM call cap reached" — a widening that silently shortens the run.
+    return breadth * 8 + 4
 
 def max_llm_calls_for_depth(depth: int) -> int:
     # A ceiling against runaways, not a target: every analyzed document is
     # one notes call, so the budget must comfortably exceed the source cap.
-    return 25 + 2 * max_docs_for_depth(depth)
+    # 3x, not 2x, since candidates_per_round doubled: more documents are now
+    # read per document kept, and this must stay a backstop rather than
+    # become the thing that ends the run.
+    return 25 + 3 * max_docs_for_depth(depth)
 
 def saturation_patience(depth: int) -> int:
     """Consecutive 'saturated' verdicts needed before a run stops early.

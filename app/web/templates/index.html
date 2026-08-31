@@ -61,8 +61,11 @@
         let saved;
         try { saved = JSON.parse(localStorage.getItem("search_categories")); }
         catch (e) { saved = null; }
-        if (!Array.isArray(saved) || !saved.length)
-          saved = ["general", "videos", "social media"];
+        // general+science measured best for research runs. videos and social
+        // were tried as a default on 2026-08-30 and cost a depth-8 run: of 52
+        // rejected candidates, 20 were PeerTube/Dailymotion/TikTok/Facebook
+        // pages that cannot yield text at all. Tick them per-run when wanted.
+        if (!Array.isArray(saved) || !saved.length) saved = ["general", "science"];
         boxes.forEach(b => { b.checked = saved.includes(b.value); });
         document.getElementById("cat-group").addEventListener("change", () => {
           const picked = [...boxes].filter(b => b.checked).map(b => b.value);

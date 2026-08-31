@@ -156,7 +156,7 @@ def test_settings_save_masking_and_mode(data_dir, monkeypatch):
             "fast_model": "",
             "telegram_allowed_user_ids": "123",
             "searxng_url": "http://searxng:8080",
-            "results_per_query": "9",
+            "llm_concurrency": "9",
             "respect_robots": "on",
             "llm_api_key": "sk-supersecret-9876",
             "telegram_bot_token": "",
@@ -168,7 +168,7 @@ def test_settings_save_masking_and_mode(data_dir, monkeypatch):
         assert stat.S_IMODE(os.stat(settings_file).st_mode) == 0o600
         saved = json.loads(settings_file.read_text())
         assert saved["llm_api_key"] == "sk-supersecret-9876"
-        assert saved["results_per_query"] == 9
+        assert saved["llm_concurrency"] == 9
         assert "telegram_bot_token" not in saved  # blank secret untouched
 
         page = client.get("/settings")
