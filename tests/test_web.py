@@ -458,7 +458,8 @@ def test_the_new_settings_fields_round_trip_and_the_key_is_masked(data_dir, monk
     app, cfg = make_app(data_dir, monkeypatch)
     with TestClient(app) as client:
         r = client.post("/settings", data={
-            "search_categories": " general,it,q&a ",
+            "search_categories_present": "1",
+            "search_categories": ["general", "it", "q&a"],   # one value per ticked box
             "relevance_threshold": "7",
             "embedding_api_key": "sk-embed-secret-42",
             "llm_concurrency": "3",
@@ -574,4 +575,53 @@ def test_settings_explains_each_of_the_three_new_fields(data_dir, monkeypatch):
     for phrase in ("recommended: <code>general,science</code>", "recommended: 4", "recommended: blank",
                    "never rate-limit", "below this\n          line it is discarded", "Blank uses the LLM's key"):
         assert phrase in page, phrase
-    assert 'value="general,science"' in page and 'value="4"' in page      # the defaults ARE the recommendation
+    # the defaults ARE the recommendation
+    assert 'value="general" checked' in page and 'value="science" checked' in page
+    assert 'value="4"' in page
+
+
+def test_categories_are_checkboxes_on_settings_and_seed_the_new_page(data_dir, monkeypatch):
+    """Settings offered a comma-separated box for a list with eight known
+    values, and the New page pre-ticked a hardcoded pair regardless of what
+    Settings said. Both pages now draw from one list, and New starts from
+    what Settings chose."""
+    from fastapi.testclient import TestClient
+    import html
+    from app.research.searcher import CATEGORY_OPTIONS
+    app, cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        client.post("/settings", data={"search_categories_present": "1",
+                                       "search_categories": ["general", "news"]},
+                    follow_redirects=False)
+        settings = client.get("/settings").text
+        for c in CATEGORY_OPTIONS:                                  # q&a renders as q&amp;a
+            assert f'name="search_categories" value="{html.escape(c)}"' in settings, c
+        assert 'value="news" checked' in settings and 'value="general" checked' in settings
+        assert 'value="science" checked' not in settings
+        assert 'type="text" name="search_categories"' not in settings   # the comma box is gone
+
+        home = client.get("/").text
+        assert 'const fallback = ["general", "news"];' in home          # New starts from Settings
+        assert home.count('name="categories" value=') == len(CATEGORY_OPTIONS)
+
+
+def test_unticking_every_category_snaps_back_to_the_recommendation(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        client.post("/settings", data={"search_categories_present": "1"}, follow_redirects=False)
+        saved = json.loads((cfg.data_path / "settings.json").read_text())
+    assert saved["search_categories"] == "general,science"
+
+
+def test_a_hand_typed_category_survives_the_checkboxes(data_dir, monkeypatch):
+    """A comma-joined value (CLI, .env, an old settings.json) is still accepted,
+    and a category outside the standard list gets its own box instead of
+    being silently dropped on the next save."""
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        client.post("/settings", data={"search_categories": "general, map"}, follow_redirects=False)
+        saved = json.loads((cfg.data_path / "settings.json").read_text())
+        assert saved["search_categories"] == "general,map"
+        assert 'value="map" checked' in client.get("/settings").text

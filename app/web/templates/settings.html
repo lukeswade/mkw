@@ -55,15 +55,20 @@
       <input type="text" name="searxng_url" value="{{ cfg.searxng_url }}">
     </label>
     <div class="grid">
-      <label>Default categories <small>(recommended: <code>general,science</code>)</small>
-        <input type="text" name="search_categories" value="{{ cfg.search_categories }}"
-               placeholder="general,science">
+      <div class="field">
+        <span class="field-label">Default categories <small>(recommended: <code>general,science</code>)</small></span>
+        <fieldset class="cats" aria-label="Default categories">
+          <input type="hidden" name="search_categories_present" value="1">
+          {% for c in category_options %}
+          <label><input type="checkbox" name="search_categories" value="{{ c }}"{{ ' checked' if c in cfg_categories }}> {{ c }}</label>
+          {% endfor %}
+        </fieldset>
         <small class="field-help">Which search groups a run uses when it does not pick its own:
-          the New page pre-selects these, and the CLI, Telegram and claim checks use them
+          the New page starts from these, and the CLI, Telegram and claim checks use them
           as-is. <code>general</code> is the web; <code>science</code> adds Crossref, OpenAlex,
           Semantic Scholar and arXiv, which never rate-limit. Leave <code>it</code> out — it
           answers repair and how-to questions with package registries.</small>
-      </label>
+      </div>
       <label>Relevance threshold <small>(recommended: 4)</small>
         <input type="number" name="relevance_threshold" min="0" max="10"
                value="{{ cfg.relevance_threshold }}">

@@ -38,15 +38,12 @@
       <button type="submit" class="go">Start research</button>
     </div>
     <fieldset class="cats" id="cat-group" aria-labelledby="cats-legend"
-              title="Which search-engine categories this run queries. Your last selection is remembered.">
+              title="Which search-engine categories this run queries. Starts from the Settings default; your last selection is remembered.">
       {# A span, not a <legend>: a legend renders outside the fieldset's flow
          and cannot be aligned with the boxes beside it. #}
       <span class="cats-legend" id="cats-legend">Search in</span>
-      {# q&a is stackoverflow + askubuntu + superuser; measured working. The
-   options SearXNG advertises but has no enabled engine for (books,
-   blogs, apps, shopping, movies) are deliberately absent — they are
-   dead switches. #}
-      {% for c in ["general", "science", "it", "q&a", "news", "videos", "social media", "files"] %}
+      {# The list lives in searcher.CATEGORY_OPTIONS, shared with Settings. #}
+      {% for c in category_options %}
       <label><input type="checkbox" name="categories" value="{{ c }}"> {{ c }}</label>
       {% endfor %}
     </fieldset>
@@ -65,11 +62,13 @@
         let saved;
         try { saved = JSON.parse(localStorage.getItem("search_categories")); }
         catch (e) { saved = null; }
-        // general+science measured best for research runs. videos and social
-        // were tried as a default on 2026-08-30 and cost a depth-8 run: of 52
-        // rejected candidates, 20 were PeerTube/Dailymotion/TikTok/Facebook
-        // pages that cannot yield text at all. Tick them per-run when wanted.
-        if (!Array.isArray(saved) || !saved.length) saved = ["general", "science"];
+        // First visit, or nothing remembered: start from the Settings default
+        // (general,science unless changed there). videos and social were tried
+        // as a default on 2026-08-30 and cost a depth-8 run: of 52 rejected
+        // candidates, 20 were PeerTube/Dailymotion/TikTok/Facebook pages that
+        // cannot yield text at all. Tick them per-run when wanted.
+        const fallback = {{ default_categories | tojson }};
+        if (!Array.isArray(saved) || !saved.length) saved = fallback;
         boxes.forEach(b => { b.checked = saved.includes(b.value); });
         document.getElementById("cat-group").addEventListener("change", () => {
           const picked = [...boxes].filter(b => b.checked).map(b => b.value);

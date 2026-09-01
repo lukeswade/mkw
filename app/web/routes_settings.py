@@ -11,6 +11,8 @@ from markupsafe import escape
 
 from app.config import SECRET_FIELDS, load_settings, mask_secret, save_settings
 from app.llm.client import LLM, LLMError
+from app.research.searcher import (DEFAULT_CATEGORIES, category_options,
+                                   split_categories)
 from app.research.searcher import Searcher, SearxngError
 
 log = logging.getLogger(__name__)
@@ -19,7 +21,7 @@ router = APIRouter()
 _TEXT_FIELDS = ("llm_provider", "llm_base_url", "llm_model", "fast_model",
                 "telegram_allowed_user_ids", "searxng_url", "lan_user_label",
                 "authority_sites", "feeds", "browser_solver_url",
-                "embedding_model", "embedding_base_url", "search_categories")
+                "embedding_model", "embedding_base_url")
 _SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password",
                        "embedding_api_key")
 # Bounded integers: (field, low, high). Garbage leaves the setting alone.
@@ -32,7 +34,9 @@ async def settings_page(request: Request, saved: int = 0):
     masked = {f: mask_secret(getattr(cfg, f)) for f in SECRET_FIELDS}
     return request.app.state.templates.TemplateResponse(
         request, "settings.html",
-        {"nav": "settings", "cfg": cfg, "masked": masked, "saved": saved})
+        {"nav": "settings", "cfg": cfg, "masked": masked, "saved": saved,
+         "category_options": category_options(cfg.search_categories),
+         "cfg_categories": set(split_categories(cfg.search_categories))})
 
 
 @router.post("/settings")
@@ -42,6 +46,17 @@ async def settings_save(request: Request):
     for f in _TEXT_FIELDS:
         if f in form:
             updates[f] = str(form[f]).strip()
+    # Categories arrive as checkboxes (one value each) but a comma-joined
+    # string is still accepted, so the CLI, .env and this form all agree. The
+    # hidden marker distinguishes "every box unticked" from "field not on
+    # this form" — nothing ticked is never what anyone means (SearXNG would
+    # fall back to `general` alone, the CAPTCHA'd category), so it snaps back
+    # to the recommendation rather than saving an empty string.
+    if "search_categories_present" in form or "search_categories" in form:
+        picked: list[str] = []
+        for raw in form.getlist("search_categories"):
+            picked += [c for c in split_categories(str(raw)) if c not in picked]
+        updates["search_categories"] = ",".join(picked) or DEFAULT_CATEGORIES
     for f, low, high in _INT_FIELDS:
         if f in form:
             try:

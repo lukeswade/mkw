@@ -20,6 +20,7 @@ from app.web.export import (PdfExportError, build_run_html, interactive_html,
                             render_pdf, standalone_html)
 from app.web.markdown import render, render_overview, strip_leading_h1
 from app.db import row_get
+from app.research.searcher import category_options, split_categories
 
 
 log = logging.getLogger(__name__)
@@ -137,6 +138,8 @@ def _index_context(request: Request, depth: int = 3) -> dict:
         "llm_configured": cfg.llm_is_configured,
         "provider_label": cfg.provider.label,
         "estimate": estimate_run(request.app.state.repo, depth=depth),
+        "category_options": category_options(cfg.search_categories),
+        "default_categories": split_categories(cfg.search_categories),
     })
     return ctx
 

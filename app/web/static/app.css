@@ -328,9 +328,13 @@ input[type="range"]::-webkit-slider-thumb:hover {
   box-shadow: 0 0 0 4px rgba(255,255,255,0.1), 0 1px 4px rgba(0,0,0,0.4);
 }
 
-/* Checkbox */
+/* Checkbox. Pico draws its tick as a WHITE stroke, and this theme paints the
+   checked box with the near-white accent — so the tick was invisible and a
+   checked box read as an empty light square. Same SVG, stroke in the accent's
+   text colour. */
 input[type="checkbox"] {
   accent-color: var(--accent);
+  --pico-icon-checkbox: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='rgb(0, 0, 0)' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
 }
 
 /* ---- New run form ---- */
@@ -1315,7 +1319,7 @@ input[type="checkbox"] {
 .run-actions .export-btn:hover { color: var(--text-primary); border-color: var(--text-faint); }
 
 /* ---- per-run search category picker ---- */
-.new-run .cats {
+.cats {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1328,12 +1332,12 @@ input[type="checkbox"] {
    cannot align it with anything — hence the old float, which put it in the
    row but left it a few pixels high. A plain span is a real flex item and
    align-items:center simply works; the fieldset is labelled by it instead. */
-.new-run .cats .cats-legend {
+.cats .cats-legend {
   font-size: 0.82rem;
   color: var(--text-muted);
   padding-right: 0.5rem;
 }
-.new-run .cats label {
+.cats label {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -1344,7 +1348,10 @@ input[type="checkbox"] {
 /* Square, where "Build on earlier research" below is round: these seven
    pick where to search, that one changes how the run thinks. Same control,
    different jobs, and the shape says so at a glance. */
-.new-run .cats input[type="checkbox"] { margin: 0; border-radius: 3px; }
+.cats input[type="checkbox"] { margin: 0; border-radius: 3px; flex-shrink: 0; }
+/* Settings reuses the row under a label-like heading */
+.field .field-label { display: block; margin-bottom: .45rem; }
+.field .cats { margin: 0 0 .25rem; padding-bottom: 0; }
 
 .run-actions .resynth-btn {
   display: inline-flex;

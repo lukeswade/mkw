@@ -72,6 +72,24 @@ def cutoff_for(recency: str, now: datetime | None = None) -> datetime | None:
 # `it` is deliberately excluded: MDN and Docker Hub match generic words like
 # "node" and "enclosure" and flood the candidate pool with noise.
 DEFAULT_CATEGORIES = "general,science"
+# What the New page and Settings offer. q&a is stackoverflow + askubuntu +
+# superuser, measured working. Categories SearXNG advertises but has no
+# enabled engine for (books, blogs, apps, shopping, movies) are absent on
+# purpose: they are dead switches.
+CATEGORY_OPTIONS = ("general", "science", "it", "q&a", "news", "videos",
+                    "social media", "files")
+
+
+def split_categories(value: str) -> list[str]:
+    """'general, science' -> ['general', 'science']; order kept, blanks dropped."""
+    return [c.strip() for c in (value or "").split(",") if c.strip()]
+
+
+def category_options(configured: str) -> list[str]:
+    """The standard list, plus anything the config names that is not in it,
+    so a hand-typed category survives a round trip through the checkboxes."""
+    extra = [c for c in split_categories(configured) if c not in CATEGORY_OPTIONS]
+    return list(CATEGORY_OPTIONS) + extra
 
 # General-web engines. Everything else (academic, code, Q&A) is backfill that
 # only gets picked once these have had their turn.
