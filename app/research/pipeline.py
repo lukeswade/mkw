@@ -1073,9 +1073,14 @@ class Pipeline:
         timeout = httpx.Timeout(15.0, connect=10.0)
         results: list[verify.Checked] = []
         async with httpx.AsyncClient(headers=headers, timeout=timeout) as http:
-            searcher = Searcher(cfg.searxng_url, http,
-                                categories=cfg.search_categories,
-                                max_concurrent=cfg.search_concurrency)
+            # The run's own categories, like a research run — this always
+            # took the global default, so a claim check could not be pointed
+            # at the engines its subject actually lives in.
+            searcher = Searcher(
+                cfg.searxng_url, http,
+                categories=((_row_get(row, "categories", "") or "").strip()
+                            or cfg.search_categories),
+                max_concurrent=cfg.search_concurrency)
             fetcher = Fetcher(cfg, http)
             for i, claim in enumerate(checked, 1):
                 if self.cancel_requested:

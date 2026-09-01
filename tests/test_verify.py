@@ -440,3 +440,28 @@ def test_library_evidence_is_trimmed_before_the_web_is_appended():
     assert [e.n for e in combined] == [1, 2, 3, 4, 5, 6]
     # web evidence now sits inside the range a verdict actually cites
     assert [e.n for e in combined if e.url.startswith("http")] == [4, 5, 6]
+
+
+@respx.mock
+async def test_a_claim_check_searches_the_categories_it_was_given(data_dir):
+    """Claim checks always took the global default, so a check could not be
+    pointed at the engines its subject lives in. The library returns nothing
+    here, so the claim falls through to the web and the search is observable."""
+    cfg = make_cfg(data_dir)
+    sx = respx.get(f"{SX}/search").mock(return_value=httpx.Response(
+        200, json=sx_payload([sx_result("https://e.com/a", "Evidence")])))
+    respx.get("https://e.com/a").mock(
+        return_value=httpx.Response(200, html=article("Evidence page")))
+    llm = FakeLLM(_script([{"text": "MLX is faster", "importance": 9,
+                            "checkable": True}], verdict="contested", conf=6))
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(), rag=_Rag([]),
+                        llm_factory=lambda: llm)
+    rid = orch.enqueue(RunParams(query="Claim check", depth=0, recency="all",
+                                 origin="cli", kind="verify", document=DOC,
+                                 categories="it,q&a"))
+    await orch.execute_now(rid)
+
+    assert sx.called
+    sent = sx.calls[0].request.url.params["categories"]
+    assert sent.startswith("it,q&a"), sent
