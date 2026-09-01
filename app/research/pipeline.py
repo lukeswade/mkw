@@ -666,7 +666,8 @@ class Pipeline:
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
             chosen = rank_diverse(pool, state.seen_urls,
                                   per_domain=state.per_source,
-                                  limit=limit, group=state.group_by)
+                                  limit=limit, group=state.group_by,
+                                  uncapped=self._authority_domains())
             for c in chosen:
                 state.seen_urls.add(canonicalize(c.url))
             return chosen

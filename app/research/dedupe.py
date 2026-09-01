@@ -157,9 +157,14 @@ def interleave(lists: Iterable[list[T]]) -> list[T]:
     return out
 
 
+def _under(host: str, domains: frozenset[str]) -> bool:
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
 def rank_diverse(results: list[SearchResult], seen: set[str], *,
                  per_domain: int = 2, limit: int = 12,
-                 group=None) -> list[SearchResult]:
+                 group=None,
+                 uncapped: frozenset[str] = frozenset()) -> list[SearchResult]:
     """Pick fetch candidates: drop seen/duplicate URLs, cap per-source count.
 
     `group` decides what counts as one source, defaulting to the domain. A
@@ -167,6 +172,12 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
     live on github.com — capping by domain let two entries through from all
     three combined, which is the opposite of what a curated reading list
     should do.
+
+    `uncapped` domains ignore per_domain. The cap exists to stop one SEO farm
+    flooding a round; a site the user has curated as authoritative is the
+    opposite of that, and a forum holding five good threads on the question
+    was yielding two per round. Authority sites already bypass triage for the
+    same reason: curated judgment outranks a heuristic.
     """
     key = group or (lambda r: domain_of(canonicalize(r.url)))
     out: list[SearchResult] = []
@@ -177,7 +188,7 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
         if cu in seen or cu in taken:
             continue
         d = key(r)
-        if domain_counts[d] >= per_domain:
+        if domain_counts[d] >= per_domain and not _under(str(d), uncapped):
             continue
         taken.add(cu)
         domain_counts[d] += 1

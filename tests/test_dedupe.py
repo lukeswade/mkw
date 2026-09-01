@@ -88,3 +88,28 @@ def test_www_and_mobile_hosts_are_the_same_page():
     assert domain_of("https://en.m.wikipedia.org/wiki/X") == "en.wikipedia.org"
     # a host that merely starts with m is not a mobile host
     assert canonicalize("https://maps.example.com/a") != canonicalize("https://example.com/a")
+
+
+def test_authority_sites_are_not_capped_per_domain():
+    """The 2-per-domain cap stops an SEO farm flooding a round. A curated
+    authority site is the opposite of that, and a forum with five good
+    threads was yielding two. Same rule that already exempts them from
+    triage: curated judgment outranks a heuristic."""
+    from app.research.dedupe import rank_diverse
+    from app.research.searcher import SearchResult
+
+    def r(url):
+        return SearchResult(url=url, title=url, snippet="", engine="bing",
+                            published=None, score=1.0)
+    pool = ([r(f"https://charm.li/manual/{i}") for i in range(5)]
+            + [r(f"https://docs.charm.li/page/{i}") for i in range(3)]   # subdomain
+            + [r(f"https://seo-farm.com/{i}") for i in range(5)])
+    picked = rank_diverse(pool, set(), per_domain=2, limit=50,
+                          uncapped=frozenset({"charm.li"}))
+    hosts = [p.url.split("/")[2] for p in picked]
+    assert hosts.count("charm.li") == 5
+    assert hosts.count("docs.charm.li") == 3, "a subdomain of an authority counts"
+    assert hosts.count("seo-farm.com") == 2, "everyone else is still capped"
+    # and with nothing uncapped, the old behaviour holds exactly
+    plain = rank_diverse(pool, set(), per_domain=2, limit=50)
+    assert [p.url.split("/")[2] for p in plain].count("charm.li") == 2
