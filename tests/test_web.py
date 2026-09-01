@@ -400,3 +400,38 @@ def test_a_follow_up_of_a_memory_off_run_stays_memory_off(data_dir, monkeypatch)
         r = client.post("/runs", data=fields, follow_redirects=False)
         child = repo.get_run(r.headers["location"].rsplit("/", 1)[-1])
     assert child["use_prior"] == 0
+
+
+def test_a_retry_is_the_same_run_again(data_dir, monkeypatch):
+    """Retry carried only the query and categories: a failed brief retried as
+    a web search, a named brief lost its list, a claim check lost its
+    document, a memory-off run came back with memory on."""
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    with TestClient(app) as client:
+        # a named brief that ran memory-off
+        store = RunStore.create(cfg.research_dir, "Brief: Local LLM")
+        bid = repo.create_brief(name="Local LLM", feeds="https://a.test/f\n")
+        repo.create_run(run_id=store.run_id, query="Brief: Local LLM", depth=4,
+                        recency="week", dir=store.run_id, status="failed",
+                        kind="brief", brief_id=bid, use_prior=False,
+                        categories="general")
+        r = client.post(f"/runs/{store.run_id}/retry", follow_redirects=False)
+        child = repo.get_run(r.headers["location"].rsplit("/", 1)[-1])
+        assert child["kind"] == "brief"
+        assert child["brief_id"] == bid
+        assert child["use_prior"] == 0
+        assert child["categories"] == "general"
+
+        # a claim check keeps the document it was checking
+        vstore = RunStore.create(cfg.research_dir, "Claim check: x")
+        vstore.write_document("MLX doubles decode throughput on M4.")
+        repo.create_run(run_id=vstore.run_id, query="Claim check: x", depth=0,
+                        recency="all", dir=vstore.run_id, status="failed",
+                        kind="verify")
+        r = client.post(f"/runs/{vstore.run_id}/retry", follow_redirects=False)
+        vchild = repo.get_run(r.headers["location"].rsplit("/", 1)[-1])
+        assert vchild["kind"] == "verify"
+        assert "doubles decode" in RunStore(
+            cfg.research_dir / vchild["dir"]).read_document()

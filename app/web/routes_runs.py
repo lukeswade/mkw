@@ -339,14 +339,28 @@ async def toggle_evergreen(request: Request, run_id: str, view: str = ""):
 @router.post("/runs/{run_id}/retry")
 async def retry_run(request: Request, run_id: str):
     row = _row_or_404(request, run_id)
-    try:
-        inherited = (row["categories"] or "")
-    except (KeyError, IndexError):
-        inherited = ""
+
+    def col(name, default):
+        # Not _row_get: that returns `row[name] or default`, which turns a
+        # legitimate use_prior=0 into the default. Null is the only miss.
+        try:
+            value = row[name]
+        except (KeyError, IndexError):
+            return default
+        return default if value is None else value
+
+    # A retry is the same run again. It carried only the query and the
+    # categories, so a failed brief came back as a web search, a named brief
+    # lost its reading list, a claim check lost its document, and a memory-off
+    # run came back with memory on.
     params = RunParams(query=row["query"], depth=row["depth"],
                        recency=row["recency"], origin="web",
                        parent_run_id=run_id, created_by=_initiator(request),
-                       categories=inherited)
+                       categories=col("categories", "") or "",
+                       kind=col("kind", "research"),
+                       brief_id=col("brief_id", None),
+                       use_prior=bool(col("use_prior", 1)),
+                       document=_store(request, row).read_document())
     new_id = request.app.state.orch.enqueue(params)
     return RedirectResponse(f"/runs/{new_id}", status_code=303)
 
