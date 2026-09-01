@@ -45,14 +45,35 @@ def _build_rag(cfg):
     return RagService(cfg)
 
 
+def _params_from_args(args) -> RunParams:
+    """Everything the web form can say, sayable from the shell.
+
+    The CLI could start only a plain research run: no categories, no way to
+    switch prior knowledge off, no briefs, no claim checks. A claim check's
+    document comes from a file, since it is far too long for an argument.
+    """
+    from pathlib import Path
+    kind = getattr(args, "kind", "research")
+    document = ""
+    if kind == "verify":
+        if not getattr(args, "document", None):
+            raise SystemExit("--kind verify needs --document PATH (the text to check)")
+        document = Path(args.document).read_text(encoding="utf-8")
+    return RunParams(query=args.query, depth=args.depth, recency=args.recency,
+                     origin="cli", created_by="CLI",
+                     categories=(getattr(args, "categories", "") or "").strip(),
+                     use_prior=not getattr(args, "no_prior", False),
+                     kind=kind, brief_id=getattr(args, "brief_id", None),
+                     document=document)
+
+
 async def _cmd_run(args) -> int:
     cfg = load_settings()
     cfg.ensure_dirs()
     repo = Repo(connect(cfg.db_path))
     bus = ProgressBus()
     orch = Orchestrator(load_settings, repo, bus, rag=_build_rag(cfg))
-    params = RunParams(query=args.query, depth=args.depth,
-                       recency=args.recency, origin="cli", created_by="CLI")
+    params = _params_from_args(args)
     run_id = orch.enqueue(params)
     row = repo.get_run(run_id)
     store = RunStore(cfg.research_dir / row["dir"])
@@ -142,7 +163,7 @@ async def _cmd_reindex(_args) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m app.cli",
                                 description="Local deep-research agent")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -152,6 +173,20 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--depth", "-d", type=int, default=3,
                        choices=range(0, 11), metavar="0-10")
     run_p.add_argument("--recency", "-r", default="all", choices=RECENCY_CHOICES)
+    run_p.add_argument("--categories", "-c", default="",
+                       help="SearXNG categories, comma-separated (default: the "
+                            "Settings value, e.g. general,science)")
+    run_p.add_argument("--no-prior", action="store_true",
+                       help="ignore earlier runs: a fresh diagnosis")
+    run_p.add_argument("--kind", "-k", default="research",
+                       choices=("research", "brief", "verify"),
+                       help="research the web, read the feeds, or check a "
+                            "document's claims")
+    run_p.add_argument("--brief-id", type=int, default=None,
+                       help="with --kind brief: which named brief (default: "
+                            "the Settings feed list)")
+    run_p.add_argument("--document", default=None, metavar="PATH",
+                       help="with --kind verify: file holding the text to check")
     run_p.set_defaults(fn=_cmd_run)
 
     runs_p = sub.add_parser("runs", help="list research runs")
@@ -169,8 +204,11 @@ def main(argv: list[str] | None = None) -> int:
         help="rewrite a run's overview from its stored findings (no re-search)")
     rs_p.add_argument("run_id")
     rs_p.set_defaults(fn=_cmd_resynth)
+    return p
 
-    args = p.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     return asyncio.run(args.fn(args))
 
 
