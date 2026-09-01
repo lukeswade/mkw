@@ -25,6 +25,29 @@ PRIOR_MAX_CHUNKS = 8
 LINK_MIN_SCORE = 0.55
 LINK_TOP_N = 3
 ASK_MIN_SCORE = 0.35
+ASK_MAX_CHUNKS = 10
+# Chunks any one run may contribute to Ask or to the planner's prior block.
+# Top-N by score hands every slot to the richest run: a probe of the live
+# index returned 12 of 12 chunks from a single run. The same per-source cap
+# already applies per domain, per feed and per source elsewhere in the
+# pipeline; this is the same rule for the knowledge layer.
+ASK_PER_RUN = 3
+PRIOR_PER_RUN = 3
+
+
+def diversify(hits, *, per_run: int, limit: int) -> list:
+    """Best-first, but no run may take more than per_run slots."""
+    taken: dict[str, int] = defaultdict(int)
+    out = []
+    for h in hits:
+        rid = h.meta.get("run_id", "")
+        if taken[rid] >= per_run:
+            continue
+        taken[rid] += 1
+        out.append(h)
+        if len(out) >= limit:
+            break
+    return out
 
 
 class RagService:
@@ -78,9 +101,11 @@ class RagService:
         if self.index.count() == 0:
             return "", []
         emb = await self.embedder.encode_query(query)
-        hits = [h for h in self.index.query(emb, n=PRIOR_MAX_CHUNKS * 2)
-                if h.meta.get("run_id") != exclude_run
-                and h.score >= PRIOR_MIN_SCORE][:PRIOR_MAX_CHUNKS]
+        hits = diversify(
+            [h for h in self.index.query(emb, n=PRIOR_MAX_CHUNKS * 4)
+             if h.meta.get("run_id") != exclude_run
+             and h.score >= PRIOR_MIN_SCORE],
+            per_run=PRIOR_PER_RUN, limit=PRIOR_MAX_CHUNKS)
         if not hits:
             return "", []
         lines = []
@@ -166,7 +191,10 @@ class RagService:
     async def ask(self, question: str, repo: Repo) -> dict:
         self._refresh()
         emb = await self.embedder.encode_query(question)
-        hits = [h for h in self.index.query(emb, n=10) if h.score >= ASK_MIN_SCORE]
+        hits = diversify(
+            [h for h in self.index.query(emb, n=ASK_MAX_CHUNKS * 3)
+             if h.score >= ASK_MIN_SCORE],
+            per_run=ASK_PER_RUN, limit=ASK_MAX_CHUNKS)
         if not hits:
             return {"answer": "The research corpus doesn't cover this yet — "
                               "try running a research on it first.",

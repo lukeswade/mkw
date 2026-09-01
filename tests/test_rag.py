@@ -161,3 +161,21 @@ async def test_similar_hint_partial(cfg, monkeypatch):
 
         short = client.get("/partials/similar", params={"query": "hi"})
         assert "similar-hint" not in short.text
+
+
+def test_one_rich_run_cannot_fill_the_whole_context():
+    """A live probe returned 12 of 12 chunks from a single run. Best-first,
+    but capped per run — the rule the rest of the pipeline already applies
+    per domain, per feed and per source."""
+    from app.rag.index import Hit
+    from app.rag.service import diversify
+    rich = [Hit(id=f"a{i}", text="", meta={"run_id": "A"}, score=0.9 - i * 0.01)
+            for i in range(12)]
+    thin = [Hit(id="b0", text="", meta={"run_id": "B"}, score=0.70),
+            Hit(id="c0", text="", meta={"run_id": "C"}, score=0.65)]
+    picked = diversify(rich + thin, per_run=3, limit=10)
+    runs = [h.meta["run_id"] for h in picked]
+    assert runs.count("A") == 3, "the rich run is capped"
+    assert "B" in runs and "C" in runs, "the thin runs still get a voice"
+    assert picked[0].score >= picked[-1].score, "still best-first"
+    assert len(picked) <= 10
