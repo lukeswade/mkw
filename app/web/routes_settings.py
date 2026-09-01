@@ -77,7 +77,7 @@ async def test_llm(request: Request):
         msg = (f"✓ {cfg.llm_provider} responded ({llm.model}): "
                f"{reply.strip()[:60] or '(empty)'}")
         ok = True
-    except (LLMError, asyncio.TimeoutError, Exception) as e:
+    except Exception as e:
         msg, ok = f"✗ {e}", False
     return request.app.state.templates.TemplateResponse(
         request, "partials/test_result.html", {"ok": ok, "msg": msg})

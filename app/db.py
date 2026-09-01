@@ -21,6 +21,19 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+
+def row_get(row, name: str, default=None):
+    """A column that may predate its migration.
+
+    Only a missing or NULL column yields the default: 0 and "" are values,
+    not absences. Three modules had grown their own copy of this.
+    """
+    try:
+        value = row[name]
+    except (KeyError, IndexError):
+        return default
+    return default if value is None else value
+
 def _schema() -> str:
     return (Path(__file__).with_name("schema.sql")).read_text()
 

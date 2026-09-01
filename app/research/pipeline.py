@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.config import Settings
-from app.db import Repo, utcnow
+from app.db import Repo, utcnow, row_get
 from app.llm import prompts
 from app.llm.client import LLM
 from app.llm.json_utils import LLMJsonError
@@ -172,15 +172,6 @@ def _browser_headers(cfg) -> dict[str, str]:
                    "q=0.9,*/*;q=0.8"),
         "Accept-Language": "en-US,en;q=0.9",
     }
-
-
-def _row_get(row, name: str, default):
-    """Read a column that may predate its migration."""
-    try:
-        value = row[name]
-    except (KeyError, IndexError):
-        return default
-    return default if value is None else value
 
 
 @dataclass
@@ -353,7 +344,7 @@ class Pipeline:
     # ---- main flow ----------------------------------------------------------------
     async def _run(self, run_id: str, row, store: RunStore) -> None:
         cfg = self.cfg
-        if _row_get(row, "kind", "research") == "verify":
+        if row_get(row, "kind", "research") == "verify":
             # Verification has no rounds and no gap analysis: it is a fan-out
             # over claims, not a search that deepens. It stays a run so it
             # inherits the library, exports, Ask and the progress stream.
@@ -362,7 +353,7 @@ class Pipeline:
         query, depth, recency = row["query"], row["depth"], row["recency"]
         breadth = breadth_for_depth(depth)
         rounds = rounds_for_depth(depth)
-        if _row_get(row, "kind", "research") == "brief":
+        if row_get(row, "kind", "research") == "brief":
             # There is no second round: the feeds were read, and gap analysis
             # would only invent web searches a brief never asked for.
             rounds = 1
@@ -378,8 +369,8 @@ class Pipeline:
         limits = httpx.Limits(max_connections=cfg.fetch_concurrency * 2)
         async with httpx.AsyncClient(headers=headers, timeout=timeout,
                                      limits=limits) as http:
-            run_categories = (_row_get(row, "categories", "") or "").strip()
-            kind = _row_get(row, "kind", "research")
+            run_categories = (row_get(row, "categories", "") or "").strip()
+            kind = row_get(row, "kind", "research")
             if kind == "brief":
                 # A brief has a reading list, not a question. FeedSearcher
                 # satisfies the same surface, so nothing downstream changes.
@@ -387,7 +378,7 @@ class Pipeline:
                 # interest; without one we fall back to the global setting,
                 # which behaves as a single unnamed brief.
                 saved = None
-                if brief_id := _row_get(row, "brief_id", None):
+                if brief_id := row_get(row, "brief_id", None):
                     saved = self.repo.get_brief(int(brief_id))
                 feed_blob = saved["feeds"] if saved else getattr(cfg, "feeds", "")
                 feed_urls = feeds.parse_feed_list(feed_blob)
@@ -435,7 +426,7 @@ class Pipeline:
 
             # 1. prior knowledge from earlier runs (knowledge layer, optional)
             prior = ""
-            if self.rag is not None and bool(_row_get(row, "use_prior", 1)):
+            if self.rag is not None and bool(row_get(row, "use_prior", 1)):
                 prior, related = await self.rag.prior_knowledge(query, exclude_run=run_id)
                 for other_id, score in related:
                     self.repo.add_run_link(run_id, other_id, "similar", score)
@@ -1124,7 +1115,7 @@ class Pipeline:
             # at the engines its subject actually lives in.
             searcher = Searcher(
                 cfg.searxng_url, http,
-                categories=((_row_get(row, "categories", "") or "").strip()
+                categories=((row_get(row, "categories", "") or "").strip()
                             or cfg.search_categories),
                 max_concurrent=cfg.search_concurrency)
             fetcher = Fetcher(cfg, http)

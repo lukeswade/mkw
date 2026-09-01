@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.db import utcnow
+from app.db import row_get, utcnow
 from app.models import RunParams
 
 log = logging.getLogger(__name__)
@@ -21,17 +21,8 @@ REFRESH_INTERVAL_HOURS = 24
 CHECK_EVERY_SECONDS = 900
 
 
-def _col(row, name: str, default):
-    """Rows written before a column existed still have to refresh."""
-    try:
-        value = row[name]
-    except (KeyError, IndexError):
-        return default
-    return default if value is None else value
-
-
 def _categories_of(row) -> str:
-    return _col(row, "categories", "") or ""
+    return row_get(row, "categories", "") or ""
 
 
 async def run_due_briefs(orchestrator, repo) -> int:
@@ -71,8 +62,8 @@ async def refresh_due_runs(orchestrator, repo) -> int:
             # evergreen brief would come back as a web search. use_prior was
             # being dropped here too — an evergreen refresh of a deliberately
             # memory-free run silently re-enabled memory.
-            kind=_col(row, "kind", "research"),
-            use_prior=bool(_col(row, "use_prior", 1)),
+            kind=row_get(row, "kind", "research"),
+            use_prior=bool(row_get(row, "use_prior", 1)),
         )
         new_id = orchestrator.enqueue(params)
         log.info("evergreen refresh %s queued for %s", new_id, row["id"])
