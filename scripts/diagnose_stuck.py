@@ -7,12 +7,16 @@ until it returns), waiting behind another run, or wedged. This reads the
 same three things the app writes — the runs table, each run's events.jsonl,
 and app.log — and says which.
 
-    python scripts/diagnose_stuck.py                 # ./data
-    python scripts/diagnose_stuck.py --data-dir /srv/deep-research/data
-    docker compose exec app python scripts/diagnose_stuck.py
+    python3 scripts/diagnose_stuck.py                # ./data
+    python3 scripts/diagnose_stuck.py --data-dir /srv/deep-research/data
 
-Stdlib only, opens the database read-only: safe to run against a live
-instance mid-run.
+Run it on the HOST, not in the container: .dockerignore excludes scripts/
+and neither compose file bind-mounts it, so this file does not exist inside
+the app image. It does not need to — compose bind-mounts ./data:/data, so
+the host sees the same database and event logs the container is writing.
+
+Stdlib only (works on a stock macOS python3), opens the database read-only:
+safe to run against a live instance mid-run.
 """
 from __future__ import annotations
 
@@ -175,9 +179,11 @@ def explain(row: sqlite3.Row, events: list[dict], quiet_for: float | None,
                    "wedged if it outlasts llm_timeout × 3 plus backoff "
                    "(see the settings printed above).")
         if phase == "indexing":
-            out.append("  Note: indexing has no timeout at all. If the "
-                       "embedding model is being downloaded or loaded for "
-                       "the first time, this waits indefinitely.")
+            out.append("  Indexing is the one step with no timeout, but in "
+                       "the Docker image bge-small is baked in and "
+                       "HF_HUB_OFFLINE=1, so it cannot stall on a download — "
+                       "it is CPU-encoding every chunk of the run. Expect "
+                       "seconds to a couple of minutes, not hours.")
     else:
         tail = describe(events[-1]) if events else "(none)"
         out.append(f"SILENT for {ago(quiet_for)} — last event was: {tail}")
@@ -235,11 +241,21 @@ def main() -> int:
         "ORDER BY created_at").fetchall()
     if not rows:
         print("No run is queued or running. Five most recent:\n")
-        for r in conn.execute("SELECT id, status, stop_reason, error, query "
-                              "FROM runs ORDER BY created_at DESC LIMIT 5"):
+        recent = conn.execute(
+            "SELECT id, status, stop_reason, error, query "
+            "FROM runs ORDER BY created_at DESC LIMIT 5").fetchall()
+        for r in recent:
             detail = r["error"] or r["stop_reason"] or ""
             print(f"  {r['id']}  {r['status']:<11} {r['query'][:50]}"
                   f"{'  — ' + detail[:60] if detail else ''}")
+        if recent and recent[0]["status"] == "interrupted":
+            print("\n  The newest run was INTERRUPTED — the process died "
+                  "mid-run and recover() marked it on the next boot.")
+            print("  With `restart: unless-stopped`, Docker restarts the app "
+                  "silently, so this looks like a run that simply stopped. "
+                  "Check `docker compose ps` (uptime) and `docker inspect "
+                  "--format '{{.State.OOMKilled}} {{.RestartCount}}' "
+                  "$(docker compose ps -q app)`.")
         return 0
 
     running = sum(1 for r in rows if r["status"] == "running")
