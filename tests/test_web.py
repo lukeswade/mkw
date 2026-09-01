@@ -352,3 +352,51 @@ def test_run_attribution_tags(data_dir, monkeypatch):
         r = client.post(f"/runs/{tunneled}/retry", follow_redirects=False)
         retried = r.headers["location"].split("/runs/")[1]
         assert repo.get_run(retried)["created_by"] == "Luke"
+
+
+def test_a_follow_up_inherits_how_its_parent_was_run(data_dir, monkeypatch):
+    """The "Run this" form posted only query/depth/recency/parent, and
+    create_run reads an absent use_prior as OFF — so every follow-up ran with
+    memory disabled and the parent's categories dropped. Exercised through
+    the rendered form, not by posting fields the form does not send."""
+    import re
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    parent = seed_completed_run(cfg)
+    repo = Repo(connect(cfg.db_path))
+    repo.conn.execute("UPDATE runs SET categories='general,science', use_prior=1"
+                      " WHERE id=?", (parent,))
+    repo.conn.commit()
+
+    with TestClient(app) as client:
+        page = client.get(f"/runs/{parent}").text
+        form = re.search(r'<form method="post" action="/runs">(.*?)</form>',
+                         page, re.S).group(1)
+        fields = dict(re.findall(r'name="(\w+)" value="([^"]*)"', form))
+        assert fields["parent_run_id"] == parent
+        r = client.post("/runs", data=fields, follow_redirects=False)
+        assert r.status_code == 303, r.text
+        child = repo.get_run(r.headers["location"].rsplit("/", 1)[-1])
+
+    assert child["use_prior"] == 1, "a follow-up must build on earlier research"
+    assert child["categories"] == "general,science"
+    assert child["parent_run_id"] == parent
+
+
+def test_a_follow_up_of_a_memory_off_run_stays_memory_off(data_dir, monkeypatch):
+    """Inherit, don't force: a deliberately fresh diagnosis stays fresh."""
+    import re
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    parent = seed_completed_run(cfg)
+    repo = Repo(connect(cfg.db_path))
+    repo.conn.execute("UPDATE runs SET use_prior=0 WHERE id=?", (parent,))
+    repo.conn.commit()
+    with TestClient(app) as client:
+        page = client.get(f"/runs/{parent}").text
+        form = re.search(r'<form method="post" action="/runs">(.*?)</form>',
+                         page, re.S).group(1)
+        fields = dict(re.findall(r'name="(\w+)" value="([^"]*)"', form))
+        r = client.post("/runs", data=fields, follow_redirects=False)
+        child = repo.get_run(r.headers["location"].rsplit("/", 1)[-1])
+    assert child["use_prior"] == 0

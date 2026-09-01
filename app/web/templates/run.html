@@ -141,6 +141,12 @@
       <input type="hidden" name="depth" value="{{ fu.depth }}">
       <input type="hidden" name="recency" value="{{ fu.recency }}">
       <input type="hidden" name="parent_run_id" value="{{ run_id }}">
+      {# A follow-up inherits how its parent was run. create_run reads an
+         absent use_prior as OFF — right for the New form's checkbox, but this
+         form has no checkbox, so every follow-up was silently running with
+         memory disabled and with the parent's categories dropped. #}
+      {% if row['categories'] %}<input type="hidden" name="categories" value="{{ row['categories'] }}">{% endif %}
+      {% if row['use_prior'] %}<input type="hidden" name="use_prior" value="on">{% endif %}
       <button type="submit">Run this</button>
     </form>
   </article>
