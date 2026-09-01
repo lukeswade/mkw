@@ -254,3 +254,126 @@ async def test_cancellation_keeps_round1_findings(data_dir):
     events = store.read_events()
     assert events[-1]["type"] == "done"
     assert events[-1]["status"] == "cancelled"
+
+
+# ---- when gap analysis proposes nothing, the run does not just end ----------
+
+def _paged_internet():
+    """Page 1 returns four distinct pages — enough to fill depth 4's breadth,
+    so the starved-round backfill (which also reaches for page 2) never
+    fires and any page-2 request is the gap fallback's alone. Page 2 returns
+    Article B."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.params.get("pageno", "1") == "2":
+            return httpx.Response(200, json=sx_payload(
+                [sx_result("https://example-b.com/deeper", "Article B")]))
+        return httpx.Response(200, json=sx_payload(
+            [sx_result(f"https://example-a.com/a{i}", f"Article A{i}")
+             for i in range(4)]))
+    sx = respx.get(f"{SX}/search").mock(side_effect=handler)
+    respx.get(url__regex=r"https://example-a\.com/a(\d)").mock(
+        side_effect=lambda req: httpx.Response(
+            200, html=article(f"Article A{req.url.path[-1]}")))
+    respx.get("https://example-b.com/deeper").mock(
+        return_value=httpx.Response(200, html=article("Article B")))
+    return sx
+
+
+@respx.mock
+async def test_an_empty_gap_verdict_goes_one_page_deeper_instead_of_stopping(data_dir):
+    """Four of twelve depth-10 runs ended at round 3 or 4 on "no further
+    queries proposed" with a fraction of their depth used — the model named
+    nothing new while saying gaps remained, and the run simply stopped."""
+    cfg = make_cfg(data_dir)
+    sx = _paged_internet()
+    # depth 4 = two rounds. Round-1 gap: not saturated, but nothing proposed.
+    llm = FakeLLM(script([
+        {"state_md": "s", "saturated": False, "next_queries": []},
+        {"state_md": "s", "saturated": True, "next_queries": []},
+    ]))
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(), llm_factory=lambda: llm)
+    rid = orch.enqueue(RunParams(query="solid state batteries", depth=4,
+                                 recency="all", origin="cli"))
+    await orch.execute_now(rid)
+
+    row = repo.get_run(rid)
+    assert row["status"] == "completed"
+    assert row["stop_reason"] != "no further queries proposed"
+    events = (cfg.research_dir / rid / "events.jsonl").read_text()
+    # the fallback's own marker, not the starved-round backfill's
+    assert "re-searching the" in events and "on page 2" in events
+    assert events.count('"type": "round_start"') == 2, "a second round ran"
+    urls = {f["url"] for f in repo.findings_for_run(rid)}
+    assert "https://example-b.com/deeper" in urls, "page 2 was never read"
+    assert "2" in [c.request.url.params.get("pageno", "1") for c in sx.calls]
+
+
+@respx.mock
+async def test_a_saturated_verdict_still_stops_the_run(data_dir):
+    """The fallback is for starvation, not for a model that has honestly said
+    there is nothing left to find. The pipeline never trusts a ROUND-ONE
+    saturation verdict (round_no >= 2 is required), so this saturates at
+    round two, where the stop is eligible: depth 6 is three rounds, round one
+    proposes normally, round two says saturated."""
+    cfg = make_cfg(data_dir)
+    sx = _paged_internet()
+    llm = FakeLLM(script([
+        {"state_md": "s", "saturated": False, "next_queries": ["q3"]},
+        {"state_md": "s", "saturated": True, "next_queries": []},
+    ]))
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(), llm_factory=lambda: llm)
+    rid = orch.enqueue(RunParams(query="solid state batteries", depth=6,
+                                 recency="all", origin="cli"))
+    await orch.execute_now(rid)
+    assert repo.get_run(rid)["stop_reason"].startswith("saturated")
+    events = (cfg.research_dir / rid / "events.jsonl").read_text()
+    assert "re-searching the" not in events, "the gap fallback must not fire"
+    assert events.count('"type": "round_start"') == 2
+    # Round two's query returns only URLs round one already read, so the
+    # pre-existing starved-round backfill may reach for page 2 on its own.
+    # That is fine and unrelated: if page 2 was requested, it was the
+    # backfill — never the fallback under test.
+    paged = [c for c in sx.calls if c.request.url.params.get("pageno", "1") == "2"]
+    assert not paged or "from page 2" in events
+
+
+@respx.mock
+async def test_a_round_one_saturation_verdict_gets_a_second_look_not_a_mislabel(data_dir):
+    """A round-one "saturated" is deliberately distrusted. Before, that case
+    fell through to the empty-queries stop and was labelled "no further
+    queries proposed". Now it earns the page-2 round the distrust implies,
+    and round two's verdict decides."""
+    cfg = make_cfg(data_dir)
+    sx = _paged_internet()
+    llm = FakeLLM(script([
+        {"state_md": "s", "saturated": True, "next_queries": []},
+        {"state_md": "s", "saturated": True, "next_queries": []},
+    ]))
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(), llm_factory=lambda: llm)
+    rid = orch.enqueue(RunParams(query="solid state batteries", depth=6,
+                                 recency="all", origin="cli"))
+    await orch.execute_now(rid)
+    row = repo.get_run(rid)
+    assert row["stop_reason"].startswith("saturated")          # the honest label
+    events = (cfg.research_dir / rid / "events.jsonl").read_text()
+    assert events.count('"type": "round_start"') == 2
+    assert "on page 2" in events and "on page 3" not in events
+
+
+def test_productive_queries_prefer_what_actually_yielded():
+    from app.research.notes import Finding
+    from app.research.pipeline import Pipeline, _RunState
+    st = _RunState()
+    st.searched = ["q1", "q2", "q3"]
+    mk = lambda i, q: Finding(idx=i, url=f"https://x/{i}", title="t", domain="x",
+                              published=None, relevance=8, summary="", notes_md="",
+                              query=q)
+    st.findings = [mk(1, "q2"), mk(2, "q2"), mk(3, "q1"),
+                   mk(4, "cited by [1] x.com")]          # not a searched query
+    assert Pipeline._productive_queries(st, breadth=2) == ["q2", "q1"]
+    # nothing kept yet → the opening queries, in order, deduplicated
+    empty = _RunState(); empty.searched = ["a", "b", "a", "c"]
+    assert Pipeline._productive_queries(empty, breadth=2) == ["a", "b"]

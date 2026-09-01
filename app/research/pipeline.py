@@ -104,6 +104,10 @@ _WEAK_MAX = 4
 
 # Citation chasing: at most this many cited references are fetched per round.
 _REFS_PER_ROUND = 4
+# When gap analysis proposes nothing but the run is not saturated and rounds
+# remain, the most productive queries so far are re-run on the next result
+# page rather than ending the run. Pages past this are engine filler.
+_FALLBACK_MAX_PAGE = 3
 # Relevance for a page a claim check fetched and read but no verdict cited.
 # Not zero: zero reads as "judged worthless" when it means "did not settle it".
 _CONSULTED = 3
@@ -515,6 +519,7 @@ class Pipeline:
             current_keywords = the_plan.keywords
             dry_rounds = 0
             saturated_streak = 0
+            pageno = 1
             stop_reason = "depth limit reached"
             for round_no in range(1, rounds + 1):
                 self._check_cancel()
@@ -525,7 +530,8 @@ class Pipeline:
                 kept = await self._round(run_id, store, state, searcher, fetcher,
                                          llm, query, the_plan.brief,
                                          recency_desc, today, recency, queries,
-                                         breadth, current_keywords)
+                                         breadth, current_keywords,
+                                         pageno=pageno)
                 state.searched.extend(queries)
 
                 if len(state.findings) >= max_docs_for_depth(depth):
@@ -561,11 +567,33 @@ class Pipeline:
                     break
                 if round_no == rounds:
                     break
-                if not gap.next_queries:
+                if gap.next_queries:
+                    queries = gap.next_queries
+                    current_keywords = gap.keywords
+                    pageno = 1
+                    continue
+                # The model named no new queries while reporting gaps remain.
+                # Four of twelve depth-10 runs ended here at round 3 or 4 with
+                # 4-40 sources of a possible 85 — starved, not saturated. The
+                # stern re-ask in gap.analyze had already failed. Rather than
+                # discard the remaining depth, go one page deeper on the
+                # queries that have actually produced sources; seen URLs are
+                # skipped, so page 2 costs only what is new. Dry rounds and
+                # the saturation streak still end the run if this finds
+                # nothing, and pages past _FALLBACK_MAX_PAGE are not worth it.
+                fallback = self._productive_queries(state, breadth)
+                if pageno >= _FALLBACK_MAX_PAGE or not fallback:
                     stop_reason = "no further queries proposed"
                     break
-                queries = gap.next_queries
-                current_keywords = gap.keywords
+                pageno += 1
+                queries = fallback
+                self.bus.publish(
+                    run_id, "log",
+                    message=(f"gap analysis proposed nothing with "
+                             f"{rounds - round_no} round(s) left — re-searching "
+                             f"the {len(fallback)} most productive quer"
+                             f"{'y' if len(fallback) == 1 else 'ies'} on "
+                             f"page {pageno}"))
 
             # 4. synthesis
             self._check_cancel()
@@ -574,12 +602,28 @@ class Pipeline:
                                  searcher=searcher, fetcher=fetcher,
                                  previous_overview=self._parent_overview(row))
 
+    @staticmethod
+    def _productive_queries(state: "_RunState", breadth: int) -> list[str]:
+        """The searched queries that produced the most kept sources.
+
+        Only queries that were actually searched qualify — a reference-chased
+        page records where it was linked from, which is not searchable.
+        Falls back to the planner's opening queries when nothing was kept.
+        """
+        searched = set(state.searched)
+        counts: dict[str, int] = {}
+        for f in state.findings:
+            if f.query in searched:
+                counts[f.query] = counts.get(f.query, 0) + 1
+        ranked = sorted(counts, key=lambda q: -counts[q])[:breadth]
+        return ranked or list(dict.fromkeys(state.searched))[:breadth]
+
     # ---- one search round ------------------------------------------------------------
     async def _round(self, run_id, store, state, searcher, fetcher, llm,
                      query, brief, recency_desc, today, recency, queries,
-                     breadth, keywords) -> list[Finding]:
+                     breadth, keywords, pageno: int = 1) -> list[Finding]:
         results_lists = await asyncio.gather(
-            *(searcher.search(q, recency) for q in queries),
+            *(searcher.search(q, recency, pageno=pageno) for q in queries),
             return_exceptions=True)
         merged_lists, errors, pairs = [], [], []
         for q, res in zip(queries, results_lists):
@@ -637,7 +681,7 @@ class Pipeline:
             extra = []
             for q, _res in sorted(pairs, key=lambda pr: -len(pr[1]))[:2]:
                 try:
-                    more = await searcher.search(q, recency, pageno=2)
+                    more = await searcher.search(q, recency, pageno=pageno + 1)
                     for r in more:
                         r.via_query = q
                     extra.extend(more)
