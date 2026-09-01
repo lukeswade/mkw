@@ -75,6 +75,21 @@ class Orchestrator:
     # ---- lifecycle ---------------------------------------------------------------
     def start(self) -> None:
         self._worker = asyncio.create_task(self._loop(), name="research-worker")
+        self._worker.add_done_callback(self._worker_exited)
+
+    def _worker_exited(self, task: asyncio.Task) -> None:
+        """A dead worker means every future run queues forever — say so.
+
+        Nothing supervises this task. Without the callback its exception is
+        only ever reported when the task is garbage-collected, so the queue
+        silently stops draining and the UI shows runs sitting on "queued"
+        with no explanation anywhere.
+        """
+        if task.cancelled() or self._shutting_down:
+            return
+        log.error("research worker exited unexpectedly — queued runs will "
+                  "not start until the app is restarted",
+                  exc_info=task.exception())
 
     async def stop(self) -> None:
         self._shutting_down = True
@@ -115,11 +130,20 @@ class Orchestrator:
     async def _loop(self) -> None:
         while True:
             run_id = await self.queue.get()
-            row = self.repo.get_run(run_id)
-            if row is None or row["status"] != "queued":
-                continue  # cancelled while queued, or gone
-            pipeline = Pipeline(self.cfg_loader(), self.repo, self.bus,
-                                rag=self.rag, llm_factory=self.llm_factory)
+            try:
+                row = self.repo.get_run(run_id)
+                if row is None or row["status"] != "queued":
+                    continue  # cancelled while queued, or gone
+                pipeline = Pipeline(self.cfg_loader(), self.repo, self.bus,
+                                    rag=self.rag, llm_factory=self.llm_factory)
+            except Exception:
+                # Everything from here used to sit outside any handler, so a
+                # failure reading the row or loading settings escaped the
+                # worker task and killed it: this run, and every run queued
+                # after it, then waited for a restart that nobody knew to do.
+                log.exception("could not start run %s", run_id)
+                self._fail_to_start(run_id)
+                continue
             task = asyncio.create_task(pipeline.execute(run_id))
             self.active[run_id] = (task, pipeline)
             try:
@@ -141,6 +165,30 @@ class Orchestrator:
                 log.exception("pipeline for %s escaped its error handling", run_id)
             finally:
                 self.active.pop(run_id, None)
+
+    def _fail_to_start(self, run_id: str) -> None:
+        """Mark a run that never reached its pipeline, so it stops looking queued.
+
+        The status and the 'done' event come first and are guarded on their
+        own: whatever broke the start is likely to break the meta.json write
+        too (it needs the cfg_loader that may be what failed), and that must
+        not cost the run the two things the UI actually reads.
+        """
+        error = "the run could not be started — see app.log"
+        try:
+            self.repo.update_run(run_id, status="failed", error=error,
+                                 finished_at=utcnow())
+            self.bus.publish(run_id, "error", message=error)
+            self.bus.publish(run_id, "done", status="failed")
+        except Exception:
+            log.exception("could not record the start failure for %s", run_id)
+        try:
+            store = self._store_for(self.repo.get_run(run_id))
+            if store is not None:
+                store.update_meta(status="failed", error=error)
+        except Exception:
+            log.exception("could not write meta.json for %s", run_id)
+        self.bus.detach(run_id)
 
     # ---- cancellation ----------------------------------------------------------
     def cancel(self, run_id: str) -> bool:
