@@ -475,3 +475,47 @@ def test_the_new_settings_fields_round_trip_and_the_key_is_masked(data_dir, monk
         assert json.loads((cfg.data_path / "settings.json").read_text())["relevance_threshold"] == 10
         client.post("/settings", data={"relevance_threshold": "lots"}, follow_redirects=False)
         assert json.loads((cfg.data_path / "settings.json").read_text())["relevance_threshold"] == 10
+
+
+def test_the_run_page_tells_the_whole_story_in_one_place(data_dir, monkeypatch):
+    """Five counters existed — refused engines, candidates dropped before a
+    fetch, pages needing a fingerprint, a browser, or a proof-of-work solve —
+    across three surfaces, and pow_solved never reached the stats at all."""
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    rid = seed_completed_run(cfg)
+    repo = Repo(connect(cfg.db_path))
+    repo.set_stats(rid, {
+        "rounds": 3, "searches": 14, "urls_considered": 120, "pre_dropped": 31,
+        "sources_kept": 9, "sources_skipped": 44, "sources_expected": 36,
+        "blocked_engines": {"duckduckgo": "CAPTCHA", "brave": "too many requests"},
+        "impersonated": 6, "browser_solved": 2, "pow_solved": 3,
+        "llm": {"calls": 40, "prompt_tokens": 90000, "completion_tokens": 8000,
+                "est_cost_usd": 0.12}})
+    with TestClient(app) as client:
+        page = client.get(f"/runs/{rid}").text
+    assert "How this run went" in page
+    for expected in ("3 rounds", "14 searches", "2 refused", "duckduckgo", "brave",
+                     "120 considered", "31 dropped before a fetch", "44 skipped",
+                     "9 kept", "of up to 36", "6 retried with a Chrome fingerprint",
+                     "2 needed the browser solver", "3 proof-of-work walls solved",
+                     "40 calls", "est $0.12"):
+        assert expected in page, expected
+    assert "11 pages fought back" in page          # 6 + 2 + 3, in the one-line brief
+    assert 'class="stats-footer"' not in page       # the old scattered pieces are gone
+    assert 'class="hint escalation-note"' not in page
+
+
+def test_a_quiet_run_does_not_invent_a_fight(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    rid = seed_completed_run(cfg)
+    Repo(connect(cfg.db_path)).set_stats(rid, {
+        "rounds": 1, "searches": 4, "urls_considered": 20, "sources_kept": 5,
+        "sources_skipped": 3, "blocked_engines": {},
+        "llm": {"calls": 9, "prompt_tokens": 100, "completion_tokens": 50}})
+    with TestClient(app) as client:
+        page = client.get(f"/runs/{rid}").text
+    assert "every engine answered" in page
+    assert "fought back" not in page
+    assert "Pages that fought back" not in page

@@ -53,16 +53,6 @@
 {% endif %}
 {% endif %}
 
-{# Which pages fought back. Silent until it happens, since on a normal run it
-   is zero and a line saying so is noise. #}
-{% if stats and (stats.get('browser_solved') or 0) %}
-<p class="hint escalation-note">{{ stats['browser_solved'] }} page{{ '' if stats['browser_solved'] == 1 else 's' }}
-   needed the browser solver{% if stats.get('impersonated') %}, after
-   {{ stats['impersonated'] }} were retried with a Chrome fingerprint first{% endif %} —
-   sites behind a bot wall cost seconds each, so a slow run with a high count here
-   is being fought, not being slow.</p>
-{% endif %}
-
 <nav class="tabs" role="tablist">
   <button class="active" data-tab="overview">Overview</button>
   <button data-tab="sources">Sources <span class="count">{{ findings | length }}</span></button>
@@ -159,11 +149,44 @@
   <pre class="log static-log">{{ log_text }}</pre>
 </section>
 
-{% if stats %}
-<footer class="stats-footer">
-  rounds {{ stats.rounds }} · {{ stats.sources_kept }} kept / {{ stats.sources_skipped }} skipped
-  · {{ stats.llm.calls }} LLM calls ({{ stats.llm.prompt_tokens }} in / {{ stats.llm.completion_tokens }} out)
-  {%- if stats.llm.est_cost_usd is defined %} · est ${{ stats.llm.est_cost_usd }}{% endif %}
-</footer>
+{# How this run went, in one place. These counters existed — engines refused,
+   candidates dropped before a fetch, pages that needed a fingerprint, a
+   browser or a proof-of-work solve — but surfaced in three different spots,
+   and one never surfaced at all. #}
+{% if stats and row['kind'] != 'verify' %}
+{% set engines = stats.get('blocked_engines') or {} %}
+{% set ladder = (stats.get('impersonated') or 0) + (stats.get('browser_solved') or 0) + (stats.get('pow_solved') or 0) %}
+<details class="run-summary">
+  <summary>How this run went
+    <span class="rs-brief">{{ stats.rounds }} round{{ '' if stats.rounds == 1 else 's' }}
+      · {{ stats.sources_kept }} kept
+      {%- if engines %} · {{ engines | length }} engine{{ '' if engines|length == 1 else 's' }} refused{% endif %}
+      {%- if ladder %} · {{ ladder }} page{{ '' if ladder == 1 else 's' }} fought back{% endif %}</span>
+  </summary>
+  <dl class="rs-grid">
+    <dt>Search</dt>
+    <dd>{{ stats.rounds }} round{{ '' if stats.rounds == 1 else 's' }}, {{ stats.get('searches', 0) }} searches
+      {%- if engines %}; <strong>{{ engines | length }} refused</strong>:
+        {% for name, why in engines | dictsort %}<code title="{{ why }}">{{ name }}</code>{{ ', ' if not loop.last }}{% endfor %}
+      {%- else %}; every engine answered{% endif %}</dd>
+    <dt>Candidates</dt>
+    <dd>{{ stats.get('urls_considered', 0) }} considered
+      {%- if stats.get('pre_dropped') %} · {{ stats.pre_dropped }} dropped before a fetch{% endif %}
+      · {{ stats.sources_skipped }} skipped after reading
+      · <strong>{{ stats.sources_kept }} kept</strong>
+      {%- if stats.get('sources_expected') %} of up to {{ stats.sources_expected }} at this depth{% endif %}</dd>
+    {% if ladder %}
+    <dt>Pages that fought back</dt>
+    <dd>
+      {%- if stats.get('impersonated') %}{{ stats.impersonated }} retried with a Chrome fingerprint{% endif %}
+      {%- if stats.get('browser_solved') %}{{ ' · ' if stats.get('impersonated') }}{{ stats.browser_solved }} needed the browser solver{% endif %}
+      {%- if stats.get('pow_solved') %}{{ ' · ' if (stats.get('impersonated') or stats.get('browser_solved')) }}{{ stats.pow_solved }} proof-of-work wall{{ '' if stats.pow_solved == 1 else 's' }} solved{% endif %}
+      <span class="hint">— each costs seconds, so a slow run with a high count here was being fought, not being slow</span></dd>
+    {% endif %}
+    <dt>Model</dt>
+    <dd>{{ stats.llm.calls }} calls · {{ stats.llm.prompt_tokens }} in / {{ stats.llm.completion_tokens }} out
+      {%- if stats.llm.est_cost_usd is defined %} · est ${{ stats.llm.est_cost_usd }}{% endif %}</dd>
+  </dl>
+</details>
 {% endif %}
 {% endblock %}

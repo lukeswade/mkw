@@ -1014,6 +1014,7 @@ class Pipeline:
             # Which rungs of the fetch ladder a run actually needed.
             "impersonated": getattr(fetcher, "impersonated", 0),
             "browser_solved": getattr(fetcher, "solved", 0),
+            "pow_solved": getattr(fetcher, "pow_solved", 0),
             # What a healthy run of this depth would have kept, so the page
             # can tell a thin run from a normal one without re-deriving it.
             "sources_expected": max_docs_for_depth(state.depth),

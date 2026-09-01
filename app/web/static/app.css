@@ -1212,7 +1212,16 @@ input[type="checkbox"] {
 }
 .banner-thin .engine-list code { color: #d2a24c; }
 
-.escalation-note { margin: 0 0 1rem; }
+/* ---- run summary: the counters, in one collapsible place ---- */
+.run-summary { margin: 1.5rem 0 0; border-top: 1px solid var(--border-subtle); padding-top: .75rem; }
+.run-summary summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-sm); }
+.run-summary .rs-brief { color: var(--text-muted); margin-left: .5rem; }
+.rs-grid { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: .75rem 0 0; font-size: var(--text-sm); }
+.rs-grid dt { color: var(--text-muted); }
+.rs-grid dd { margin: 0; color: var(--text-secondary); }
+.rs-grid dd strong { color: var(--text-primary); font-weight: 600; }
+.rs-grid code { font-size: .8em; }
+@media (max-width: 640px) { .rs-grid { grid-template-columns: 1fr; gap: .15rem 0; } .rs-grid dt { margin-top: .5rem; } }
 
 /* ---- Live streamed output (quick chat + synthesis) ---- */
 .stream-pane {
