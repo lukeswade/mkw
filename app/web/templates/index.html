@@ -88,7 +88,10 @@
   </form>
 </section>
 
-<section id="recent" hx-get="/partials/recent-runs" hx-trigger="every 5s" hx-swap="innerHTML">
+{# The filter pauses polling while the tab is hidden: every open New tab
+   was hitting the server every five seconds, forever. #}
+<section id="recent" hx-get="/partials/recent-runs"
+         hx-trigger="every 5s [document.visibilityState=='visible']" hx-swap="innerHTML">
   {% include "partials/runs_list.html" %}
 </section>
 {% endblock %}

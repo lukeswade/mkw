@@ -13,6 +13,7 @@ import logging
 from fastapi import APIRouter, Request
 
 from app.web.markdown import highlight_snippet
+from app.web.routes_runs import has_matrix as _has_matrix
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -65,7 +66,7 @@ async def library(request: Request, q: str = "", kind: str = ""):
     kind = kind if kind in _VALID_KINDS else ""
 
     def has_matrix(row) -> bool:
-        return (research_dir / row["dir"] / "matrix.md").exists()
+        return _has_matrix(row, research_dir)
 
     ctx: dict = {"nav": "library", "q": q, "kind": kind,
                  "kind_filters": KIND_FILTERS,

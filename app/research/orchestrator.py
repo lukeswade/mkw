@@ -111,6 +111,21 @@ class Orchestrator:
             self.bus.attach(store)
             self.queue.put_nowait(run_id)
             log.info("re-enqueued run %s after restart", run_id)
+        self._backfill_has_matrix()
+
+    def _backfill_has_matrix(self) -> None:
+        """Settle has_matrix for rows that predate the column, once.
+
+        One stat per unknown row at boot, instead of one per row per page
+        load for the rest of the install's life.
+        """
+        research_dir = self.cfg_loader().research_dir
+        unknown = self.repo.runs_with_unknown_matrix()
+        for row in unknown:
+            present = (research_dir / row["dir"] / "matrix.md").is_file()
+            self.repo.update_run(row["id"], has_matrix=1 if present else 0)
+        if unknown:
+            log.info("has_matrix settled for %d run(s)", len(unknown))
 
     def _store_for(self, row) -> RunStore | None:
         if row is None:

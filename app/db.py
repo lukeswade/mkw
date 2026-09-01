@@ -75,6 +75,11 @@ def _migrations() -> list:
             );
         """),
         lambda conn: _add_column_if_missing(conn, "runs", "brief_id", "INTEGER"),
+        # Whether the run has a comparison table. Every list page was doing a
+        # filesystem stat per row to find out — up to 400 per Library load,
+        # and the New tab polled every five seconds. NULL means "not yet
+        # checked"; Orchestrator.recover() fills those in once at boot.
+        lambda conn: _add_column_if_missing(conn, "runs", "has_matrix", "INTEGER"),
     ]
 
 
@@ -102,6 +107,7 @@ _RUN_COLS = {
     "query", "title", "depth", "recency", "status", "dir", "parent_run_id",
     "origin", "origin_chat_id", "error", "stop_reason", "stats_json",
     "evergreen", "created_by", "created_at", "started_at", "finished_at",
+    "has_matrix",
 }
 
 
@@ -192,6 +198,10 @@ class Repo:
 
     def set_stats(self, run_id: str, stats: dict) -> None:
         self.update_run(run_id, stats_json=json.dumps(stats))
+
+    def runs_with_unknown_matrix(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT id, dir FROM runs WHERE has_matrix IS NULL").fetchall()
 
     def recover_on_startup(self) -> list[str]:
         """Mark orphaned 'running' rows interrupted; return queued ids to re-enqueue."""

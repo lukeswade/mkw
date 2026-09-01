@@ -519,3 +519,47 @@ def test_a_quiet_run_does_not_invent_a_fight(data_dir, monkeypatch):
     assert "every engine answered" in page
     assert "fought back" not in page
     assert "Pages that fought back" not in page
+
+
+def test_the_new_tab_poll_pauses_when_the_tab_is_hidden(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, _cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        page = client.get("/").text
+    assert "every 5s [document.visibilityState=='visible']" in page
+
+
+def test_has_matrix_is_read_from_the_row_not_the_disk(data_dir, monkeypatch):
+    """Both list pages did a filesystem stat per row — up to 400 per Library
+    load, and the New tab polled every five seconds. The column is settled
+    once at boot; afterwards the pages must not touch the disk at all."""
+    from pathlib import Path
+    from fastapi.testclient import TestClient
+    from app.research.orchestrator import Orchestrator
+    from app.research.progress import ProgressBus
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    with_table = seed_completed_run(cfg)
+    without = seed_completed_run(cfg)
+    (cfg.research_dir / with_table / "matrix.md").write_text("# T\n\n| a | b |\n")
+    repo.conn.execute("UPDATE runs SET has_matrix = NULL")      # predates the column
+    repo.conn.commit()
+
+    # the one-time settle at boot
+    Orchestrator(lambda: cfg, repo, ProgressBus()).recover()
+    assert repo.get_run(with_table)["has_matrix"] == 1
+    assert repo.get_run(without)["has_matrix"] == 0
+
+    # from here on, a page load must not stat the run directories
+    real_exists = Path.exists
+    def no_disk(self):
+        if self.name == "matrix.md":
+            raise AssertionError(f"list page touched the disk for {self}")
+        return real_exists(self)
+    monkeypatch.setattr(Path, "exists", no_disk)
+    with TestClient(app) as client:
+        home = client.get("/partials/recent-runs").text
+        library = client.get("/library").text
+        narrowed = client.get("/library", params={"kind": "research+matrix"}).text
+    assert home.count("kind-matrix") == 1 and library.count("kind-matrix") == 1
+    assert with_table in narrowed and without not in narrowed

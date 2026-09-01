@@ -1319,6 +1319,7 @@ class Pipeline:
                              message=f"stripped invalid citations: {sorted(removed)}")
         store.write_matrix(md)
         store.update_meta(matrix_built_at=utcnow())
+        self.repo.update_run(run_id, has_matrix=1)
         self.bus.publish(
             run_id, "log",
             message=(f"matrix built: {len(out.entities)} × "

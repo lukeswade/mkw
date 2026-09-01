@@ -110,6 +110,18 @@ def _finding_cards(store: RunStore, findings) -> list[dict]:
     return cards
 
 
+def has_matrix(row, research_dir: Path) -> bool:
+    """From the row; the disk is consulted only while the row says NULL,
+    which recover() clears at boot. Shared with the Library."""
+    try:
+        known = row["has_matrix"]
+    except (KeyError, IndexError):
+        known = None
+    if known is not None:
+        return bool(known)
+    return (research_dir / row["dir"] / "matrix.md").exists()
+
+
 def _runs_context(request: Request, limit: int = 20) -> dict:
     repo = request.app.state.repo
     research_dir = request.app.state.cfg_loader().research_dir
@@ -118,7 +130,7 @@ def _runs_context(request: Request, limit: int = 20) -> dict:
     for r in rows:
         stats = json.loads(r["stats_json"]) if r["stats_json"] else {}
         runs.append({"row": r, "stats": stats,
-                     "has_matrix": (research_dir / r["dir"] / "matrix.md").exists()})
+                     "has_matrix": has_matrix(r, research_dir)})
     return {"runs": runs, "list_heading": "Research runs"}
 
 
