@@ -3,3 +3,16 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q -p no:cacheprovider"
+
+# `pytest --cov` — a baseline exists so a refactor can be judged against it
+# rather than against a green light alone.
+[tool.coverage.run]
+source = ["app"]
+# /srv/app is copied as root before USER app and is not a mounted
+# volume, so the cwd is read-only in the container; coverage's data
+# file has to live somewhere the process can actually write.
+data_file = "/tmp/.coverage"
+
+[tool.coverage.report]
+precision = 0
+sort = "cover"
