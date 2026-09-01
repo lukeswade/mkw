@@ -9,7 +9,9 @@
   {% if estimate.cost_usd %}<span class="est-item">~${{ estimate.cost_usd }}</span>{% endif %}
   {% endif %}
   <span class="est-basis">
-    {%- if estimate.calibrated %}based on your last {{ estimate.samples }} runs
+    {%- if estimate.depth_calibrated %}sources: your last {{ estimate.depth_samples }} depth-{{ estimate.depth }} runs
+      {%- if estimate.calibrated %}; timing: last {{ estimate.samples }}{% endif %}
+    {%- elif estimate.calibrated %}based on your last {{ estimate.samples }} runs
     {%- else %}rough estimate — improves once you have a few completed runs{% endif %}
   </span>
 </div>
