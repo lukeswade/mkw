@@ -141,3 +141,67 @@ def test_cost_without_cache_info_uses_miss_price(data_dir):
     s = llm.usage_summary()
     assert "cached_tokens" not in s
     assert s["est_cost_usd"] == 0.28
+
+
+async def test_a_streamed_call_reports_the_servers_token_counts(data_dir):
+    """chat_stream fabricated usage from len(text)//3. Synthesis is the
+    largest call in every run; its cost was a guess."""
+    from types import SimpleNamespace as NS
+    from app.config import Settings
+    from app.llm.client import LLM
+    llm = LLM(Settings(data_dir=str(data_dir), llm_provider="openai",
+                       llm_api_key="sk-test", llm_model="m"))
+    seen_kwargs = {}
+
+    async def fake_create(**kw):
+        seen_kwargs.update(kw)
+        async def gen():
+            yield NS(choices=[NS(delta=NS(content="Hel"))], usage=None)
+            yield NS(choices=[NS(delta=NS(content="lo"))], usage=None)
+            yield NS(choices=[], usage=NS(prompt_tokens=1234, completion_tokens=56))
+        return gen()
+    llm.client.chat.completions.create = fake_create
+
+    class Bus:
+        chunks = []
+        def publish(self, run_id, typ, **f): self.chunks.append(f["chunk"])
+    bus = Bus()
+    text = await llm.chat_stream("synth", [{"role": "user", "content": "x"}], bus, "r1")
+    assert text == "Hello" and bus.chunks == ["Hel", "lo"]
+    assert seen_kwargs["stream_options"] == {"include_usage": True}
+    assert llm.usage["synth"]["prompt_tokens"] == 1234
+    assert llm.usage["synth"]["completion_tokens"] == 56
+
+
+async def test_a_server_that_rejects_stream_options_still_streams(data_dir):
+    """Some local servers 400 on stream_options. Strip it and go again —
+    safe, since a 400 on the request precedes any streamed output."""
+    import httpx
+    from types import SimpleNamespace as NS
+    from openai import APIStatusError
+    from app.config import Settings
+    from app.llm.client import LLM
+    llm = LLM(Settings(data_dir=str(data_dir), llm_provider="openai",
+                       llm_api_key="sk-test", llm_model="m"))
+    calls = []
+
+    async def fake_create(**kw):
+        calls.append(dict(kw))
+        if "stream_options" in kw:
+            raise APIStatusError("unknown field stream_options",
+                                 response=httpx.Response(400, request=httpx.Request("POST", "http://x")),
+                                 body=None)
+        async def gen():
+            # long enough that the len//3 estimate fallback is non-zero
+            yield NS(choices=[NS(delta=NS(content="ok, streaming without usage"))], usage=None)
+        return gen()
+    llm.client.chat.completions.create = fake_create
+
+    class Bus:
+        def publish(self, *a, **k): pass
+    text = await llm.chat_stream("synth", [{"role": "user", "content": "x"}], Bus(), "r1")
+    assert text == "ok, streaming without usage"
+    assert len(calls) == 2 and "stream_options" not in calls[1]
+    assert llm.supports_stream_usage is False
+    # and the estimate fallback still recorded something sane
+    assert llm.usage["synth"]["completion_tokens"] > 0

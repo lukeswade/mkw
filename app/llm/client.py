@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from types import SimpleNamespace
 from typing import TypeVar
 
 from openai import (
@@ -70,6 +71,8 @@ class LLM:
         self.total_calls = 0
         # Constrained decoding, disabled automatically if the server 400s on it.
         self.supports_json_schema = True
+        # Real token counts on streamed calls, same auto-disable on a 400.
+        self.supports_stream_usage = True
 
     def model_for(self, kind: str) -> str:
         return self.fast_model if kind in _FAST_KINDS else self.model
@@ -205,13 +208,30 @@ class LLM:
             "temperature": temperature,
             "stream": True,
         }
-        
-        # We don't retry streaming calls because partial output might have already been sent to the user.
+        # Ask for the usage-only final chunk. Synthesis is the largest call
+        # in every run, and its cost was a len(text)//3 guess.
+        if self.supports_stream_usage:
+            kwargs["stream_options"] = {"include_usage": True}
+
+        # No retry once tokens have started flowing — partial output is
+        # already on the user's screen. A 400 on the request itself is before
+        # any of that, so it is safe to strip stream_options and go again.
         try:
-            full_text = []
+            full_text: list[str] = []
+            usage = None
             async with self._sem:
-                stream = await self.client.chat.completions.create(**kwargs)
+                try:
+                    stream = await self.client.chat.completions.create(**kwargs)
+                except APIStatusError as e:
+                    if e.status_code == 400 and "stream_options" in kwargs:
+                        self.supports_stream_usage = False
+                        kwargs.pop("stream_options")
+                        stream = await self.client.chat.completions.create(**kwargs)
+                    else:
+                        raise
                 async for chunk in stream:
+                    if getattr(chunk, "usage", None) is not None:
+                        usage = chunk.usage
                     if not chunk.choices:
                         continue  # usage-only final chunk
                     content = chunk.choices[0].delta.content
@@ -219,10 +239,16 @@ class LLM:
                         full_text.append(content)
                         bus.publish(run_id, "stream", chunk=content)
             self.total_calls += 1
-            # We don't have accurate token counts for streams from all providers, so we can estimate
             final_text = "".join(full_text)
-            self._track(kind, type("DummyResp", (), {"usage": type("DummyUsage", (), {"prompt_tokens": est_tokens(str(messages)), "completion_tokens": est_tokens(final_text)})}))
+            if usage is None:
+                # Server sent no usage chunk: fall back to the estimate.
+                usage = SimpleNamespace(
+                    prompt_tokens=est_tokens(str(messages)),
+                    completion_tokens=est_tokens(final_text))
+            self._track(kind, SimpleNamespace(usage=usage))
             return final_text
+        except LLMError:
+            raise
         except Exception as e:
             raise LLMError(f"LLM stream call '{kind}' failed: {e}") from e
 
