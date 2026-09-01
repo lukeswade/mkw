@@ -435,3 +435,43 @@ def test_a_retry_is_the_same_run_again(data_dir, monkeypatch):
         assert vchild["kind"] == "verify"
         assert "doubles decode" in RunStore(
             cfg.research_dir / vchild["dir"]).read_document()
+
+
+def test_every_ui_editable_setting_has_a_field(data_dir, monkeypatch):
+    """Three settings were UI_EDITABLE with no field on the page, reachable
+    only through .env: the default categories, the relevance threshold, and
+    the embedding API key. The six legacy provider fields are back-compat
+    only and stay off the page on purpose."""
+    from fastapi.testclient import TestClient
+    from app.config import UI_EDITABLE
+    legacy = {"deepseek_api_key", "deepseek_base_url", "deepseek_model",
+              "local_llm_api_key", "local_llm_base_url", "local_llm_model"}
+    app, _cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        page = client.get("/settings").text
+    missing = sorted(k for k in UI_EDITABLE - legacy if f'name="{k}"' not in page)
+    assert missing == [], missing
+
+
+def test_the_new_settings_fields_round_trip_and_the_key_is_masked(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        r = client.post("/settings", data={
+            "search_categories": " general,it,q&a ",
+            "relevance_threshold": "7",
+            "embedding_api_key": "sk-embed-secret-42",
+            "llm_concurrency": "3",
+        }, follow_redirects=False)
+        assert r.status_code == 303
+        saved = json.loads((cfg.data_path / "settings.json").read_text())
+        assert saved["search_categories"] == "general,it,q&a"
+        assert saved["relevance_threshold"] == 7
+        assert saved["embedding_api_key"] == "sk-embed-secret-42"
+        page = client.get("/settings").text
+        assert "sk-embed-secret-42" not in page              # masked, like every secret
+        # out-of-range and garbage leave the threshold alone
+        client.post("/settings", data={"relevance_threshold": "99"}, follow_redirects=False)
+        assert json.loads((cfg.data_path / "settings.json").read_text())["relevance_threshold"] == 10
+        client.post("/settings", data={"relevance_threshold": "lots"}, follow_redirects=False)
+        assert json.loads((cfg.data_path / "settings.json").read_text())["relevance_threshold"] == 10

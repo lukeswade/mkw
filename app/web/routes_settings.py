@@ -19,8 +19,11 @@ router = APIRouter()
 _TEXT_FIELDS = ("llm_provider", "llm_base_url", "llm_model", "fast_model",
                 "telegram_allowed_user_ids", "searxng_url", "lan_user_label",
                 "authority_sites", "feeds", "browser_solver_url",
-                "embedding_model", "embedding_base_url")
-_SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password")
+                "embedding_model", "embedding_base_url", "search_categories")
+_SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password",
+                       "embedding_api_key")
+# Bounded integers: (field, low, high). Garbage leaves the setting alone.
+_INT_FIELDS = (("llm_concurrency", 1, 16), ("relevance_threshold", 0, 10))
 
 
 @router.get("/settings")
@@ -39,11 +42,12 @@ async def settings_save(request: Request):
     for f in _TEXT_FIELDS:
         if f in form:
             updates[f] = str(form[f]).strip()
-    if "llm_concurrency" in form:
-        try:
-            updates["llm_concurrency"] = max(1, min(16, int(str(form["llm_concurrency"]))))
-        except ValueError:
-            pass
+    for f, low, high in _INT_FIELDS:
+        if f in form:
+            try:
+                updates[f] = max(low, min(high, int(str(form[f]))))
+            except ValueError:
+                pass
     updates["respect_robots"] = form.get("respect_robots") == "on"
     updates["reference_chasing"] = form.get("reference_chasing") == "on"
     updates["browser_impersonation"] = form.get("browser_impersonation") == "on"

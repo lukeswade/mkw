@@ -54,6 +54,19 @@
     <label>SearXNG URL
       <input type="text" name="searxng_url" value="{{ cfg.searxng_url }}">
     </label>
+    <div class="grid">
+      <label>Default categories <small>(for runs that do not choose their own)</small>
+        <input type="text" name="search_categories" value="{{ cfg.search_categories }}"
+               placeholder="general,science">
+      </label>
+      <label>Relevance threshold <small>(0–10; sources scoring below are discarded)</small>
+        <input type="number" name="relevance_threshold" min="0" max="10"
+               value="{{ cfg.relevance_threshold }}">
+      </label>
+    </div>
+    <p class="hint">Categories are what the New page pre-selects and what the
+      CLI, Telegram and claim checks search. The threshold is the notes
+      rubric's keep line: 4 means "real material on part of the brief".</p>
     <label>
       <input type="checkbox" name="reference_chasing" {{ 'checked' if cfg.reference_chasing else '' }}>
       Follow references cited by kept sources
@@ -73,6 +86,10 @@
       <label>Embedding endpoint <small>(blank = same as the LLM)</small>
         <input type="text" name="embedding_base_url" value="{{ cfg.embedding_base_url }}"
                placeholder="http://host.docker.internal:8000/v1">
+      </label>
+      <label>Embedding API key <small>(blank = same as the LLM)</small>
+        <input type="password" name="embedding_api_key" autocomplete="off"
+               placeholder="{{ masked.embedding_api_key or 'not set' }} — blank keeps the current one">
       </label>
       <label>Parallel LLM requests
         <input type="number" name="llm_concurrency" min="1" max="16"
