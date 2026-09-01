@@ -121,6 +121,32 @@ class SearxngError(Exception):
     pass
 
 
+# Engines that crawl their own small index and match closer to AND than to a
+# sentence. Measured 2026-08-31 on one real sub-query at four lengths:
+#                  7w   5w   3w   2w
+#   boardreader     0    0    8    8
+#   searchmysite    1    4   10   10
+#   wiby            0    1   12   12
+# The planner writes 5-8 word queries, so these contributed almost nothing.
+# A long query is therefore also sent to them alone, shortened to its first
+# few content words. None of them rate-limits, so the extra request costs
+# nothing against the address the majors are already judging.
+SMALL_INDEX_ENGINES = frozenset({"boardreader", "searchmysite", "wiby"})
+_SHORT_WORDS = 3
+_SHORT_TRIGGER = 5          # queries this long or longer get a short twin
+_QUERY_STOPWORDS = frozenset(
+    "the a an of for to in on at by with and or vs how do does did is are was "
+    "what which why when where who i my your best top guide diy".split())
+
+
+def shorten_query(query: str, words: int = _SHORT_WORDS) -> str:
+    """The first few content words of a query — what a small index can match."""
+    tokens = [w for w in query.split() if not w.lower().startswith("site:")]
+    content = [w for w in tokens
+               if w.lower().strip("?.,!:;\"'()") not in _QUERY_STOPWORDS]
+    return " ".join((content or tokens)[:words])
+
+
 @dataclass
 class SearchResult:
     url: str
@@ -135,10 +161,12 @@ class SearchResult:
 class Searcher:
     def __init__(self, base_url: str, client: httpx.AsyncClient,
                  categories: str = DEFAULT_CATEGORIES,
-                 max_concurrent: int = 2, timeout: float = 45.0):
+                 max_concurrent: int = 2, timeout: float = 45.0,
+                 small_index_engines: frozenset[str] = SMALL_INDEX_ENGINES):
         self.base_url = base_url.rstrip("/")
         self.client = client
         self.categories = categories or DEFAULT_CATEGORIES
+        self.small_index_engines = small_index_engines
         # Searches need a longer budget than page fetches: SearXNG fans one
         # query out to a dozen-plus engines and waits for the slow ones. The
         # shared 15s client timeout was killing multi-category queries.
@@ -159,15 +187,21 @@ class Searcher:
         return (self.searches > 0 and self.empty_searches == self.searches
                 and bool(self.blocked_engines))
 
-    async def search(self, query: str, recency: str, *, pageno: int = 1) -> list[SearchResult]:
-        params = {
+    async def _query(self, query: str, recency: str, *, pageno: int = 1,
+                     engines: str | None = None) -> list[SearchResult]:
+        """One SearXNG request, parsed. `engines` narrows to named engines and
+        then replaces the category selection, as SearXNG itself does."""
+        params: dict = {
             "q": query,
             "format": "json",
             "language": "en",
             "safesearch": 0,
             "pageno": pageno,
-            "categories": categories_for(recency, self.categories),
         }
+        if engines:
+            params["engines"] = engines
+        else:
+            params["categories"] = categories_for(recency, self.categories)
         time_range = RECENCY_TO_TIME_RANGE.get(recency)
         if time_range:
             params["time_range"] = time_range
@@ -222,6 +256,12 @@ class Searcher:
                 published=published,
                 score=float(item.get("score") or 0.0),
             ))
+        return out
+
+    async def search(self, query: str, recency: str, *, pageno: int = 1) -> list[SearchResult]:
+        out = await self._query(query, recency, pageno=pageno)
+
+        site = _site_scope(query)
         # Site-restricted indexes are thin: a long specific query against one
         # usually matches nothing, while a short one finds the pages. Planners
         # keep writing long ones despite prompt guidance, so enforce the
@@ -234,4 +274,24 @@ class Searcher:
                 log.info("site-scoped query found nothing, retrying "
                          "shorter: %r", short)
                 return await self.search(short, recency, pageno=pageno)
+
+        # The short twin for small-index engines (see SMALL_INDEX_ENGINES).
+        # Page 1 only, never for site: queries, and only when shortening
+        # actually changes something.
+        if (pageno == 1 and self.small_index_engines and not site
+                and len(query.split()) >= _SHORT_TRIGGER):
+            short = shorten_query(query)
+            if short and short.lower() != query.lower():
+                try:
+                    twin = await self._query(
+                        short, recency, pageno=1,
+                        engines=",".join(sorted(self.small_index_engines)))
+                except Exception as e:  # noqa: BLE001 — the main results stand
+                    log.debug("short twin %r failed: %s", short, e)
+                    twin = []
+                have = {r.url for r in out}
+                for r in twin:
+                    if r.url not in have:
+                        have.add(r.url)
+                        out.append(r)
         return out

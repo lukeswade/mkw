@@ -126,3 +126,74 @@ def test_general_web_outranks_specialist_but_specialist_survives():
               r("openalex", "https://doi.org/2"), r("mojeek", "https://b.com/1")]
     merged.sort(key=lambda x: engine_tier(x.engine))
     assert [x.engine for x in merged] == ["bing", "mojeek", "crossref", "openalex"]
+
+
+# ---- small-index engines get a short twin of every long query ---------------
+
+def test_shorten_query_keeps_the_first_content_words():
+    from app.research.searcher import shorten_query
+    assert shorten_query("how do I fix a loose reel seat on a fly rod") == "fix loose reel"
+    assert shorten_query("2UZ-FE valve cover torque spec") == "2UZ-FE valve cover"
+    assert shorten_query("QMK vs VIA") == "QMK VIA"            # short stays short
+    assert shorten_query("the the the") == "the the the"        # never returns nothing
+
+
+@respx.mock
+async def test_a_long_query_is_also_sent_short_to_the_small_indexes():
+    """Measured: boardreader 0->8, searchmysite 1->10, wiby 0->12 results going
+    from seven words to three. The planner writes five to eight."""
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        if "engines" in request.url.params:
+            return httpx.Response(200, json=_payload([
+                {"url": "https://forum.test/t/1", "title": "Thread", "content": "c",
+                 "engine": "boardreader"}]))
+        return httpx.Response(200, json=_payload([
+            {"url": "https://big.test/a", "title": "A", "content": "c",
+             "engine": "bing"}]))
+    respx.get(f"{BASE}/search").mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        out = await Searcher(BASE, client).search(
+            "how to remove a stuck reel seat from a fly rod blank", "all")
+
+    assert len(seen) == 2
+    twin = [p for p in seen if "engines" in p][0]
+    assert twin["engines"] == "boardreader,searchmysite,wiby"
+    assert len(twin["q"].split()) <= 3
+    assert "categories" not in twin, "engines= replaces the category selection"
+    assert {r.url for r in out} == {"https://big.test/a", "https://forum.test/t/1"}
+
+
+@respx.mock
+async def test_short_queries_site_queries_and_page_two_get_no_twin():
+    route = respx.get(f"{BASE}/search").mock(
+        return_value=httpx.Response(200, json=_payload([])))
+    async with httpx.AsyncClient() as client:
+        s = Searcher(BASE, client)
+        await s.search("fly rod repair", "all")                       # 3 words
+        await s.search("site:charm.li GX470 spark plug gap", "all")   # site:
+        await s.search("how to remove a stuck reel seat", "all", pageno=2)
+    assert all("engines" not in c.request.url.params for c in route.calls)
+
+
+@respx.mock
+async def test_the_twin_can_be_switched_off_and_its_failure_is_not_fatal():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if "engines" in request.url.params:
+            return httpx.Response(500)
+        return httpx.Response(200, json=_payload([
+            {"url": "https://big.test/a", "title": "A", "content": "c", "engine": "bing"}]))
+    respx.get(f"{BASE}/search").mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        out = await Searcher(BASE, client).search(
+            "how to remove a stuck reel seat from a fly rod", "all")
+        assert [r.url for r in out] == ["https://big.test/a"]   # main results stand
+        calls["n"] = 0
+        await Searcher(BASE, client, small_index_engines=frozenset()).search(
+            "how to remove a stuck reel seat from a fly rod", "all")
+        assert calls["n"] == 1
