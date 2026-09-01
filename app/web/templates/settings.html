@@ -55,18 +55,24 @@
       <input type="text" name="searxng_url" value="{{ cfg.searxng_url }}">
     </label>
     <div class="grid">
-      <label>Default categories <small>(for runs that do not choose their own)</small>
+      <label>Default categories <small>(recommended: <code>general,science</code>)</small>
         <input type="text" name="search_categories" value="{{ cfg.search_categories }}"
                placeholder="general,science">
+        <small class="field-help">Which search groups a run uses when it does not pick its own:
+          the New page pre-selects these, and the CLI, Telegram and claim checks use them
+          as-is. <code>general</code> is the web; <code>science</code> adds Crossref, OpenAlex,
+          Semantic Scholar and arXiv, which never rate-limit. Leave <code>it</code> out — it
+          answers repair and how-to questions with package registries.</small>
       </label>
-      <label>Relevance threshold <small>(0–10; sources scoring below are discarded)</small>
+      <label>Relevance threshold <small>(recommended: 4)</small>
         <input type="number" name="relevance_threshold" min="0" max="10"
                value="{{ cfg.relevance_threshold }}">
+        <small class="field-help">Every source is scored 0–10 against the question; below this
+          line it is discarded. 4 keeps a page with real material on part of the question.
+          Raise it to 6 for fewer, tighter sources — and thinner runs. Lower it only when a
+          topic is so obscure that partial matches are all there is.</small>
       </label>
     </div>
-    <p class="hint">Categories are what the New page pre-selects and what the
-      CLI, Telegram and claim checks search. The threshold is the notes
-      rubric's keep line: 4 means "real material on part of the brief".</p>
     <label>
       <input type="checkbox" name="reference_chasing" {{ 'checked' if cfg.reference_chasing else '' }}>
       Follow references cited by kept sources
@@ -87,9 +93,11 @@
         <input type="text" name="embedding_base_url" value="{{ cfg.embedding_base_url }}"
                placeholder="http://host.docker.internal:8000/v1">
       </label>
-      <label>Embedding API key <small>(blank = same as the LLM)</small>
+      <label>Embedding API key <small>(recommended: blank)</small>
         <input type="password" name="embedding_api_key" autocomplete="off"
                placeholder="{{ masked.embedding_api_key or 'not set' }} — blank keeps the current one">
+        <small class="field-help">Only needed when the embedding endpoint is a different service
+          from the LLM. Blank uses the LLM's key; the built-in model needs none at all.</small>
       </label>
       <label>Parallel LLM requests
         <input type="number" name="llm_concurrency" min="1" max="16"

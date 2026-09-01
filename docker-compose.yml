@@ -33,6 +33,11 @@ services:
     # Pinned by digest (upstream has changed limiter/format behavior across
     # releases). To upgrade deliberately: docker pull searxng/searxng:latest,
     # then update this digest.
+    #
+    # 2026-09-01: 2026.9.1 was run side by side with this pin against the
+    # queries bing answers loosely ("fly rod repair" -> "Fly - Wikipedia").
+    # Identical results, and bing.py is byte-identical upstream: that is
+    # Bing's own query handling, not a parser bug, so the bump was not taken.
     image: searxng/searxng@sha256:f4c8e59de166ed71f6380c0847c312ca51f0d41996e31d0559163b6b09ecde52
     volumes:
       - ./searxng/settings.yml:/settings.src.yml:ro

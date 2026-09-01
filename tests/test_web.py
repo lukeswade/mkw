@@ -563,3 +563,15 @@ def test_has_matrix_is_read_from_the_row_not_the_disk(data_dir, monkeypatch):
         narrowed = client.get("/library", params={"kind": "research+matrix"}).text
     assert home.count("kind-matrix") == 1 and library.count("kind-matrix") == 1
     assert with_table in narrowed and without not in narrowed
+
+
+def test_settings_explains_each_of_the_three_new_fields(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, _cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        page = client.get("/settings").text
+    assert page.count('class="field-help"') >= 3
+    for phrase in ("recommended: <code>general,science</code>", "recommended: 4", "recommended: blank",
+                   "never rate-limit", "below this\n          line it is discarded", "Blank uses the LLM's key"):
+        assert phrase in page, phrase
+    assert 'value="general,science"' in page and 'value="4"' in page      # the defaults ARE the recommendation

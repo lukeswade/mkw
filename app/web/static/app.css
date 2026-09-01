@@ -1556,3 +1556,7 @@ input[type="checkbox"] {
   .run-info .chip      { grid-row: 2; grid-column: 2; justify-self: end; }
   .run-info .meta-text { grid-row: 3; grid-column: 1 / -1; }
 }
+
+/* ---- per-field explainers on Settings ---- */
+.field-help { display: block; margin-top: .3rem; color: var(--text-muted); font-size: var(--text-xs, .78rem); line-height: 1.4; font-weight: 400; }
+.field-help code { font-size: .95em; }
