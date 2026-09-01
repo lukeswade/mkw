@@ -53,8 +53,27 @@ else
     # block ONTO that default — so omitting these inherits the off switch and
     # the engine silently never registers, with no error logged anywhere.
     inactive: false
-    disabled: false"
-        echo "render-settings: braveapi enabled"
+    disabled: false
+  # The scraping brave engine covers exactly what braveapi covers, categories
+  # general and web, so leaving it on queries Brave twice per search: once on
+  # the metered API and once on a scraper that comes back rate-limited. Off
+  # while the key is present; it returns on its own if the key is removed.
+  #
+  # Its three siblings go with it, and must: they declare network: brave to
+  # share its connection pool, and SearXNG builds engine networks only for
+  # engines it loaded, so leaving brave.news alive over a disabled brave is a
+  # dangling reference that kills the whole service at startup with
+  # KeyError: 'brave'. They are rate-limited scrapers of the same host
+  # regardless, and braveapi is web-only so it never covered them anyway.
+  - name: brave
+    inactive: true
+  - name: brave.news
+    inactive: true
+  - name: brave.videos
+    inactive: true
+  - name: brave.images
+    inactive: true"
+        echo "render-settings: braveapi enabled (scraping 'brave' disabled)"
     fi
     if [ -n "${MARGINALIA_API_KEY:-}" ]; then
         BLOCK="$BLOCK
