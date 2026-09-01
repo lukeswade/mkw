@@ -49,3 +49,25 @@ async def test_start_bot_without_token_is_none(data_dir):
     bot = await start_bot(lambda: cfg, None, None, None)
     assert bot is None
     await stop_bot(bot)  # no-op, must not raise
+
+
+def test_cancel_targets_the_research_run_not_a_post_hoc_job():
+    """orch.active also holds resynth/matrix jobs on completed runs, and the
+    first key was whichever started first — so /cancel_run could kill a
+    matrix build while the research it was asked to stop carried on."""
+    from app.telegram.handlers import cancellable_run
+
+    class Orch:
+        active = {"done-run-matrix-job": None, "live-run": None}
+
+    class Repo:
+        rows = {"done-run-matrix-job": {"status": "completed"},
+                "live-run": {"status": "running"}}
+        def get_run(self, rid):
+            return self.rows.get(rid)
+
+    assert cancellable_run(Orch(), Repo()) == "live-run"
+
+    class OnlyJobs:
+        active = {"done-run-matrix-job": None}
+    assert cancellable_run(OnlyJobs(), Repo()) is None

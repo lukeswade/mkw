@@ -330,10 +330,25 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("\n".join(lines))
 
 
+def cancellable_run(orch, repo) -> str | None:
+    """The active research run, if there is one.
+
+    orch.active also holds post-hoc jobs (re-synthesis, matrix builds) on
+    runs that already completed. Taking the first key took whichever started
+    first, so /cancel_run could kill a matrix build while the research it was
+    asked to stop carried on. Only a run that is actually running qualifies.
+    """
+    for run_id in orch.active:
+        row = repo.get_run(run_id)
+        if row is not None and row["status"] == "running":
+            return run_id
+    return None
+
+
 async def cancel_run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     orch, repo, _bus, _cfg = _deps(context)
-    active = list(orch.active)
-    if active and orch.cancel(active[0]):
+    target = cancellable_run(orch, repo)
+    if target and orch.cancel(target):
         await update.message.reply_text("Cancelling the active run…")
         return
     queued = repo.runs_with_status("queued")
