@@ -125,7 +125,17 @@ _REF_SKIP_DOMAINS = frozenset({
     "twitter.com", "x.com", "facebook.com", "linkedin.com", "instagram.com",
     "reddit.com", "youtube.com", "youtu.be", "pinterest.com", "t.me",
     "tiktok.com", "medium.com/m",
+    # Tip jars. A kept blog post links to its own donation page with an
+    # on-topic anchor ("support my Kindle work"), so the overlap score let it
+    # through: both arms of one A/B read buymeacoffee.com/4dcube in full.
+    "buymeacoffee.com", "ko-fi.com", "patreon.com", "paypal.me",
+    "paypal.com", "liberapay.com", "github.com/sponsors", "opencollective.com",
 })
+# Site boilerplate a page links to from every footer: never a citation.
+_REF_SKIP_PATH = re.compile(
+    r"/(?:terms|tos|privacy|legal|cookies?|imprint|impressum|donate|sponsors?|"
+    r"support-us|about|contact|login|signin|signup|register|subscribe|newsletter)"
+    r"(?:[/.?#-]|$)", re.IGNORECASE)
 
 
 def select_references(links: list[tuple[str, str]], *, source_url: str,
@@ -147,6 +157,8 @@ def select_references(links: list[tuple[str, str]], *, source_url: str,
         domain = domain_of(url)
         if (domain == source_domain and not same_domain_ok) \
                 or domain in _REF_SKIP_DOMAINS:
+            continue
+        if _REF_SKIP_PATH.search(urlsplit(url).path or ""):
             continue
         canonical = canonicalize(url)
         if canonical in seen or canonical in picked_urls:

@@ -299,3 +299,21 @@ def test_readme_page_serves_no_images(data_dir, monkeypatch):
     assert "Citation chasing" in prose
     assert "Export PDF" in prose
     assert "general,science" in prose
+
+
+def test_tip_jars_and_footer_boilerplate_are_never_chased():
+    """A kept post links to its own donation page with an on-topic anchor, so
+    the overlap score let it through — both A/B arms read a Buy Me a Coffee
+    page in full. Terms/privacy/contact links are footer chrome, not citations."""
+    from app.research.pipeline import select_references
+    links = [
+        ("https://kindlemodding.org/jailbreaking/WinterBreak/", "WinterBreak jailbreak guide for Kindle"),
+        ("https://buymeacoffee.com/4dcube", "support my Kindle jailbreak work"),
+        ("https://ko-fi.com/notmarek", "buy Marek a coffee for the Kindle jailbreak"),
+        ("https://www.valnetinc.com/en/terms-of-use", "Kindle jailbreak terms of use"),
+        ("https://example.org/privacy", "Kindle jailbreak privacy"),
+        ("https://example.org/contact/", "contact about Kindle jailbreak"),
+    ]
+    refs = select_references(links, source_url="https://blog.example.net/post",
+                             context="Kindle jailbreak KOReader", seen=set(), per_source=6)
+    assert [u for u, _ in refs] == ["https://kindlemodding.org/jailbreaking/WinterBreak/"]

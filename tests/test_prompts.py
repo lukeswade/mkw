@@ -108,3 +108,10 @@ async def test_the_anchored_planner_variant_is_opt_in(data_dir):
         assert out.subqueries == ["q1", "q2"]
         assert ("Anchoring rules" in llm.prompts[0]) is expected, variant
         assert "Research question: Jailbreak a Kindle" in llm.prompts[0]
+
+
+def test_the_anchored_planner_is_now_the_default_with_a_kill_switch(data_dir, monkeypatch):
+    from app.config import Settings, load_settings
+    assert Settings(data_dir=str(data_dir)).planner_variant == "anchored"
+    monkeypatch.setenv("DATA_DIR", str(data_dir)); monkeypatch.setenv("PLANNER_VARIANT", "default")
+    assert load_settings(str(data_dir)).planner_variant == "default"

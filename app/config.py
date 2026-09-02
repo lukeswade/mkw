@@ -147,8 +147,9 @@ class Settings:
     llm_call_ceiling: int = 600
     # IANA zone for every server-rendered clock (run list, static log, CLI).
     display_timezone: str = "America/Chicago"
-    # Planner prompt under A/B test: "default" or "anchored". Env-only for now.
-    planner_variant: str = "default"
+    # Planner prompt. "anchored" won its A/B (35 kept vs 15 on the same
+    # question, 14 vs 4 at 7/10+, similar waste); "default" is the kill switch.
+    planner_variant: str = "anchored"
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"
