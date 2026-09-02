@@ -205,3 +205,74 @@ async def test_a_server_that_rejects_stream_options_still_streams(data_dir):
     assert llm.supports_stream_usage is False
     # and the estimate fallback still recorded something sane
     assert llm.usage["synth"]["completion_tokens"] > 0
+
+
+async def test_a_call_that_never_returns_is_bounded_by_the_ceiling(data_dir, monkeypatch):
+    """The bug: the SDK timeout is idle-only, so a server that trickles tokens
+    forever is never cut off. wait_for makes the ceiling a real wall clock."""
+    import asyncio, time
+    from app.config import Settings
+    from app.llm import client as client_mod
+    from app.llm.client import LLM, LLMError
+    monkeypatch.setattr(client_mod, "_BACKOFF", ())          # no retry sleeps in the test
+    llm = LLM(Settings(data_dir=str(data_dir), llm_provider="openai",
+                       llm_api_key="sk-test", llm_model="m",
+                       llm_timeout=1, llm_call_ceiling=1))
+
+    async def hangs(**kw):
+        await asyncio.sleep(30)                              # accepted, then silence
+    llm.client.chat.completions.create = hangs
+
+    t = time.monotonic()
+    with pytest.raises(LLMError):
+        await llm.chat_raw("notes", [{"role": "user", "content": "x"}])
+    assert time.monotonic() - t < 10                         # bounded, not 30s
+
+
+async def test_a_stream_that_never_ends_is_bounded(data_dir):
+    """A thinking model with no off switch streams reasoning without end; the
+    idle read timeout never fires while it does."""
+    import asyncio, time
+    from types import SimpleNamespace as NS
+    from app.config import Settings
+    from app.llm.client import LLM, LLMError
+    llm = LLM(Settings(data_dir=str(data_dir), llm_provider="openai",
+                       llm_api_key="sk-test", llm_model="m",
+                       llm_timeout=1, llm_call_ceiling=1))
+
+    async def endless(**kw):
+        async def gen():
+            while True:
+                yield NS(choices=[NS(delta=NS(content="think "))], usage=None)
+                await asyncio.sleep(0.05)
+        return gen()
+    llm.client.chat.completions.create = endless
+
+    class Bus:
+        n = 0
+        def publish(self, *a, **k): self.n += 1
+    bus = Bus()
+    t = time.monotonic()
+    with pytest.raises(LLMError):
+        await llm.chat_stream("synth", [{"role": "user", "content": "x"}], bus, "r1")
+    assert time.monotonic() - t < 10 and bus.n > 0           # streamed, then cut off
+
+
+async def test_a_failed_notes_call_skips_the_source_not_the_run(data_dir):
+    """One timed-out notes call must skip that source, not raise out of the
+    round — before the ceiling existed it hung the round; a bare LLMError now
+    would kill it instead. take_notes swallows both into a skip."""
+    from app.config import Settings
+    from app.llm.client import LLM, LLMError
+    from app.research.notes import take_notes
+    llm = LLM(Settings(data_dir=str(data_dir), llm_provider="openai",
+                       llm_api_key="sk-test", llm_model="m"))
+
+    async def boom(*a, **k):
+        raise LLMError("exceeded the 600s ceiling")
+    llm.chat_json = boom
+
+    out = await take_notes(llm, brief="b", recency_desc="all time",
+                           today="2026-09-01", url="http://x/y", title="t",
+                           detected_date=None, text="a page worth reading", keywords=None)
+    assert out is None

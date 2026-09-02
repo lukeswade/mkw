@@ -41,6 +41,7 @@ ENV_MAP = {
     "embedding_base_url": "EMBEDDING_BASE_URL",
     "embedding_api_key": "EMBEDDING_API_KEY",
     "llm_timeout": "LLM_TIMEOUT",
+    "llm_call_ceiling": "LLM_CALL_CEILING",
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
@@ -133,6 +134,15 @@ class Settings:
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     llm_timeout: int = 180
+    # Hard wall-clock ceiling on a single model call, total, not
+    # idle. llm_timeout is the SDK's idle read timeout: it fires only
+    # when the server sends NOTHING for that long. A local thinking
+    # model can trickle reasoning tokens for an unbounded time, so the
+    # idle clock keeps resetting and the call never returns — one such
+    # call once hung a whole round for 65 minutes. This bounds the
+    # total; raise it only if a legitimate single call on slow hardware
+    # is being cut off (a thin run will say a source timed out).
+    llm_call_ceiling: int = 600
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"

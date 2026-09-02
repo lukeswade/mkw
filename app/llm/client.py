@@ -67,6 +67,12 @@ class LLM:
             api_key=cfg.resolved_api_key or "sk-no-key-required",
             timeout=cfg.llm_timeout, max_retries=0)
         self._sem = asyncio.Semaphore(cfg.llm_concurrency)
+        # Total wall-clock ceiling per call, never below the idle timeout.
+        # asyncio.wait_for cancels the request outright when it fires, so a
+        # server that dribbles tokens forever is bounded by the clock, not
+        # by the gaps between tokens (which is all the SDK timeout sees).
+        self.call_ceiling = max(int(getattr(cfg, 'llm_call_ceiling', 600) or 600),
+                                cfg.llm_timeout)
         self.usage: dict[str, dict[str, int]] = {}
         self.total_calls = 0
         # Constrained decoding, disabled automatically if the server 400s on it.
@@ -161,13 +167,16 @@ class LLM:
         for attempt in range(3):
             try:
                 async with self._sem:
-                    resp = await self.client.chat.completions.create(**kwargs)
+                    resp = await asyncio.wait_for(
+                        self.client.chat.completions.create(**kwargs),
+                        self.call_ceiling)
                 self.total_calls += 1
                 self._track(kind, resp)
                 choice = resp.choices[0]
                 return (choice.message.content or "",
                         getattr(choice, "finish_reason", "") or "")
-            except (APIConnectionError, APITimeoutError, RateLimitError) as e:
+            except (APIConnectionError, APITimeoutError, RateLimitError,
+                    asyncio.TimeoutError) as e:
                 last_err = e
             except APIStatusError as e:
                 if e.status_code == 400 and "response_format" in kwargs:
@@ -216,9 +225,11 @@ class LLM:
         # No retry once tokens have started flowing — partial output is
         # already on the user's screen. A 400 on the request itself is before
         # any of that, so it is safe to strip stream_options and go again.
-        try:
-            full_text: list[str] = []
-            usage = None
+        full_text: list[str] = []
+        usage = None
+
+        async def _pump():
+            nonlocal usage
             async with self._sem:
                 try:
                     stream = await self.client.chat.completions.create(**kwargs)
@@ -238,6 +249,11 @@ class LLM:
                     if content:
                         full_text.append(content)
                         bus.publish(run_id, "stream", chunk=content)
+
+        try:
+            # A total ceiling here too: a thinking model can stream reasoning
+            # without end, and the idle read timeout never fires while it does.
+            await asyncio.wait_for(_pump(), self.call_ceiling)
             self.total_calls += 1
             final_text = "".join(full_text)
             if usage is None:
@@ -249,6 +265,10 @@ class LLM:
             return final_text
         except LLMError:
             raise
+        except asyncio.TimeoutError as e:
+            raise LLMError(
+                f"LLM stream call '{kind}' exceeded the {self.call_ceiling}s "
+                f"ceiling — the server never stopped generating.") from e
         except Exception as e:
             raise LLMError(f"LLM stream call '{kind}' failed: {e}") from e
 

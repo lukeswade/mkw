@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.llm import prompts
-from app.llm.client import LLM
+from app.llm.client import LLM, LLMError
 from app.llm.json_utils import LLMJsonError
 from app.models import NotesOut
 
@@ -193,7 +193,10 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
             # not fit in 1200 tokens; truncation there silently drops sources.
             NotesOut, max_tokens=2400, temperature=0.2,
         )
-    except LLMJsonError as e:
+    except (LLMJsonError, LLMError) as e:
+        # None => this one source is skipped with a visible reason. Before the
+        # call had a ceiling a hung notes call hung the whole round; now it
+        # times out, and a single bad source must not sink a run of good ones.
         log.warning("notes skipped for %s: %s", url, e)
         return None
 
