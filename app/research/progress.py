@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+
+from app.timefmt import local_time
 from collections import defaultdict
 from pathlib import Path
 
@@ -22,9 +24,13 @@ TERMINAL_EVENTS = {"done"}
 EPHEMERAL_TYPES = {"stream"}
 
 
-def format_event(e: dict) -> str | None:
-    """Human-readable one-liner for an event (CLI output and web log tab)."""
-    t = time.strftime("%H:%M:%S", time.localtime(e.get("ts", 0)))
+def format_event(e: dict, tz: str | None = None) -> str | None:
+    """Human-readable one-liner for an event (CLI output and web log tab).
+
+    Clock in the configured display zone, not the container's UTC — the
+    browser's live log already showed the viewer's local time, so a finished
+    run's log used to jump by the UTC offset the moment it completed."""
+    t = local_time(e.get("ts", 0), tz)
     typ = e.get("type")
     if typ == "status":
         return f"[{t}] status: {e.get('status')}"
@@ -40,7 +46,9 @@ def format_event(e: dict) -> str | None:
         return (f"[{t}]   {e.get('results')} results → "
                 f"{e.get('candidates')} new candidates")
     if typ == "source_skipped":
-        return f"[{t}]   ✗ {e.get('url')}  ({e.get('reason')})"
+        title = (e.get("title") or "").strip()
+        tail = f'  "{title[:70]}"' if title else ""
+        return f"[{t}]   ✗ {e.get('url')}  ({e.get('reason')}){tail}"
     if typ == "finding":
         return (f"[{t}]   ✓ [{e.get('idx')}] {e.get('title')} "
                 f"({e.get('domain')}, {e.get('relevance')}/10)")
