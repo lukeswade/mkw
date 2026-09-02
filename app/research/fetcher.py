@@ -225,18 +225,23 @@ class Fetcher:
                     limit = (MAX_PDF_BYTES if ctype == "application/pdf"
                              else MAX_BYTES)
                     body = b"".join(chunks)[:limit]
-                    if status == 202 and not powwall.looks_challenged(body):
-                        raise SkipReason("http 202")
-                    if not _pow_retry and self._solve_pow(body, url):
-                        # Cookie is set; the same GET now returns the page.
-                        # Once only — a wall that re-challenges is not solvable
-                        # this way and must not become a loop.
-                        return await self._polite_get(url, extra_types,
-                                                      _pow_retry=True)
-                    return Fetched(url=url, final_url=str(resp.url),
-                                   content_type=ctype, body=body)
+                    final_url = str(resp.url)
             finally:
                 self._domain_last[domain] = time.monotonic()
+        # Past this point the domain semaphore is released. The hashcash retry
+        # below re-enters _polite_get and takes its own turn on it. It used to
+        # run INSIDE the block above and so needed a second slot: two walled
+        # pages on one domain each held one slot and waited for the other's,
+        # forever, with no socket open and no CPU — two depth-10 runs went
+        # silent at the end of round 1 exactly that way.
+        if status == 202 and not powwall.looks_challenged(body):
+            raise SkipReason("http 202")
+        if not _pow_retry and self._solve_pow(body, url):
+            # Cookie is set; the same GET now returns the page. Once only — a
+            # wall that re-challenges is not solvable this way and must not
+            # become a loop.
+            return await self._polite_get(url, extra_types, _pow_retry=True)
+        return Fetched(url=url, final_url=final_url, content_type=ctype, body=body)
 
     # ---- public -----------------------------------------------------------------
     async def fetch(self, url: str,

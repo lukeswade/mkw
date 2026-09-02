@@ -68,3 +68,37 @@ def test_a_malformed_challenge_is_not_a_crash():
                 "<script>window.POW_CHALLENGE_DATA={difficulty:'x'}</script>",
                 "<script>window.POW_CHALLENGE_DATA={difficulty:'3'}</script>"):
         assert powwall.parse(bad) is None
+
+
+async def test_two_walled_pages_on_one_domain_do_not_deadlock(data_dir, monkeypatch):
+    """A hashcash wall is solved and the GET retried from INSIDE the domain
+    semaphore, so the retry needs a second slot. Two walled pages on one
+    domain at once each hold a slot and each wait for the other's — forever,
+    with no socket open and no CPU. Two depth-10 runs stalled this way at
+    the end of round 1, on the eight fly-fishing forums the solver exists for."""
+    import asyncio
+    import httpx
+    from app.config import Settings
+    from app.research.fetcher import Fetcher
+    challenge = ("<html><script>window.POW_CHALLENGE_DATA = { challenge_nonce: 'n1', "
+                 "challenge_hmac: 'h', difficulty: '1', difficulty_char: 'a', issued_at: '1', "
+                 "cookie_duration: '3600', cookie_domain: 'walled.test', headless_check: '1' }"
+                 "</script></html>")
+    page = "<html><body><p>" + "solid forum content. " * 120 + "</p></body></html>"
+
+    def handler(req):
+        if "pow_bypass" in req.headers.get("cookie", ""):
+            return httpx.Response(200, text=page, headers={"content-type": "text/html"})
+        return httpx.Response(202, text=challenge, headers={"content-type": "text/html"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=5)
+    f = Fetcher(Settings(data_dir=str(data_dir)), client)
+    async def yes(*a, **k): return True
+    monkeypatch.setattr(Fetcher, "_host_allowed", yes)
+    monkeypatch.setattr(Fetcher, "_robots_allows", yes)
+    monkeypatch.setattr(Fetcher, "_escalations", lambda self, et: [])
+
+    urls = [f"https://walled.test/thread/{i}" for i in range(3)]
+    results = await asyncio.wait_for(asyncio.gather(*(f.fetch(u) for u in urls)), 20)
+    assert all(b"solid forum content" in r.body for r in results)
+    assert f.pow_solved >= 1
