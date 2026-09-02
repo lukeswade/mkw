@@ -219,14 +219,20 @@ async def test_a_call_that_never_returns_is_bounded_by_the_ceiling(data_dir, mon
                        llm_api_key="sk-test", llm_model="m",
                        llm_timeout=1, llm_call_ceiling=1))
 
+    attempts = []
+
     async def hangs(**kw):
+        attempts.append(1)
         await asyncio.sleep(30)                              # accepted, then silence
     llm.client.chat.completions.create = hangs
 
     t = time.monotonic()
-    with pytest.raises(LLMError):
+    with pytest.raises(LLMError, match="ceiling"):
         await llm.chat_raw("notes", [{"role": "user", "content": "x"}])
-    assert time.monotonic() - t < 10                         # bounded, not 30s
+    assert time.monotonic() - t < 5                          # bounded, not 30s
+    # and not retried: a runaway is deterministic for its prompt, so three
+    # attempts would just be three runaways (30 minutes at the real ceiling)
+    assert len(attempts) == 1
 
 
 async def test_a_stream_that_never_ends_is_bounded(data_dir):

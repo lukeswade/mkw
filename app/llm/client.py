@@ -175,8 +175,15 @@ class LLM:
                 choice = resp.choices[0]
                 return (choice.message.content or "",
                         getattr(choice, "finish_reason", "") or "")
-            except (APIConnectionError, APITimeoutError, RateLimitError,
-                    asyncio.TimeoutError) as e:
+            except asyncio.TimeoutError as e:
+                # The wall-clock ceiling, not a network hiccup. A generation
+                # that ran past it is deterministic for this prompt, so a retry
+                # would run away again: three attempts was half an hour of dead
+                # time before the source was skipped. Terminal, first time.
+                raise LLMError(
+                    f"LLM call '{kind}' exceeded the {self.call_ceiling}s ceiling — "
+                    f"the server never stopped generating.") from e
+            except (APIConnectionError, APITimeoutError, RateLimitError) as e:
                 last_err = e
             except APIStatusError as e:
                 if e.status_code == 400 and "response_format" in kwargs:
