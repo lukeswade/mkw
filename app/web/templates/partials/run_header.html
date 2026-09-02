@@ -61,7 +61,13 @@
     {% if not row['use_prior'] %}<span class="chip subtle" title="Ran without context from earlier research — a fresh diagnosis">no prior research</span>{% endif %}
     {% if row['stop_reason'] %}<span class="chip subtle">{{ row['stop_reason'] }}</span>{% endif %}
   </div>
-  {% if parent %}<p class="parent-note">follows up on <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}
+  {# Lineage, not memory. A retry or a daily refresh asks the parent's own
+     question again; a follow-up asks a new one. Whether the run READ earlier
+     research is the "no prior research" chip above — both can be true. #}
+  {% if parent %}<p class="parent-note"
+       title="Started from that run. Whether this run read earlier research is a separate setting — see the chips above.">
+    {{ 're-run of' if parent['query'] == row['query'] else 'follows up on' }}
+    <a href="/runs/{{ parent['id'] }}">{{ parent['title'] or parent['query'] }}</a></p>{% endif %}
   {% if related %}
   <p class="parent-note">
     {% for kind, rid, rtitle in related %}<span class="rel">{{ kind }}: <a href="/runs/{{ rid }}">{{ rtitle or rid }}</a></span>{% if not loop.last %} · {% endif %}{% endfor %}

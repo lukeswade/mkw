@@ -625,3 +625,24 @@ def test_a_hand_typed_category_survives_the_checkboxes(data_dir, monkeypatch):
         saved = json.loads((cfg.data_path / "settings.json").read_text())
         assert saved["search_categories"] == "general,map"
         assert 'value="map" checked' in client.get("/settings").text
+
+
+def test_a_retry_is_labelled_a_re_run_not_a_follow_up(data_dir, monkeypatch):
+    """A retry sets parent_run_id to the run it retried, and the header said
+    "follows up on" for any parent — beside a "no prior research" chip, which
+    read as a contradiction. Lineage and memory are different things."""
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    parent = seed_completed_run(cfg)
+    rerun = seed_completed_run(cfg)                       # same query as parent
+    followup = seed_completed_run(cfg)
+    repo.conn.execute("UPDATE runs SET parent_run_id=? WHERE id=?", (parent, rerun))
+    repo.conn.execute("UPDATE runs SET parent_run_id=?, query='a narrower question' WHERE id=?",
+                      (parent, followup))
+    repo.conn.commit()
+    with TestClient(app) as client:
+        a = client.get(f"/runs/{rerun}").text
+        b = client.get(f"/runs/{followup}").text
+    assert "re-run of" in a and "follows up on" not in a
+    assert "follows up on" in b and "re-run of" not in b
