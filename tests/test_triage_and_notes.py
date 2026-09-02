@@ -414,3 +414,50 @@ def test_run_page_shows_what_it_searched(data_dir, monkeypatch):
     for body in (done, live):
         assert "general · videos" in body
         assert "no prior research" in body
+
+
+def _cand(url, title="", snippet="", engine="bing"):
+    from app.research.searcher import SearchResult
+    return SearchResult(url=url, title=title, snippet=snippet, engine=engine,
+                        published=None, score=1.0, via_query="q")
+
+
+def test_triage_cannot_condemn_a_domain_that_already_produced_a_source():
+    """15 pages across two runs — including the most authoritative guide for
+    one question — were dropped on a title while their domain already had a
+    kept source. Generic hosts are exempt: reddit proves nothing about reddit."""
+    from app.research.pipeline import spare_productive
+    cands = [_cand("https://kindlemodding.org/jailbreaking/WinterBreak/"),
+             _cand("https://www.reddit.com/r/kindle/comments/abc/x/"),
+             _cand("https://www.capitalone.com/credit-cards/cabelas/")]
+    spared = spare_productive({0, 1, 2}, cands, {"kindlemodding.org", "reddit.com"})
+    assert spared == {0}
+
+
+def test_engine_filler_that_shares_no_word_with_the_round_is_not_fetched():
+    from app.research.pipeline import filter_by_vocabulary
+    from app.research.dedupe import vocabulary
+    vocab = vocabulary("fly rod handle rotating reel seat repair",
+                       "JB Weld vs epoxy for fly rod handle repair")
+    pool = [_cand("https://www.rodbuilding.org/read.php?2,1", "Loose reel seat", "epoxy the seat"),
+            _cand("https://www.google.com/travel/flights", "Find Cheap Flights", "Book a flight"),
+            _cand("https://finance.yahoo.com/quote/FIX/", "FIX stock price", "Comfort Systems USA"),
+            _cand("https://charm.li/x", "1998 Sierra", "wiring", engine="google cse")]
+    kept, dropped = filter_by_vocabulary(pool, vocab, exempt=frozenset({"charm.li"}))
+    assert [c.url for c in dropped] == ["https://www.google.com/travel/flights",
+                                        "https://finance.yahoo.com/quote/FIX/"]
+    assert len(kept) == 2                                       # the match and the exempt authority site
+
+
+def test_filler_is_dropped_only_when_real_matches_can_fill_the_round():
+    """It must never take a slot from a real match, and it is fetched only
+    when there is nothing better to fetch — a starved round keeps it."""
+    from app.research.pipeline import filter_by_vocabulary
+    from app.research.dedupe import vocabulary
+    vocab = vocabulary("fly rod reel seat repair")
+    real = [_cand(f"https://forum{i}.com/t", "reel seat repair", "epoxy") for i in range(3)]
+    junk = [_cand("https://www.google.com/travel/flights", "Cheap Flights", "book")]
+    kept, dropped = filter_by_vocabulary(real + junk, vocab, limit=3)      # 3 matches fill a round of 3
+    assert dropped == junk
+    kept, dropped = filter_by_vocabulary(real + junk, vocab, limit=10)     # starved: keep, rank later
+    assert dropped == [] and len(kept) == 4

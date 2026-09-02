@@ -29,10 +29,7 @@ from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
 from app.research import feeds, matrix, reddit, verify, youtube
-from app.research.dedupe import (DEFAULT_BLOCKED, is_unreadable,
-                                  canonicalize, domain_of, interleave,
-                                 lexical_overlap, rank_diverse,
-                                 similarity, text_fingerprint)
+from app.research.dedupe import (DEFAULT_BLOCKED, canonicalize, domain_of, interleave, is_blocked, is_unreadable, lexical_overlap, looks_like_index, rank_diverse, shares_vocabulary, similarity, text_fingerprint, vocabulary)
 from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
@@ -202,6 +199,68 @@ class _RunState:
     depth: int = 0
 
 
+# Domains so broad that "this domain already gave us a source" says nothing
+# about the next page on it. Everywhere else, a domain that produced a kept
+# source is a domain worth reading again.
+_GENERIC_DOMAINS = frozenset({
+    "wikipedia.org", "reddit.com", "youtube.com", "youtu.be", "github.com",
+    "amazon.com", "medium.com", "stackexchange.com", "stackoverflow.com",
+    "quora.com", "facebook.com", "x.com", "twitter.com",
+})
+
+
+def spare_productive(drop: set[int], candidates: list,
+                     kept_domains: set[str]) -> set[int]:
+    """Indices triage condemned on a domain that already yielded a kept
+    source this run — deterministic memory outranking a title-level guess.
+
+    Two depth-10 runs lost 15 such pages, including the single most
+    authoritative guide for one question, because the model judged a title.
+    Generic hosts are exempt: a kept reddit thread says nothing about the
+    next reddit thread.
+    """
+    productive = {d for d in kept_domains
+                  if not any(d == g or d.endswith("." + g) for g in _GENERIC_DOMAINS)}
+    if not productive:
+        return set()
+    return {i for i in drop
+            if any(domain_of(candidates[i].url) == d
+                   or domain_of(candidates[i].url).endswith("." + d)
+                   for d in productive)}
+
+
+def filter_by_vocabulary(pool: list, vocab: frozenset[str],
+                         exempt: frozenset[str] = frozenset(),
+                         limit: int | None = None) -> tuple[list, list]:
+    """Split candidates into (kept, dropped): dropped share not one content
+    word — title, snippet or URL — with the question, the brief, or any query
+    of the round. Search engines return these for a single common word in the
+    query ("fly" -> flights, "fix" -> a stock ticker); each one cost a fetch
+    and a full notes call before scoring 0/10. Measured on two depth-10 runs:
+    at least 25 of 77 such calls, and 0 kept sources in one run, 1 upper
+    bound in the other (a page titled "Glues" whose snippet the real check
+    would have seen). Authority sites are exempt, as everywhere.
+
+    With `limit`, filler is dropped only when the matching results alone can
+    fill the round: it must never take a slot from a real match, and it is
+    fetched only when there is nothing better to fetch. A live round has
+    hundreds of results against a limit under a hundred, so the drop applies;
+    a starved round keeps its filler, ranked last.
+    """
+    kept, dropped = [], []
+    for r in pool:
+        host = domain_of(r.url)
+        text = f"{r.title} {r.snippet} {r.url}"
+        if (any(host == a or host.endswith("." + a) for a in exempt)
+                or shares_vocabulary(text, vocab)):
+            kept.append(r)
+        else:
+            dropped.append(r)
+    if limit is not None and len(kept) < limit:
+        return kept + dropped, []
+    return kept, dropped
+
+
 class Pipeline:
     def __init__(self, cfg: Settings, repo: Repo, bus: ProgressBus, rag=None,
                  llm_factory=None):
@@ -248,6 +307,12 @@ class Pipeline:
                 log.info("triage spared %d authority-site candidate(s)",
                          len(spared))
                 drop -= spared
+        productive = spare_productive(
+            drop, candidates, {f.domain for f in state.findings})
+        if productive:
+            log.info("triage spared %d candidate(s) on domains that already "
+                     "produced kept sources", len(productive))
+            drop -= productive
         if len(drop) == len(candidates):
             # condemning everything is a broken verdict, not a judgment —
             # there is no signal in it to salvage, so ignore it wholesale
@@ -272,7 +337,9 @@ class Pipeline:
             for i, c in enumerate(candidates):
                 if i in drop:
                     self.bus.publish(run_id, "source_skipped", url=c.url,
-                                     reason="dropped at triage")
+                                     reason="dropped at triage",
+                                     title=(c.title or "")[:120],
+                                     engine=c.engine or "")
             self.bus.publish(run_id, "log",
                              message=(f"triage dropped {len(drop)} of "
                                       f"{len(candidates)} candidates before "
@@ -649,11 +716,24 @@ class Pipeline:
             # plus a full notes call before it scores 0/10.
             blocked = self._blocked_domains()
             before = len(pool)
-            pool = [r for r in pool if domain_of(r.url) not in blocked
+            pool = [r for r in pool if not is_blocked(r.url, blocked)
                     and not is_unreadable(r.url)]
             state.pre_dropped += before - len(pool)
+            # Web research only (a brief's reading list is chosen, not
+            # searched, and its interest text may be empty): a candidate that
+            # shares no word with the question, the brief, or any of this
+            # round's queries is engine filler, not a weak lead.
+            if state.group_by is None and len(vocab) >= 3:
+                pool, filler = filter_by_vocabulary(
+                    pool, vocab, exempt=self._authority_domains(), limit=limit)
+                if filler:
+                    state.pre_dropped += len(filler)
+                    filler_dropped.extend(filler)
             pool.sort(key=lambda r: (
+                not shares_vocabulary(f"{r.title} {r.snippet} {r.url}", vocab)
+                if state.group_by is None else False,   # surviving filler last of all
                 engine_tier(r.engine, promote),
+                looks_like_index(r.url),      # roots and indexes last in tier
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
             chosen = rank_diverse(pool, state.seen_urls,
                                   per_domain=state.per_source,
@@ -663,6 +743,8 @@ class Pipeline:
                 state.seen_urls.add(canonicalize(c.url))
             return chosen
 
+        vocab = vocabulary(query, brief, *queries)
+        filler_dropped: list = []
         merged = interleave(merged_lists)
         candidates = pick(merged, candidates_per_round(breadth))
 
@@ -700,6 +782,12 @@ class Pipeline:
         total_results = sum(len(l) for l in merged_lists)
         self.bus.publish(run_id, "searched", results=total_results,
                          candidates=len(candidates))
+        if filler_dropped:
+            self.bus.publish(
+                run_id, "log",
+                message=(f"{len(filler_dropped)} result(s) shared no words with "
+                         f"the question or this round's queries and were not "
+                         f"fetched"))
         # Without this there is no way to tell a filter that narrowed the
         # feeds from one that silently did nothing.
         if set_aside := getattr(searcher, "filtered_out", 0):
@@ -766,8 +854,14 @@ class Pipeline:
                             else "no extractable text")
             except SkipReason as e:
                 state.skipped += 1
-                self.bus.publish(run_id, "source_skipped", url=c.url, reason=str(e))
+                self.bus.publish(run_id, "source_skipped", url=c.url, reason=str(e),
+                                 title=(c.title or "")[:120], engine=c.engine or "")
                 return
+            # A redirect target is the page we actually read. Only the URL we
+            # asked for was remembered, so the same page could come back later
+            # under its own name and be read again.
+            if final_url and final_url != c.url:
+                state.seen_urls.add(canonicalize(final_url))
             # Near-duplicate collapse: scraped SEO clones and syndicated
             # copies read as on-topic, so left alone they burn a notes call
             # each and can be "kept" several times as separate sources.
@@ -777,7 +871,8 @@ class Pipeline:
             if dup is not None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
-                                 reason=f"duplicate of {dup} content")
+                                 reason=f"duplicate of {dup} content",
+                                 title=(c.title or "")[:120], engine=c.engine or "")
                 return
             state.fingerprints.append((fp, domain_of(final_url)))
             detected_date = doc.date or (c.published.date().isoformat()
@@ -787,7 +882,8 @@ class Pipeline:
                     if datetime.fromisoformat(detected_date) < cutoff:
                         state.skipped += 1
                         self.bus.publish(run_id, "source_skipped", url=c.url,
-                                         reason=f"outside recency window ({detected_date})")
+                                         reason=f"outside recency window ({detected_date})",
+                                 title=(c.title or "")[:120], engine=c.engine or "")
                         return
                 except ValueError:
                     pass
@@ -800,7 +896,8 @@ class Pipeline:
             if notes is None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
-                                 reason="unusable notes output")
+                                 reason="unusable notes output",
+                                 title=(c.title or "")[:120], engine=c.engine or "")
                 return
             if notes.relevance < getattr(self.cfg, "relevance_threshold",
                                          RELEVANCE_KEEP):
@@ -835,7 +932,8 @@ class Pipeline:
                             via_query=(f"linked from index page on "
                                        f"{domain_of(final_url)}")))
                 self.bus.publish(run_id, "source_skipped", url=c.url,
-                                 reason=f"relevance {notes.relevance}/10")
+                                 reason=f"relevance {notes.relevance}/10",
+                                 title=(c.title or "")[:120], engine=c.engine or "")
                 return
             # idx assignment + append happen with no await in between → atomic
             idx = len(state.findings) + 1
