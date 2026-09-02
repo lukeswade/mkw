@@ -193,6 +193,16 @@
     <label>LAN user label
       <input type="text" name="lan_user_label" value="{{ cfg.lan_user_label }}" placeholder="LAN">
     </label>
+    <label>Display time zone <small>(recommended: your own)</small>
+      <input type="text" name="display_timezone" value="{{ cfg.display_timezone }}"
+             placeholder="America/Chicago" list="tz-suggestions">
+      <datalist id="tz-suggestions">
+        {% for z in ["America/Chicago","America/New_York","America/Denver","America/Los_Angeles","America/Phoenix","America/Anchorage","Pacific/Honolulu","Europe/London","Europe/Berlin","Asia/Tokyo","Australia/Sydney","UTC"] %}<option value="{{ z }}">{% endfor %}
+      </datalist>
+      <small class="field-help">Every clock the server prints — the run list, a finished
+        run's log, the CLI — is shown in this zone. Runs are stored in UTC either way.
+        An IANA name; an unknown name falls back to America/Chicago.</small>
+    </label>
     <p class="hint">Runs started through the Cloudflare tunnel are tagged with
       the signed-in user's Access identity automatically. Runs from the local
       network have no identity to read — they get this label instead.</p>

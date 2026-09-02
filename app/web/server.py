@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import selfcheck
+from app.timefmt import local_iso
 from app.config import Settings, load_settings
 from app.llm import providers
 from app.db import Repo, connect
@@ -71,6 +72,9 @@ def _build_templates() -> Jinja2Templates:
         asset=_asset_url,
     )
     templates.env.filters["fromjson"] = lambda s: json.loads(s) if s else {}
+    # Stored UTC -> the configured display zone (Settings), never the
+    # container's clock.
+    templates.env.filters["localdt"] = local_iso
     # Stable colour per initiator name. crc32, not hash(): python salts hash()
     # per process, which would recolour everyone on every restart.
     templates.env.filters["user_hue"] = (

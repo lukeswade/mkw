@@ -42,6 +42,7 @@ ENV_MAP = {
     "embedding_api_key": "EMBEDDING_API_KEY",
     "llm_timeout": "LLM_TIMEOUT",
     "llm_call_ceiling": "LLM_CALL_CEILING",
+    "display_timezone": "DISPLAY_TIMEZONE",
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
@@ -143,6 +144,8 @@ class Settings:
     # total; raise it only if a legitimate single call on slow hardware
     # is being cut off (a thin run will say a source timed out).
     llm_call_ceiling: int = 600
+    # IANA zone for every server-rendered clock (run list, static log, CLI).
+    display_timezone: str = "America/Chicago"
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"

@@ -21,7 +21,7 @@ router = APIRouter()
 _TEXT_FIELDS = ("llm_provider", "llm_base_url", "llm_model", "fast_model",
                 "telegram_allowed_user_ids", "searxng_url", "lan_user_label",
                 "authority_sites", "feeds", "browser_solver_url",
-                "embedding_model", "embedding_base_url")
+                "embedding_model", "embedding_base_url", "display_timezone")
 _SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password",
                        "embedding_api_key")
 # Bounded integers: (field, low, high). Garbage leaves the setting alone.

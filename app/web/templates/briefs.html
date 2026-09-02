@@ -58,7 +58,7 @@
   <p class="brief-meta">
     {{ item.feed_count }} feed{{ '' if item.feed_count == 1 else 's' }} ·
     depth {{ b['depth'] }} · {{ RECENCY_LABELS[b['recency']] | lower }}
-    {%- if b['last_run_at'] %} · last run {{ b['last_run_at'][:16].replace('T', ' ') }}
+    {%- if b['last_run_at'] %} · last run {{ b['last_run_at'] | localdt }}
     {%- else %} · never run{% endif %}
   </p>
   {% if b['topic'] %}<p class="brief-topic">&ldquo;{{ b['topic'] }}&rdquo;</p>{% endif %}
