@@ -9,7 +9,17 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from app.research.searcher import SearchResult
 
 _TRACKING_KEYS = {"fbclid", "gclid", "msclkid", "igshid", "mc_cid", "mc_eid",
-                  "ref", "ref_src", "source", "cmpid"}
+                  "ref", "ref_src", "source", "cmpid",
+                  # Bing stamps a per-request msockid on every outbound link,
+                  # so the same page arrived as a new URL every round: one
+                  # Capital One page was triaged seven times and fetched once
+                  # in a single run. The others are affiliate/analytics tags
+                  # of the same kind (Amazon, Bilibili, Google, Marketo).
+                  "msockid", "ascsubtag", "spm_id_from", "trackid", "srsltid",
+                  "yclid", "gbraid", "wbraid", "mkt_tok", "igsh", "_ga"}
+# Params that are tracking only on particular hosts: `tag` is Amazon's
+# affiliate id but a real facet on many blogs and forums.
+_HOST_TRACKING_KEYS = {"amazon.": {"tag"}}
 
 T = TypeVar("T")
 
@@ -38,9 +48,14 @@ def canonicalize(url: str) -> str:
     path = parts.path or "/"
     if len(path) > 1 and path.endswith("/"):
         path = path.rstrip("/")
+    host_keys: set[str] = set()
+    for marker, keys in _HOST_TRACKING_KEYS.items():
+        if marker in netloc:
+            host_keys |= keys
     query = urlencode([
         (k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
         if not k.lower().startswith("utm_") and k.lower() not in _TRACKING_KEYS
+        and k.lower() not in host_keys
     ])
     return urlunsplit((scheme, netloc, path, query, ""))  # fragment dropped
 
@@ -65,8 +80,18 @@ _UNREADABLE_HOSTS = frozenset({
     "x.com", "twitter.com", "linkedin.com",
     # video hosts with no transcript path of their own
     "dailymotion.com", "vimeo.com", "twitch.tv", "rumble.com",
-    "bitchute.com", "odysee.com", "sepiasearch.org",
+    "bitchute.com", "odysee.com", "sepiasearch.org", "bilibili.com",
+    # shells that never carry the article: msn.com syndicates other sites'
+    # stories inside a JavaScript app (4 of 4 extractions failed in one run,
+    # the originals were already in the results); scribd is a login-walled
+    # viewer; tumblr share widgets and the BSI link resolver are redirect
+    # pages with no text of their own.
+    "msn.com", "scribd.com", "tumblr.com", "linkresolver.bsigroup.com",
 })
+# A subreddit or user page is an index, not a thread: the JSON path only
+# serves /comments/ URLs, and the generic fetch of /r/koreader/ cost a 45s
+# browser render before extraction found nothing to read.
+_REDDIT_SUFFIX = ("reddit.com",)
 # PeerTube is a federation of hundreds of interchangeable mirrors — blocking
 # them by name is whack-a-mole, but they all share a URL shape, and one query
 # returned nine mirrors of a single video.
@@ -80,7 +105,19 @@ DEFAULT_BLOCKED = frozenset({
     "thefreedictionary.com", "dictionary.cambridge.org", "vocabulary.com",
     "wordnik.com", "definitions.net",
     "pinterest.com", "quora.com",
+    # Storefronts. Across three depth-10 runs these produced 0 kept sources
+    # and 45 candidates that were triaged, fetched or read before scoring
+    # 0/10 — product listings, cart pages, and a co-branded credit card
+    # that Bing returned for "Cabela's" seven times.
+    "amazon.com", "ebay.com", "walmart.com", "homedepot.com", "lowes.com",
+    "basspro.com", "cabelas.com", "capitalone.com", "aliexpress.com",
+    "etsy.com", "bestbuy.com", "target.com", "acehardware.com", "shop.app",
 })
+
+
+def is_blocked(url: str, blocked: frozenset[str]) -> bool:
+    """Subdomain-aware: kdp.amazon.com is amazon.com for this purpose."""
+    return _under(domain_of(url), blocked)
 
 
 def is_unreadable(url: str) -> bool:
@@ -90,7 +127,10 @@ def is_unreadable(url: str) -> bool:
         return True
     if any(host.endswith("." + h) for h in _UNREADABLE_HOSTS):
         return True
-    return bool(_PEERTUBE_PATH.match(urlsplit(url).path or ""))
+    path = urlsplit(url).path or ""
+    if _under(host, frozenset(_REDDIT_SUFFIX)) and "/comments/" not in path:
+        return True
+    return bool(_PEERTUBE_PATH.match(path))
 
 
 _STOPWORDS = frozenset(
@@ -196,3 +236,41 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
         if len(out) >= limit:
             break
     return out
+
+
+# ---- what a candidate must share with the question ----------------------------
+def stem_token(t: str) -> str:
+    """Crude suffix strip so 'kindles' meets 'kindle' and 'jailbreaking'
+    meets 'jailbreak'. Not a stemmer; just enough to stop plurals and
+    participles from reading as different words."""
+    for suffix in ("ing", "ed"):
+        if len(t) > 5 and t.endswith(suffix):
+            return t[:-len(suffix)]
+    if len(t) > 4 and t.endswith("s") and not t.endswith("ss"):
+        return t[:-1]                      # kindles -> kindle, glues -> glue
+    return t
+
+
+def vocabulary(*texts: str) -> frozenset[str]:
+    """Stemmed content tokens of every text given."""
+    return frozenset(stem_token(t) for text in texts for t in _content_tokens(text))
+
+
+def shares_vocabulary(text: str, vocab: frozenset[str]) -> bool:
+    return any(stem_token(t) in vocab for t in _content_tokens(text))
+
+
+# Root and index pages: a homepage, a forum index, a blog landing page, a
+# downloads page. Eight of one run's wasted notes calls were these; but three
+# root pages in another run were kept (a project's own site), so they are
+# ranked last, not dropped — picked only when a round has room to spare.
+_INDEX_PATH = re.compile(
+    r"^/(?:forums?|blogs?|news|downloads?|community|threads|home|"
+    r"index\.(?:php|html?))?$", re.IGNORECASE)
+
+
+def looks_like_index(url: str) -> bool:
+    parts = urlsplit(url)
+    if parts.query:
+        return False
+    return bool(_INDEX_PATH.match((parts.path or "/").rstrip("/") or "/"))

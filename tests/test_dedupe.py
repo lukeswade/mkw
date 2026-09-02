@@ -113,3 +113,62 @@ def test_authority_sites_are_not_capped_per_domain():
     # and with nothing uncapped, the old behaviour holds exactly
     plain = rank_diverse(pool, set(), per_domain=2, limit=50)
     assert [p.url.split("/")[2] for p in plain].count("charm.li") == 2
+
+
+def test_tracking_parameters_do_not_make_a_new_page():
+    """Bing stamps a per-request msockid on every result link: one Capital One
+    page was triaged seven times and fetched once in a single run."""
+    a = canonicalize("https://www.capitalone.com/credit-cards/cabelas/?msockid=3f29d314d1d16c602a9bc4dcd02e6d04")
+    b = canonicalize("https://www.capitalone.com/credit-cards/cabelas/?msockid=3212d88e1e3e6b1a2f8fcd131fc36a3b")
+    assert a == b == "https://capitalone.com/credit-cards/cabelas"
+    assert canonicalize("https://www.amazon.com/s?k=spey+rod&tag=vs-pl-x&ascsubtag=v1-c4") == "https://amazon.com/s?k=spey+rod"
+    # `tag` is only tracking on Amazon; elsewhere it is a real facet
+    assert canonicalize("https://blog.example.org/posts?tag=epoxy") == "https://blog.example.org/posts?tag=epoxy"
+    assert canonicalize("https://www.bilibili.com/video/BV1aN/?spm_id_from=333.788&trackid=web_relat&uid=42") == "https://bilibili.com/video/BV1aN?uid=42"
+
+
+def test_storefronts_are_blocked_by_default_including_subdomains():
+    from app.research.dedupe import DEFAULT_BLOCKED, is_blocked
+    for d in ("amazon.com", "ebay.com", "basspro.com", "capitalone.com"):
+        assert d in DEFAULT_BLOCKED
+    assert is_blocked("https://kdp.amazon.com/", DEFAULT_BLOCKED)          # subdomain
+    assert is_blocked("https://www.ebay.com/p/1218654443", DEFAULT_BLOCKED)
+    assert not is_blocked("https://www.rodbuilding.org/read.php?2,106022", DEFAULT_BLOCKED)
+
+
+def test_shells_and_indexes_nothing_can_read():
+    from app.research.dedupe import is_unreadable
+    for url in ("https://www.bilibili.com/video/BV1b4sRzSEZz/",
+                "https://www.msn.com/en-us/technology/software/i-installed-koreader",
+                "https://www.scribd.com/document/935226823/Renogy-40a",
+                "https://www.tumblr.com/widgets/share/tool?posttype=link",
+                "https://www.reddit.com/r/koreader/",                      # subreddit index, not a thread
+                "https://old.reddit.com/user/someone/"):
+        assert is_unreadable(url), url
+    for url in ("https://www.reddit.com/r/kindle/comments/6r6xtn/updating_paperwhite/",
+                "https://kindlemodding.org/jailbreaking/WinterBreak/"):
+        assert not is_unreadable(url), url
+
+
+def test_vocabulary_overlap_is_stemmed_and_spans_question_brief_and_queries():
+    from app.research.dedupe import shares_vocabulary, vocabulary
+    vocab = vocabulary("Jailbreak Kindle Paperwhite 3 for BookOrbit",
+                       "must establish the exploit for firmware 5.8.2.1",
+                       "how to install KOReader on Kindle Paperwhite 3")
+    assert shares_vocabulary("Jailbroken Kindles can now do more", vocab)      # kindles -> kindle
+    assert shares_vocabulary("Installing KOReader", vocab)                     # installing -> install
+    for junk in ("https://www.capitalone.com/credit-cards/cabelas/",
+                 "Find Cheap Flights Worldwide - Google Flights",
+                 "Ubuntu 22.04 LTS download https://releases.ubuntu.com/jammy/"):
+        assert not shares_vocabulary(junk, vocab), junk
+
+
+def test_root_and_index_pages_are_recognised_not_thread_pages():
+    from app.research.dedupe import looks_like_index
+    for url in ("https://www.montanaangler.com", "https://www.flyfishing.co.uk/",
+                "https://www.salmonfishingforum.com/forums/", "https://fishingmagic.com/forums/",
+                "https://ubuntu.com/download", "https://www.suffix.be/blog/"):
+        assert looks_like_index(url), url
+    for url in ("https://koreader.rocks/user_guide/", "https://www.rodbuilding.org/read.php?2,106022",
+                "https://kindlemodding.org/jailbreaking/WinterBreak/"):
+        assert not looks_like_index(url), url
