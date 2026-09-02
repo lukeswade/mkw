@@ -31,6 +31,19 @@ Produce a JSON object with exactly these keys:
 
 Respond with only the JSON object."""
 
+ANCHOR_RULES = """Anchoring rules, applied to EVERY query:
+- Name the question's subject in the query itself — the specific device, model, \
+product, material or topic the question is about. A query about a sub-topic in \
+general ("network drive mounting methods", "epoxy cure time") returns pages about \
+the sub-topic in general; naming the subject returns pages about the subject.
+- Put the most distinctive term first — a model number, a product name, a proper \
+noun — never a common English word. Search engines weight the first word, and a \
+common first word ("fly", "fix", "removing", "best") returns dictionary, travel \
+and finance pages instead of the topic.
+- Test each query: would it read the same for a different product or topic? If \
+yes, it is not anchored — add the subject.
+"""
+
 PRIOR_BLOCK = """
 Existing knowledge from earlier research runs (build on it, do not re-research
 what is already established — target gaps and updates instead):
@@ -398,3 +411,10 @@ Rules:
 - After each claim, cite the supporting excerpt inline as [run: <run title>].
 - If the excerpts do not contain the answer, say plainly that the research \
 corpus does not cover it — never invent information."""
+
+
+# The A/B variant: identical to PLANNER except for ANCHOR_RULES. Two depth-10
+# runs drifted on unanchored sub-queries — "Kindle KOReader network drive
+# mounting methods" pulled Ubuntu download pages — and several queries led
+# with a common word that Bing resolved to flights and a stock ticker.
+PLANNER_ANCHORED = PLANNER.replace('- "keywords":', ANCHOR_RULES + '- "keywords":', 1)

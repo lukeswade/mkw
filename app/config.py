@@ -43,6 +43,7 @@ ENV_MAP = {
     "llm_timeout": "LLM_TIMEOUT",
     "llm_call_ceiling": "LLM_CALL_CEILING",
     "display_timezone": "DISPLAY_TIMEZONE",
+    "planner_variant": "PLANNER_VARIANT",
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
@@ -146,6 +147,8 @@ class Settings:
     llm_call_ceiling: int = 600
     # IANA zone for every server-rendered clock (run list, static log, CLI).
     display_timezone: str = "America/Chicago"
+    # Planner prompt under A/B test: "default" or "anchored". Env-only for now.
+    planner_variant: str = "default"
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"

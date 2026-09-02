@@ -12,11 +12,15 @@ log = logging.getLogger(__name__)
 
 
 async def plan(llm: LLM, *, query: str, recency_desc: str, today: str,
-               breadth: int, prior: str = "", authority: str = "") -> PlannerOut:
+               breadth: int, prior: str = "", authority: str = "",
+               variant: str = "default") -> PlannerOut:
     prior_block = prompts.PRIOR_BLOCK.format(prior=prior) if prior else ""
     authority_block = (prompts.AUTHORITY_BLOCK.format(authority_sites=authority)
                        if authority else "")
-    prompt = prompts.PLANNER.format(
+    # "anchored" is under A/B test against the default (PLANNER_VARIANT).
+    template = (prompts.PLANNER_ANCHORED if variant == "anchored"
+                else prompts.PLANNER)
+    prompt = template.format(
         query=query, recency_desc=recency_desc, today=today,
         breadth=breadth, prior_block=prior_block,
         authority_block=authority_block,

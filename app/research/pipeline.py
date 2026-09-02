@@ -566,7 +566,8 @@ class Pipeline:
             the_plan = await planner_stage.plan(
                 llm, query=query, recency_desc=recency_desc, today=today,
                 breadth=breadth, prior=prior,
-                authority=getattr(self.cfg, "authority_sites", ""))
+                authority=getattr(self.cfg, "authority_sites", ""),
+                variant=getattr(self.cfg, "planner_variant", "default"))
             self.repo.update_run(run_id, title=the_plan.title)
             store.update_meta(title=the_plan.title, brief=the_plan.brief)
             self.bus.publish(run_id, "plan", title=the_plan.title,

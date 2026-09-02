@@ -87,3 +87,24 @@ def test_triage_sees_the_round_queries():
     assert "{queries}" in prompts.TRIAGE
     t = prompts.TRIAGE.replace("\n", " ")
     assert "answers ANY of these is worth keeping" in t
+
+
+async def test_the_anchored_planner_variant_is_opt_in(data_dir):
+    """Both A/B arms run identical code; only the planner's instructions
+    differ, and only when asked for by PLANNER_VARIANT=anchored."""
+    from app.models import PlannerOut
+    from app.research import planner
+
+    class Capture:
+        def __init__(self): self.prompts = []
+        async def chat_json(self, kind, messages, schema, **kw):
+            self.prompts.append(messages[0]["content"])
+            return PlannerOut(title="t", brief="b", subqueries=["q1", "q2"], keywords=["k"])
+
+    for variant, expected in (("default", False), ("anchored", True)):
+        llm = Capture()
+        out = await planner.plan(llm, query="Jailbreak a Kindle", recency_desc="all time",
+                                 today="2026-09-02", breadth=2, variant=variant)
+        assert out.subqueries == ["q1", "q2"]
+        assert ("Anchoring rules" in llm.prompts[0]) is expected, variant
+        assert "Research question: Jailbreak a Kindle" in llm.prompts[0]
