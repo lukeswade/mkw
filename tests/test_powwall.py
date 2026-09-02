@@ -86,7 +86,13 @@ async def test_two_walled_pages_on_one_domain_do_not_deadlock(data_dir, monkeypa
                  "</script></html>")
     page = "<html><body><p>" + "solid forum content. " * 120 + "</p></body></html>"
 
-    def handler(req):
+    async def handler(req):
+        # A real server yields mid-read; MockTransport does not unless told
+        # to. Without a suspension point the first coroutine solves and
+        # retries before the second has taken its slot, and the deadlock
+        # never gets the interleaving it needs — the test passed on the
+        # broken code until this sleep was added.
+        await asyncio.sleep(0.05)
         if "pow_bypass" in req.headers.get("cookie", ""):
             return httpx.Response(200, text=page, headers={"content-type": "text/html"})
         return httpx.Response(202, text=challenge, headers={"content-type": "text/html"})
