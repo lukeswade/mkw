@@ -40,7 +40,9 @@ def format_event(e: dict, tz: str | None = None) -> str | None:
         qs = "\n".join(f"          · {q}" for q in e.get("subqueries", []))
         return f"[{t}] plan: {e.get('title')}\n{qs}"
     if typ == "round_start":
-        qs = "\n".join(f"          · {q}" for q in e.get("queries", []))
+        scopes = e.get("scopes") or []
+        qs = "\n".join(f"          · {q}" + (f"  [{scopes[i]}]" if i < len(scopes) and scopes[i] else "")
+                       for i, q in enumerate(e.get("queries", [])))
         return f"[{t}] ROUND {e.get('round')}/{e.get('depth')}\n{qs}"
     if typ == "searched":
         return (f"[{t}]   {e.get('results')} results → "

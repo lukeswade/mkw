@@ -218,3 +218,41 @@ def test_promoted_video_engines_share_the_first_turn_with_keyed_engines():
     assert engine_order("youtube") == (1, 1)                        # plain run: backfill
     assert engine_order("youtube", VIDEO_ENGINES) == (0, 0)        # videos run: first turn
     assert engine_order("crossref") == (1, 1)
+
+
+def test_a_scope_narrows_a_query_to_categories_the_run_selected_never_wider():
+    """A balloon question hit PubMed, arXiv, Ask Ubuntu and Stack Overflow on
+    every round. A query's scope narrows its categories; the run's own
+    selection is the ceiling; nothing usable means today's behaviour."""
+    from app.research.searcher import categories_for_scope as c
+    allowed = "general,science,q&a,videos,social media"
+    assert c("web", allowed) == "general"
+    assert c("web+video", allowed) == "general,videos"
+    assert c("video+social", allowed) == "videos,social media"
+    assert c("code", allowed) is None                      # `it` not selected: fall back, don't widen
+    assert c("academic", "general") is None
+    assert c("", allowed) is None and c("nonsense", allowed) is None
+    assert c("WEB + Video", allowed) == "general,videos"    # tolerant of case and spacing
+
+
+async def test_the_searcher_sends_the_narrowed_categories_for_that_query_only():
+    import httpx
+    from app.research.searcher import Searcher
+    seen = []
+    async def handler(req):
+        seen.append(dict(req.url.params)); return httpx.Response(200, json={"results": [], "unresponsive_engines": []})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    s = Searcher("http://sx", client, categories="general,science,videos", small_index_engines=frozenset())
+    await s.search("fly rod grip", "all", categories="videos")
+    await s.search("fly rod grip 2", "all")
+    assert seen[0]["categories"] == "videos" and seen[1]["categories"] == "general,science,videos"
+
+
+def test_planner_and_gap_scopes_are_optional_and_tolerant():
+    from app.models import PlannerOut, GapOut
+    p = PlannerOut(title="t", brief="b", subqueries=["a", "b"])                      # omitted
+    assert p.query_scopes == []
+    p = PlannerOut(title="t", brief="b", subqueries=["a", "b"], query_scopes=["Web+Video", None])
+    assert p.query_scopes == ["web+video"]
+    g = GapOut(next_queries=["x"], next_query_scopes=["code"])
+    assert g.next_query_scopes == ["code"]

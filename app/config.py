@@ -44,6 +44,7 @@ ENV_MAP = {
     "llm_call_ceiling": "LLM_CALL_CEILING",
     "display_timezone": "DISPLAY_TIMEZONE",
     "planner_variant": "PLANNER_VARIANT",
+    "query_scopes": "QUERY_SCOPES",
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
@@ -150,6 +151,9 @@ class Settings:
     # Planner prompt. "anchored" won its A/B (35 kept vs 15 on the same
     # question, 14 vs 4 at 7/10+, similar waste); "default" is the kill switch.
     planner_variant: str = "anchored"
+    # Per-query search scopes from the planner/gap stages ("on"/"off"). Off
+    # sends every query to every engine in the run's categories, as before.
+    query_scopes: str = "on"
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"

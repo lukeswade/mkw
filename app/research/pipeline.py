@@ -37,8 +37,8 @@ from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
                                 take_notes)
 from app.research.progress import ProgressBus
 from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult,
-                                   SearxngError, cutoff_for, engine_order,
-                                   engine_tier)
+                                   SearxngError, categories_for_scope, cutoff_for,
+                                   engine_order, engine_tier)
 from app.research.storage import RunStore, validate_citations
 
 log = logging.getLogger(__name__)
@@ -208,6 +208,8 @@ class _RunState:
     kept_by_source: Counter = field(default_factory=Counter)
     # Credit carried in from related earlier runs (see seed_from_related).
     seed_by_source: Counter = field(default_factory=Counter)
+    # query text -> scope ("web+video", ...) from the planner or gap stage.
+    query_scope: dict[str, str] = field(default_factory=dict)
     searched: list[str] = field(default_factory=list)
     state_md: str = ""
     rounds_done: int = 0
@@ -661,6 +663,7 @@ class Pipeline:
 
             # 3. research rounds
             queries = the_plan.subqueries
+            state.query_scope.update(zip(the_plan.subqueries, the_plan.query_scopes))
             current_keywords = the_plan.keywords
             dry_rounds = 0
             saturated_streak = 0
@@ -670,7 +673,8 @@ class Pipeline:
                 self._check_cancel()
                 state.rounds_done = round_no
                 self.bus.publish(run_id, "round_start", round=round_no,
-                                 depth=rounds, queries=queries)
+                                 depth=rounds, queries=queries,
+                                 scopes=[state.query_scope.get(q, "") for q in queries])
 
                 kept = await self._round(run_id, store, state, searcher, fetcher,
                                          llm, query, the_plan.brief,
@@ -714,6 +718,7 @@ class Pipeline:
                     break
                 if gap.next_queries:
                     queries = gap.next_queries
+                    state.query_scope.update(zip(gap.next_queries, gap.next_query_scopes))
                     current_keywords = gap.keywords
                     pageno = 1
                     continue
@@ -767,9 +772,31 @@ class Pipeline:
     async def _round(self, run_id, store, state, searcher, fetcher, llm,
                      query, brief, recency_desc, today, recency, queries,
                      breadth, keywords, pageno: int = 1) -> list[Finding]:
+        run_categories = getattr(searcher, "categories", None)
+
+        def cats(q: str) -> str | None:
+            # A query's scope narrows which categories it hits; the run's own
+            # selection stays the ceiling. Web research only — a brief's
+            # reading list is chosen, not searched, and its FeedSearcher has
+            # no categories. Off (QUERY_SCOPES=off) = the old fan-out.
+            if state.group_by is not None or not run_categories:
+                return None
+            if str(getattr(self.cfg, "query_scopes", "on")).lower() in ("off", "0", "false", "no"):
+                return None
+            return categories_for_scope(state.query_scope.get(q, ""), run_categories)
+
+        def scoped(q: str, **kw):
+            c = cats(q)
+            return searcher.search(q, recency, **kw, **({"categories": c} if c else {}))
+
         results_lists = await asyncio.gather(
-            *(searcher.search(q, recency, pageno=pageno) for q in queries),
-            return_exceptions=True)
+            *(scoped(q, pageno=pageno) for q in queries), return_exceptions=True)
+        narrowed = {q: c for q in queries if (c := cats(q)) and c != run_categories}
+        if narrowed:
+            self.bus.publish(run_id, "log", message=(
+                f"{len(narrowed)} of {len(queries)} queries searched a narrower scope: "
+                + ", ".join(f"{q[:40]!r} → {c}" for q, c in list(narrowed.items())[:4])
+                + (" …" if len(narrowed) > 4 else "")))
         merged_lists, errors, pairs = [], [], []
         for q, res in zip(queries, results_lists):
             if isinstance(res, BaseException):
@@ -866,7 +893,7 @@ class Pipeline:
             extra = []
             for q, _res in sorted(pairs, key=lambda pr: -len(pr[1]))[:2]:
                 try:
-                    more = await searcher.search(q, recency, pageno=pageno + 1)
+                    more = await scoped(q, pageno=pageno + 1)
                     for r in more:
                         r.via_query = q
                     extra.extend(more)

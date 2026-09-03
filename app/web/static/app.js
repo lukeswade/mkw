@@ -36,7 +36,7 @@ function fmtEvent(e) {
     case "status": return `[${t}] status: ${e.status}`;
     case "phase": return `[${t}] — ${e.phase} —`;
     case "plan": return `[${t}] plan: ${e.title}\n` + list(e.subqueries);
-    case "round_start": return `[${t}] ROUND ${e.round}/${e.depth}\n` + list(e.queries);
+    case "round_start": return `[${t}] ROUND ${e.round}/${e.depth}\n` + (e.queries || []).map((q, i) => `          · ${q}${(e.scopes || [])[i] ? `  [${e.scopes[i]}]` : ""}`).join("\n");
     case "searched": return `[${t}]   ${e.results} results → ${e.candidates} new candidates`;
     case "source_skipped": return `[${t}]   ✗ ${e.url}  (${e.reason})${e.title ? `  "${String(e.title).slice(0, 70)}"` : ""}`;
     case "finding": return `[${t}]   ✓ [${e.idx}] ${e.title} (${e.domain}, ${e.relevance}/10)`;

@@ -142,6 +142,30 @@ def engine_tier(engine: str, promote: frozenset[str] = frozenset()) -> int:
     return 0 if e in _GENERAL_WEB_ENGINES else 1
 
 
+# What a query is about -> which SearXNG category can hold the answer. Every
+# sub-query used to fan out to every engine in the run's categories: a balloon
+# question hit PubMed, arXiv, Ask Ubuntu and Stack Overflow on every round,
+# which is slower, adds junk to the pool, burns triage tokens on it, and
+# earns the shared address rate-limit strikes for nothing.
+SCOPE_CATEGORIES = {
+    "web": "general", "video": "videos", "code": "it", "academic": "science",
+    "qa": "q&a", "news": "news", "social": "social media", "files": "files",
+}
+
+
+def categories_for_scope(scope: str, allowed: str) -> str | None:
+    """SearXNG categories for a query's scope, narrowed to what the run
+    selected — a scope may narrow the run's categories, never widen them.
+    None means "no usable scope: use the run's categories as before"."""
+    wanted = [SCOPE_CATEGORIES[t] for t in
+              re.split(r"[+,/ ]+", (scope or "").strip().lower()) if t in SCOPE_CATEGORIES]
+    if not wanted:
+        return None
+    allowed_set = set(split_categories(allowed))
+    kept = [c for c in dict.fromkeys(wanted) if not allowed_set or c in allowed_set]
+    return ",".join(kept) if kept else None
+
+
 def categories_for(recency: str, base: str = DEFAULT_CATEGORIES) -> str:
     # freshness-focused runs additionally benefit from the news category
     return f"{base},news" if recency in ("week", "month") else base
@@ -230,7 +254,8 @@ class Searcher:
                 and bool(self.blocked_engines))
 
     async def _query(self, query: str, recency: str, *, pageno: int = 1,
-                     engines: str | None = None) -> list[SearchResult]:
+                     engines: str | None = None,
+                     categories: str | None = None) -> list[SearchResult]:
         """One SearXNG request, parsed. `engines` narrows to named engines and
         then replaces the category selection, as SearXNG itself does."""
         params: dict = {
@@ -243,7 +268,7 @@ class Searcher:
         if engines:
             params["engines"] = engines
         else:
-            params["categories"] = categories_for(recency, self.categories)
+            params["categories"] = categories_for(recency, categories or self.categories)
         time_range = RECENCY_TO_TIME_RANGE.get(recency)
         if time_range:
             params["time_range"] = time_range
@@ -301,8 +326,10 @@ class Searcher:
             ))
         return out
 
-    async def search(self, query: str, recency: str, *, pageno: int = 1) -> list[SearchResult]:
-        out = await self._query(query, recency, pageno=pageno)
+    async def search(self, query: str, recency: str, *, pageno: int = 1,
+                     categories: str | None = None) -> list[SearchResult]:
+        """`categories` narrows this one query (see categories_for_scope)."""
+        out = await self._query(query, recency, pageno=pageno, categories=categories)
 
         site = _site_scope(query)
         # Site-restricted indexes are thin: a long specific query against one
@@ -316,7 +343,8 @@ class Searcher:
                 short = f"site:{site} " + " ".join(words[:5])
                 log.info("site-scoped query found nothing, retrying "
                          "shorter: %r", short)
-                return await self.search(short, recency, pageno=pageno)
+                return await self.search(short, recency, pageno=pageno,
+                                         categories=categories)
 
         # The short twin for small-index engines (see SMALL_INDEX_ENGINES).
         # Page 1 only, never for site: queries, and only when shortening

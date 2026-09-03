@@ -89,6 +89,9 @@ class PlannerOut(BaseModel):
     brief: str = ""
     subqueries: list[str] = Field(min_length=1, max_length=12)
     keywords: list[str] = Field(default_factory=list, max_length=20)
+    # One scope per subquery ("web", "web+video", "code", ...), aligned by
+    # index. Optional: a model that omits it gets the run's full categories.
+    query_scopes: list[str] = Field(default_factory=list, max_length=12)
 
     @field_validator("subqueries")
     @classmethod
@@ -97,6 +100,11 @@ class PlannerOut(BaseModel):
         if not cleaned:
             raise ValueError("no usable subqueries")
         return cleaned
+
+    @field_validator("query_scopes", mode="before")
+    @classmethod
+    def _clean_scopes(cls, v):
+        return [str(x).strip().lower() for x in (v or []) if x is not None]
 
 
 class Fact(BaseModel):
@@ -213,11 +221,17 @@ class GapOut(BaseModel):
     saturated: bool = False
     next_queries: list[str] = Field(default_factory=list, max_length=12)
     keywords: list[str] = Field(default_factory=list, max_length=20)
+    next_query_scopes: list[str] = Field(default_factory=list, max_length=12)
 
     @field_validator("next_queries")
     @classmethod
     def _clean_queries(cls, v: list[str]) -> list[str]:
         return [q.strip() for q in v if q and q.strip()]
+
+    @field_validator("next_query_scopes", mode="before")
+    @classmethod
+    def _clean_scopes(cls, v):
+        return [str(x).strip().lower() for x in (v or []) if x is not None]
 
 
 class FollowUp(BaseModel):
