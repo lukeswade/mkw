@@ -36,7 +36,7 @@ from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
                                 take_notes)
 from app.research.progress import ProgressBus
 from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult,
-                                   SearxngError, cutoff_for, engine_preferred,
+                                   SearxngError, cutoff_for, engine_order,
                                    engine_tier)
 from app.research.storage import RunStore, validate_citations
 
@@ -753,8 +753,7 @@ class Pipeline:
             pool.sort(key=lambda r: (
                 not shares_vocabulary(f"{r.title} {r.snippet} {r.url}", vocab)
                 if state.group_by is None else False,   # surviving filler last of all
-                engine_tier(r.engine, promote),
-                not engine_preferred(r.engine),   # keyed engines take their turn first
+                *engine_order(r.engine, promote),   # tier, then keyed/promoted first
                 looks_like_index(r.url),      # roots and indexes last in tier
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
             # A question that selected videos wants the videos: the host cap

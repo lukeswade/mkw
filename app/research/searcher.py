@@ -113,6 +113,16 @@ def engine_preferred(engine: str) -> bool:
     return (engine or "").strip().lower() in _PREFERRED_ENGINES
 
 
+def engine_order(engine: str, promote: frozenset[str] = frozenset()) -> tuple[int, int]:
+    """Sort key: (tier, turn). Keyed engines AND the engines the run promoted
+    (video engines on a videos run) take the first turn within their tier.
+    Without the second half, two keyed engines' 39 results filled a 28-slot
+    round before the promoted YouTube engine got a single candidate in."""
+    e = (engine or "").strip().lower()
+    first = engine_preferred(e) or e in promote
+    return (engine_tier(e, promote), 0 if first else 1)
+
+
 # Video engines. Normally tier 1 (a video is a worse answer than a page for
 # most questions), but when a run explicitly selects the videos category the
 # user asked for video — relegating it below every web result then makes the

@@ -207,3 +207,14 @@ def test_the_paid_brave_engine_ranks_with_the_general_web_not_as_backfill():
     assert engine_tier("braveapi") == 0 and engine_preferred("braveapi")
     assert engine_tier("bing") == 0 and not engine_preferred("bing")
     assert engine_tier("crossref") == 1
+
+
+def test_promoted_video_engines_share_the_first_turn_with_keyed_engines():
+    """On a videos run, braveapi and google cse alone filled a 28-slot round
+    before the promoted youtube engine placed one candidate."""
+    from app.research.searcher import engine_order, VIDEO_ENGINES
+    assert engine_order("braveapi") == (0, 0)
+    assert engine_order("bing") == (0, 1)
+    assert engine_order("youtube") == (1, 1)                        # plain run: backfill
+    assert engine_order("youtube", VIDEO_ENGINES) == (0, 0)        # videos run: first turn
+    assert engine_order("crossref") == (1, 1)
