@@ -171,8 +171,16 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      url: str, title: str, detected_date: str | None,
                      text: str, keywords: list[str] | None = None,
                      template: str | None = None,
-                     source_kind: str = "") -> NotesOut | None:
-    """Returns None when the model output is unusable (doc gets skipped)."""
+                     source_kind: str = "",
+                     order: str = "default",
+                     recheck: bool = False) -> NotesOut | None:
+    """Returns None when the model output is unusable (doc gets skipped).
+
+    `order` picks the prompt layout (see prompts.NOTES_INSTRUCTIONS_FIRST);
+    `recheck` asks a second time when the score lands on the 3-5 borderline —
+    the same page scored 2/10 and 7/10 on consecutive runs — and averages the
+    two, keeping the notes of the higher-scoring answer.
+    """
     if len(text) > _INPUT_CHARS:
         # Too big to feed whole: keyword-focused excerpts if we have
         # keywords, head+tail otherwise.
@@ -183,19 +191,35 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
 
 
     source_note = prompts.VIDEO_SOURCE_NOTE if source_kind == "video" else ""
-    prompt = (template or prompts.NOTES).format(
+    base = template or (prompts.NOTES_INSTRUCTIONS_FIRST if order == "instructions_first"
+                        else prompts.NOTES)
+    prompt = base.format(
         source_note=source_note,
         brief=brief, recency_desc=recency_desc, today=today, url=url,
         title=title, detected_date=detected_date or "unknown",
         text=text,
     )
     try:
-        return await llm.chat_json(
+        first = await llm.chat_json(
             "notes", [{"role": "user", "content": prompt}],
             # 350 words of notes plus up to 8 facts with verbatim quotes does
             # not fit in 1200 tokens; truncation there silently drops sources.
             NotesOut, max_tokens=2400, temperature=0.2,
         )
+        if not (recheck and 3 <= first.relevance <= 5):
+            return first
+        try:
+            second = await llm.chat_json(
+                "notes", [{"role": "user", "content": prompt}],
+                NotesOut, max_tokens=2400, temperature=0.4,
+            )
+        except (LLMJsonError, LLMError):
+            return first
+        best = first if first.relevance >= second.relevance else second
+        best.relevance = int((first.relevance + second.relevance + 1) // 2)
+        log.info("notes rechecked %s: %d and %d -> %d", url, first.relevance,
+                 second.relevance, best.relevance)
+        return best
     except (LLMJsonError, LLMError) as e:
         # None => this one source is skipped with a visible reason. Before the
         # call had a ceiling a hung notes call hung the whole round; now it

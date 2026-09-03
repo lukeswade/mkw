@@ -46,6 +46,8 @@ ENV_MAP = {
     "planner_variant": "PLANNER_VARIANT",
     "query_scopes": "QUERY_SCOPES",
     "gap_variant": "GAP_VARIANT",
+    "notes_order": "NOTES_ORDER",
+    "notes_recheck": "NOTES_RECHECK",
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
@@ -161,6 +163,11 @@ class Settings:
     query_scopes: str = "on"
     # Gap-analysis prompt under A/B test: "default" or "anchored".
     gap_variant: str = "default"
+    # Batch-2 A/B switches. notes_order: "default" | "instructions_first"
+    # (rubric before the document, for a cacheable prefix). notes_recheck:
+    # "off" | "on" (a second look at borderline 3-5 scores; same page scored 2 and 7).
+    notes_order: str = "default"
+    notes_recheck: str = "off"
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"

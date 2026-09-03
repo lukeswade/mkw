@@ -136,3 +136,34 @@ async def test_the_anchored_gap_variant_is_opt_in_and_reaches_the_retry(data_dir
         assert len(llm.prompts) == 2                                   # the re-ask happened
         assert all(("Anchoring rules" in p) is expected for p in llm.prompts), variant
         assert out.next_queries == ["Cinque trackball ZMK"]
+
+
+def test_instructions_first_keeps_every_placeholder_and_moves_the_rubric_ahead_of_the_document():
+    import re
+    from app.llm import prompts
+    a, b = prompts.NOTES, prompts.NOTES_INSTRUCTIONS_FIRST
+    assert set(re.findall(r"\{(\w+)\}", a)) == set(re.findall(r"\{(\w+)\}", b))
+    assert b.index("Produce a JSON object") < b.index("SOURCE DOCUMENT (untrusted")
+    assert a.index("Produce a JSON object") > a.index("SOURCE DOCUMENT (untrusted")
+    # the shared prefix before the document is now long enough to be worth caching
+    assert b.index("SOURCE DOCUMENT") > 1500 and a.index("SOURCE DOCUMENT") < 400
+
+
+async def test_a_borderline_score_is_rechecked_once_and_averaged(data_dir):
+    from app.models import NotesOut
+    from app.research.notes import take_notes
+
+    class Capture:
+        def __init__(self, scores): self.scores = list(scores); self.calls = 0
+        async def chat_json(self, kind, messages, schema, **kw):
+            self.calls += 1
+            return NotesOut(relevance=self.scores.pop(0), summary=f"s{self.calls}", notes_md="n", key_facts=[])
+
+    kw = dict(brief="b", recency_desc="all time", today="2026-09-03", url="u", title="t",
+              detected_date=None, text="page text")
+    llm = Capture([4, 8]); out = await take_notes(llm, recheck=True, **kw)
+    assert llm.calls == 2 and out.relevance == 6 and out.summary == "s2"      # averaged, notes from the higher answer
+    llm = Capture([4, 8]); out = await take_notes(llm, recheck=False, **kw)
+    assert llm.calls == 1 and out.relevance == 4
+    llm = Capture([7, 9]); out = await take_notes(llm, recheck=True, **kw)
+    assert llm.calls == 1 and out.relevance == 7                               # not borderline: no second look

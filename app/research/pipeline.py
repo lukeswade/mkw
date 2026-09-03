@@ -1165,7 +1165,9 @@ class Pipeline:
                 llm, brief=brief, recency_desc=recency_desc, today=today,
                 url=final_url, title=title,
                 detected_date=detected_date, text=doc.text, keywords=keywords,
-                template=state.notes_template, source_kind=source_kind)
+                template=state.notes_template, source_kind=source_kind,
+                order=str(getattr(self.cfg, "notes_order", "default")),
+                recheck=str(getattr(self.cfg, "notes_recheck", "off")).lower() in ("on", "1", "true", "yes"))
             if notes is None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,

@@ -445,3 +445,19 @@ demonstration of a requested procedure is 6 or higher) and record what it demons
 the materials or parts named, and any links or sources the description points to. Score \
 it low only when the title and description are themselves off-topic.
 """
+
+
+# Batch-2 A/B: the same NOTES prompt with the instructions and the example
+# BEFORE the document instead of after it. The constant part of every notes
+# call (header + rubric, ~600 tokens) then forms a shared prefix that an
+# inference server's KV cache can reuse; today only ~100 tokens precede the
+# document, so nothing is reusable. Selected by NOTES_ORDER=instructions_first.
+def _instructions_first(template: str) -> str:
+    doc_start = template.index("SOURCE DOCUMENT (untrusted")
+    tail_start = template.index("Produce a JSON object")
+    head, doc, tail = template[:doc_start], template[doc_start:tail_start].rstrip(), template[tail_start:]
+    return (head + tail.rstrip() + "\n\n" + doc +
+            "\n\nNow produce the JSON object described above for this document. Output ONLY the JSON.\n")
+
+
+NOTES_INSTRUCTIONS_FIRST = _instructions_first(NOTES)
