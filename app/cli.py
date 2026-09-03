@@ -101,6 +101,63 @@ async def _cmd_run(args) -> int:
     return 0 if row["status"] == "completed" else 1
 
 
+def _parse_env(spec: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in (spec or "").split(","):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+async def _one_arm(args, env: dict[str, str]) -> str:
+    """One research run under environment overrides, in this process.
+    settings.json still wins over env — the switches under test are meant to
+    be absent from it."""
+    import os
+    saved = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
+    try:
+        cfg = load_settings()
+        cfg.ensure_dirs()
+        repo = Repo(connect(cfg.db_path))
+        bus = ProgressBus()
+        orch = Orchestrator(load_settings, repo, bus, rag=_build_rag(cfg))
+        run_id = orch.enqueue(_params_from_args(args))
+        try:
+            await orch.execute_now(run_id)
+        except asyncio.CancelledError:
+            pass
+        return run_id
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+async def _cmd_ab(args) -> int:
+    """Two arms of one question, back to back, scored side by side.
+
+    Every tuning decision this week was made this way with shell scripts;
+    this is the same procedure as one command, reproducible by anyone.
+    """
+    from app.research.compare import render_text, summarize
+    env_a, env_b = _parse_env(args.env_a), _parse_env(args.env_b)
+    print(f"arm A: {env_a or 'no overrides'}", flush=True)
+    a = await _one_arm(args, env_a)
+    print(f"arm A done: {a}\narm B: {env_b or 'no overrides'}", flush=True)
+    b = await _one_arm(args, env_b)
+    print(f"arm B done: {b}\n", flush=True)
+    cfg = load_settings()
+    repo = Repo(connect(cfg.db_path))
+    sa, sb = summarize(repo, cfg.research_dir, a), summarize(repo, cfg.research_dir, b)
+    print(render_text(sa, sb, label_a="A: " + (args.env_a or "baseline")[:18], label_b="B: " + (args.env_b or "baseline")[:18]))
+    print(f"\nside by side in the app: /compare?a={a}&b={b}")
+    return 0
+
+
 async def _cmd_runs(_args) -> int:
     cfg = load_settings()
     cfg.ensure_dirs()
@@ -188,6 +245,17 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--document", default=None, metavar="PATH",
                        help="with --kind verify: file holding the text to check")
     run_p.set_defaults(fn=_cmd_run)
+
+    ab_p = sub.add_parser("ab", help="run one question twice under different env overrides and compare")
+    ab_p.add_argument("query")
+    ab_p.add_argument("--depth", type=int, default=4)
+    ab_p.add_argument("--recency", default="all")
+    ab_p.add_argument("--categories", "-c", default="")
+    ab_p.add_argument("--no-prior", action="store_true", default=True,
+                      help="memory off for both arms (default), so neither arm anchors on the other")
+    ab_p.add_argument("--env-a", default="", help='comma-separated KEY=VAL overrides for arm A, e.g. "GAP_VARIANT=default"')
+    ab_p.add_argument("--env-b", default="", help='overrides for arm B, e.g. "GAP_VARIANT=anchored"')
+    ab_p.set_defaults(fn=_cmd_ab, kind="research", brief_id=None, document=None)
 
     runs_p = sub.add_parser("runs", help="list research runs")
     runs_p.set_defaults(fn=_cmd_runs)

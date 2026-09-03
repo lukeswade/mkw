@@ -46,3 +46,11 @@ def test_bad_kind_and_bad_depth_are_rejected_by_the_parser():
         _parse("q", "--kind", "essay")
     with pytest.raises(SystemExit):
         _parse("q", "--depth", "11")
+
+
+def test_the_ab_command_parses_its_arms():
+    from app.cli import build_parser, _parse_env
+    args = build_parser().parse_args(["ab", "fly rod reel seat", "--depth", "3", "--env-a", "GAP_VARIANT=default",
+                                      "--env-b", "GAP_VARIANT=anchored, QUERY_SCOPES=off"])
+    assert args.fn.__name__ == "_cmd_ab" and args.depth == 3
+    assert _parse_env(args.env_b) == {"GAP_VARIANT": "anchored", "QUERY_SCOPES": "off"}
