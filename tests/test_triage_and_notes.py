@@ -509,3 +509,14 @@ def test_at_most_one_site_query_per_round_unless_the_site_is_an_authority():
                    ("custom trackball nRF52840", "site:geekhack.org custom trackball nRF52840"),   # opened to the web
                    ("site:rodbuilding.org reel seat repair", "site:rodbuilding.org reel seat repair"),  # authority keeps its scope
                    ("DIY trackball ZMK firmware guide", "DIY trackball ZMK firmware guide")]
+
+
+def test_triage_keeps_a_floor_not_half_the_round():
+    """Pages the half-round cap forced back in were kept 6% of the time (5 of
+    85) against 55% for the rest. The floor protects a small round from one
+    bad verdict; a junk-heavy large round can lose most of itself."""
+    from app.research.pipeline import triage_floor
+    assert triage_floor(5) == 3          # small round: at most 2 dropped (unchanged behaviour)
+    assert triage_floor(36) == 4
+    assert triage_floor(44) == 5         # was 22 kept; now 5
+    assert triage_floor(60) == 6

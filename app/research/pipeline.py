@@ -203,6 +203,10 @@ class _RunState:
     # authority sites, productive domains). Their outcomes are the evidence for
     # whether those rules help or hurt.
     spared_urls: set[str] = field(default_factory=set)
+    # Domains that have never produced a kept source for this install over
+    # many reads and several runs (Repo.dead_domains). Ranked last, never
+    # dropped: blocking is the reader's call, offered on the run page.
+    dead_domains: frozenset = frozenset()
     # Kept sources per diversity key (channel, repo, subreddit, domain) — what
     # a source has earned toward a larger share of later rounds.
     kept_by_source: Counter = field(default_factory=Counter)
@@ -296,6 +300,21 @@ def limit_site_queries(queries: list[str], authority: frozenset[str]
         seen.add(key)
         out.append((new_q, q))
     return out
+
+
+def triage_floor(n: int) -> int:
+    """How many candidates a round keeps no matter what triage says.
+
+    The cap used to be half the round. Measured on nine runs with the
+    spared marker: pages the cap forced back in were kept 6% of the time
+    (5 of 85) against 55% for the rest, and 47% scored 0-1 against 10%.
+    When triage wants to drop most of a round, it is right; the rule-based
+    reprieves (authority sites, productive domains) carry the protection
+    against its false negatives. What remains is a floor: the best-ranked
+    tenth of a round, never fewer than three, so a round cannot be emptied
+    by one bad verdict.
+    """
+    return max(3, -(-n // 10))
 
 
 def _under_any(key: str, domains: frozenset[str]) -> bool:
@@ -419,16 +438,11 @@ class Pipeline:
             # condemning everything is a broken verdict, not a judgment —
             # there is no signal in it to salvage, so ignore it wholesale
             return candidates
-        # Triage is a cheap-junk filter, not a gatekeeper. Three separate
-        # attempts to fix this in the prompt have failed: it keeps condemning
-        # pages that answer the round's own queries by name (a GX470-specific
-        # torque-spec page, NGK's own torque reference). So bound the damage
-        # structurally — it may veto at most half a round, and the reprieve
-        # goes to the best-ranked of the condemned. pick() already sorted
-        # candidates best-first by engine tier then query overlap, so the
-        # spared ones are those whose title/snippet most resemble the query
-        # that found them: precisely the false negatives observed.
-        cap = len(candidates) // 2
+        # A floor, not a half-round cap: see triage_floor. The reprieve goes
+        # to the best-ranked of the condemned — pick() sorted candidates
+        # best-first — so a round can never be emptied by one bad verdict,
+        # while a verdict that condemns most of a junk-heavy round stands.
+        cap = len(candidates) - triage_floor(len(candidates))
         if len(drop) > cap:
             spared = set(sorted(drop)[:len(drop) - cap])
             log.info("triage over-culled (%d of %d); sparing %d best-ranked",
@@ -698,6 +712,10 @@ class Pipeline:
                              brief=the_plan.brief, subqueries=the_plan.subqueries)
 
             # 3. research rounds
+            try:
+                state.dead_domains = frozenset(d["domain"] for d in self.repo.dead_domains())
+            except Exception as e:  # never let bookkeeping stop a run
+                log.debug("dead-domain lookup failed: %s", e)
             state.query_scope.update(zip(the_plan.subqueries, the_plan.query_scopes))
             queries = self._apply_site_limit(run_id, state, the_plan.subqueries)
             current_keywords = the_plan.keywords
@@ -788,6 +806,17 @@ class Pipeline:
                                  recency, recency_desc, today, stop_reason,
                                  searcher=searcher, fetcher=fetcher,
                                  previous_overview=self._parent_overview(row))
+
+    def _record_outcome(self, run_id: str, c, outcome: str,
+                        relevance: int | None = None) -> None:
+        """One row per page read: what the install learns about a domain over
+        many runs. Bookkeeping must never stop a run."""
+        try:
+            self.repo.record_outcome(run_id=run_id, url=canonicalize(c.url),
+                                     domain=domain_of(c.url), engine=c.engine or "",
+                                     outcome=outcome, relevance=relevance)
+        except Exception as e:
+            log.debug("outcome not recorded for %s: %s", c.url, e)
 
     def _apply_site_limit(self, run_id: str, state: "_RunState",
                           queries: list[str]) -> list[str]:
@@ -897,6 +926,7 @@ class Pipeline:
             pool.sort(key=lambda r: (
                 not shares_vocabulary(f"{r.title} {r.snippet} {r.url}", vocab)
                 if state.group_by is None else False,   # surviving filler last of all
+                domain_of(r.url) in state.dead_domains,  # then never-productive domains
                 *engine_order(r.engine, promote),   # tier, then keyed/promoted first
                 looks_like_index(r.url),      # roots and indexes last in tier
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
@@ -1048,6 +1078,7 @@ class Pipeline:
                 self.bus.publish(run_id, "source_skipped", url=c.url, reason=str(e),
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
+                self._record_outcome(run_id, c, "fail")
                 return
             # A redirect target is the page we actually read. Only the URL we
             # asked for was remembered, so the same page could come back later
@@ -1130,6 +1161,7 @@ class Pipeline:
                                  reason=f"relevance {notes.relevance}/10",
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
+                self._record_outcome(run_id, c, "rejected", notes.relevance)
                 return
             # idx assignment + append happen with no await in between → atomic
             idx = len(state.findings) + 1
@@ -1144,6 +1176,7 @@ class Pipeline:
             state.findings.append(finding)
             kept.append(finding)
             state.kept_by_source[source_key(c)] += 1
+            self._record_outcome(run_id, c, "kept", notes.relevance)
             finding.path = store.write_finding(idx, title, finding_markdown(finding))
             self.repo.add_finding(
                 run_id=run_id, idx=idx, url=finding.url, title=finding.title,
