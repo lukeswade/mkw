@@ -275,6 +275,8 @@ async def run_page(request: Request, run_id: str):
         # Domains read in this run that have never produced a kept source
         # for this install, over many reads and several runs.
         "dead_domains": repo.dead_domains_in_run(run_id),
+        # Other completed runs of exactly this question: one click to a side-by-side.
+        "same_question": repo.runs_with_query(row["query"], exclude=run_id),
         "followups": meta.get("followups", []),
         "log_text": "\n".join(log_lines),
         "related": related,

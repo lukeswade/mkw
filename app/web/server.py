@@ -185,6 +185,7 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
     from app.web.routes_verify import router as verify_router
     from app.web.routes_briefs import router as briefs_router
     from app.web.routes_learned import router as learned_router
+    from app.web.routes_compare import router as compare_router
     app.include_router(runs_router)
     app.include_router(library_router)
     app.include_router(settings_router)
@@ -193,6 +194,7 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
     app.include_router(verify_router)
     app.include_router(briefs_router)
     app.include_router(learned_router)
+    app.include_router(compare_router)
 
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")),
               name="static")

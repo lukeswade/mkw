@@ -61,6 +61,9 @@
     {% if not row['use_prior'] %}<span class="chip subtle" title="Ran without context from earlier research — a fresh diagnosis">no prior research</span>{% endif %}
     {% if row['stop_reason'] %}<span class="chip subtle">{{ row['stop_reason'] }}</span>{% endif %}
   </div>
+  {% if same_question %}<p class="parent-note">also asked
+    {% for o in same_question %}<a href="/compare?a={{ run_id }}&b={{ o['id'] }}" title="side by side with this run">{{ o['created_at'] | localdt }} · depth {{ o['depth'] }}</a>{{ ', ' if not loop.last }}{% endfor %}
+    — click one to compare</p>{% endif %}
   {# Lineage, not memory. A retry or a daily refresh asks the parent's own
      question again; a follow-up asks a new one. Whether the run READ earlier
      research is the "no prior research" chip above — both can be true. #}

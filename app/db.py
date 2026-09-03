@@ -359,6 +359,14 @@ class Repo:
             f"WHERE domain IN ({marks}) GROUP BY domain ORDER BY reads DESC",
             [d.lower() for d in domains]).fetchall()
 
+    def runs_with_query(self, query: str, exclude: str | None = None, limit: int = 8) -> list[sqlite3.Row]:
+        """Other completed runs of exactly this question — the natural
+        candidates for a side-by-side."""
+        return self.conn.execute(
+            "SELECT id, title, depth, created_at FROM runs WHERE query = ? AND status = 'completed' "
+            "AND kind = 'research' AND id != ? ORDER BY created_at DESC LIMIT ?",
+            (query, exclude or "", limit)).fetchall()
+
     def stats_since(self, since_iso: str) -> list[dict]:
         rows = self.conn.execute(
             "SELECT created_at, categories, stats_json FROM runs WHERE kind = 'research' "

@@ -717,3 +717,24 @@ def test_the_three_query_switches_are_on_the_settings_page_and_round_trip(data_d
         client.post("/settings", data={"gap_variant": "anchored", "query_scopes": "off"}, follow_redirects=False)
         saved = json.loads((cfg.data_path / "settings.json").read_text())
         assert saved["gap_variant"] == "anchored" and saved["query_scopes"] == "off"
+
+
+def test_two_runs_of_one_question_can_be_compared_side_by_side(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.research.compare import summarize, side_by_side
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    a, b = seed_completed_run(cfg), seed_completed_run(cfg)
+    repo.set_stats(a, {"rounds": 2, "searches": 8, "sources_kept": 5, "sources_skipped": 4, "blocked_engines": {"x": "y"},
+                       "llm": {"calls": 20, "prompt_tokens": 1000, "completion_tokens": 100}})
+    repo.set_stats(b, {"rounds": 2, "searches": 8, "sources_kept": 9, "sources_skipped": 2, "blocked_engines": {},
+                       "llm": {"calls": 25, "prompt_tokens": 1200, "completion_tokens": 120}})
+    sa, sb = summarize(repo, cfg.research_dir, a), summarize(repo, cfg.research_dir, b)
+    rows = {r["key"]: r for r in side_by_side(sa, sb)}
+    assert rows["engines refused"]["better"] == "b" and rows["llm calls"]["better"] == "a"
+    with TestClient(app) as client:
+        page = client.get(f"/compare?a={a}&b={b}").text
+        assert "Side by side" in page and "engines refused" in page
+        assert client.get("/compare?a=nope&b=nope").status_code == 404
+        run_page = client.get(f"/runs/{a}").text
+        assert f"/compare?a={a}&b={b}" in run_page                 # same question -> offered on the run page

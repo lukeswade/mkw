@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Compare · Deep Research{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Side by side</h1>
+  <p class="page-desc">Two runs of one question. Arrows point at the better number where one direction is clearly better.</p>
+</div>
+
+<article class="card">
+  <table class="learned compare">
+    <thead><tr><th></th>
+      <th><a href="/runs/{{ a['id'] }}">A</a> <small>{{ a['created_at'] | localdt }} · depth {{ a['depth'] }}</small></th>
+      <th><a href="/runs/{{ b['id'] }}">B</a> <small>{{ b['created_at'] | localdt }} · depth {{ b['depth'] }}</small></th></tr></thead>
+    <tbody>{% for r in rows %}
+      <tr><td>{{ r['key'] }}</td>
+          <td class="{{ 'better' if r['better'] == 'a' }}">{{ r['a'] if r['a'] is not none else '—' }}{% if r['better'] == 'a' %} ◂{% endif %}</td>
+          <td class="{{ 'better' if r['better'] == 'b' }}">{% if r['better'] == 'b' %}▸ {% endif %}{{ r['b'] if r['b'] is not none else '—' }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</article>
+
+<div class="compare-cols">
+  {% for side, s in (('A', a), ('B', b)) %}
+  <article class="card">
+    <h3>{{ side }} · queries</h3>
+    <ol class="compare-queries">{% for rnd, q, scope in s['_queries'] %}<li><small>r{{ rnd }}</small> {{ q }}{% if scope %} <code>{{ scope }}</code>{% endif %}</li>{% endfor %}</ol>
+    <h3>{{ side }} · kept</h3>
+    <ol class="compare-kept">{% for rel, title, dom in s['_kept'] %}<li>{{ title }} <small>({{ dom }}) · {{ rel }}/10</small></li>{% endfor %}</ol>
+  </article>
+  {% endfor %}
+</div>
+
+<div class="compare-cols">
+  <article class="card"><h3>A · overview</h3><div class="prose">{{ overview_a | safe }}</div></article>
+  <article class="card"><h3>B · overview</h3><div class="prose">{{ overview_b | safe }}</div></article>
+</div>
+{% endblock %}

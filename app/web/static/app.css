@@ -1574,3 +1574,11 @@ table.learned th, table.learned td { text-align: left; padding: .35rem .6rem; bo
 table.learned th { color: var(--text-muted); font-weight: 500; }
 table.learned td:nth-child(n+2) { color: var(--text-secondary); }
 table.learned .bar { display: inline-block; height: .5rem; background: var(--accent); opacity: .55; border-radius: 2px; vertical-align: middle; margin-right: .4rem; max-width: 12rem; }
+
+/* ---- Compare page ---- */
+.compare-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 900px) { .compare-cols { grid-template-columns: 1fr; } }
+table.compare td.better { color: var(--text-primary); font-weight: 600; }
+.compare-queries, .compare-kept { font-size: var(--text-sm); color: var(--text-secondary); padding-left: 1.2rem; }
+.compare-queries li, .compare-kept li { margin: .2rem 0; }
+.compare-queries small { color: var(--text-muted); margin-right: .3rem; }
