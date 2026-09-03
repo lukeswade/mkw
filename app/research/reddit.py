@@ -128,6 +128,11 @@ async def _archive_fallback(client, url: str,
     tid = thread_id(url)
     if not tid:
         return None
+    # A post without its comments is the question without the answers. Two
+    # threads in one run came back from the first archive with zero comments
+    # and scored 2/10 while the other archive held them; a comment-less
+    # rebuild is kept only if no archive does better.
+    commentless: tuple[Extracted, str] | None = None
     for name, post_url, comment_url in _ARCHIVES:
         try:
             r = await client.get(post_url.format(id=tid),
@@ -157,15 +162,25 @@ async def _archive_fallback(client, url: str,
         text = "\n\n".join(parts)
         if len(text) < MIN_TEXT_CHARS:
             continue
+        permalink = post.get("permalink")
+        result = (Extracted(text=text[:MAX_TEXT_CHARS],
+                            title=(f"{title} — r/{subreddit} (reddit thread)"
+                                   if title else None),
+                            date=None),
+                  f"https://www.reddit.com{permalink}" if permalink else url)
+        if not bodies:
+            if commentless is None:
+                commentless = result
+            log.info("reddit archive %s has %s without comments; trying the next",
+                     name, tid)
+            continue
         log.info("reddit refused %s (%s); rebuilt from %s with %d comment(s)",
                  tid, api_err, name, len(bodies))
-        permalink = post.get("permalink")
-        return (Extracted(text=text[:MAX_TEXT_CHARS],
-                          title=(f"{title} — r/{subreddit} (reddit thread)"
-                                 if title else None),
-                          date=None),
-                f"https://www.reddit.com{permalink}" if permalink else url)
-    return None
+        return result
+    if commentless is not None:
+        log.info("reddit refused %s (%s); rebuilt without comments — no archive "
+                 "had them", tid, api_err)
+    return commentless
 
 
 async def _html_fallback(fetcher: Fetcher, url: str,

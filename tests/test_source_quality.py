@@ -766,3 +766,33 @@ async def test_a_video_with_only_a_title_is_still_skipped(data_dir):
         "playabilityStatus": {"status": "OK"}, "videoDetails": {"title": "Untitled", "author": "x", "shortDescription": "short"}}))
     async with httpx.AsyncClient() as client:
         assert await youtube.transcript(client, "dQw4w9WgXcQ") is None
+
+
+@respx.mock
+async def test_a_comment_less_archive_rebuild_yields_to_one_with_the_comments(data_dir):
+    """Two threads came back from the first archive with zero comments and
+    scored 2/10 while the other archive held them."""
+    from app.research import reddit
+    post = {"title": "Reel seat came loose — how do I fix it?", "subreddit": "flyfishing",
+            "selftext": "The reel seat on my 6wt spins freely on the blank. " * 6, "permalink": "/r/flyfishing/comments/abc12/x/"}
+    respx.get("https://api.pullpush.io/reddit/search/submission/").mock(return_value=httpx.Response(200, json={"data": [post]}))
+    respx.get("https://api.pullpush.io/reddit/search/comment/").mock(return_value=httpx.Response(200, json={"data": []}))
+    respx.get("https://arctic-shift.photon-reddit.com/api/posts/ids").mock(return_value=httpx.Response(200, json={"data": [post]}))
+    respx.get("https://arctic-shift.photon-reddit.com/api/comments/search").mock(return_value=httpx.Response(200, json={"data": [
+        {"body": "Inject rod bond epoxy through a small hole and rotate the seat to spread it."},
+        {"body": "Or heat the seat gently and pull it, then re-epoxy with a proper arbor."}]}))
+    async with httpx.AsyncClient() as client:
+        doc, url = await reddit._archive_fallback(client, "https://www.reddit.com/r/flyfishing/comments/abc12/x/", SkipReason("blocked"))
+    assert "## Comments" in doc.text and "rod bond epoxy" in doc.text
+
+
+@respx.mock
+async def test_a_comment_less_rebuild_is_still_kept_when_no_archive_has_more(data_dir):
+    from app.research import reddit
+    post = {"title": "Reel seat came loose", "subreddit": "flyfishing", "selftext": "Long description of the problem. " * 10, "permalink": "/r/x/comments/abc12/y/"}
+    respx.get("https://api.pullpush.io/reddit/search/submission/").mock(return_value=httpx.Response(200, json={"data": [post]}))
+    respx.get("https://api.pullpush.io/reddit/search/comment/").mock(return_value=httpx.Response(200, json={"data": []}))
+    respx.get("https://arctic-shift.photon-reddit.com/api/posts/ids").mock(return_value=httpx.Response(200, json={"data": []}))
+    async with httpx.AsyncClient() as client:
+        doc, url = await reddit._archive_fallback(client, "https://www.reddit.com/r/x/comments/abc12/y/", SkipReason("blocked"))
+    assert doc is not None and "## Comments" not in doc.text
