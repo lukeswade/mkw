@@ -262,6 +262,42 @@ def seed_from_related(kept_by_domain: dict[str, int]) -> dict[str, int]:
     return seed
 
 
+_SITE_TOKEN = re.compile(r"\bsite:\S+\s*", re.IGNORECASE)
+
+
+def limit_site_queries(queries: list[str], authority: frozenset[str]
+                       ) -> list[tuple[str, str]]:
+    """(query to search, query as written). At most one site:-scoped query per
+    round keeps its scope unless the site is an authority; the rest are
+    opened to the whole web by dropping the operator.
+
+    Only Google CSE honours site: — the other engines drop it and return
+    keyword matches from anywhere (enforced away by the searcher) — so a
+    site: query is a bet on one engine. One round spent half its breadth on
+    two of them and Google CSE refused the next round.
+    """
+    out: list[tuple[str, str]] = []
+    scoped_used = False
+    seen: set[str] = set()
+    for q in queries:
+        m = _SITE_TOKEN.search(q)
+        new_q = q
+        if m:
+            site = m.group(0).split(":", 1)[1].strip().lower().removeprefix("www.")
+            is_authority = any(site == a or site.endswith("." + a) for a in authority)
+            if not is_authority:
+                if scoped_used:
+                    new_q = " ".join(_SITE_TOKEN.sub(" ", q).split()) or q
+                else:
+                    scoped_used = True
+        key = new_q.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((new_q, q))
+    return out
+
+
 def _under_any(key: str, domains: frozenset[str]) -> bool:
     host = key.split(":", 1)[0] if ":" in key else key
     return any(host == d or host.endswith("." + d) for d in domains)
@@ -662,8 +698,8 @@ class Pipeline:
                              brief=the_plan.brief, subqueries=the_plan.subqueries)
 
             # 3. research rounds
-            queries = the_plan.subqueries
             state.query_scope.update(zip(the_plan.subqueries, the_plan.query_scopes))
+            queries = self._apply_site_limit(run_id, state, the_plan.subqueries)
             current_keywords = the_plan.keywords
             dry_rounds = 0
             saturated_streak = 0
@@ -718,8 +754,8 @@ class Pipeline:
                 if round_no == rounds:
                     break
                 if gap.next_queries:
-                    queries = gap.next_queries
                     state.query_scope.update(zip(gap.next_queries, gap.next_query_scopes))
+                    queries = self._apply_site_limit(run_id, state, gap.next_queries)
                     current_keywords = gap.keywords
                     pageno = 1
                     continue
@@ -752,6 +788,20 @@ class Pipeline:
                                  recency, recency_desc, today, stop_reason,
                                  searcher=searcher, fetcher=fetcher,
                                  previous_overview=self._parent_overview(row))
+
+    def _apply_site_limit(self, run_id: str, state: "_RunState",
+                          queries: list[str]) -> list[str]:
+        pairs = limit_site_queries(queries, self._authority_domains())
+        widened = [(new_q, old_q) for new_q, old_q in pairs if new_q != old_q]
+        for new_q, old_q in widened:
+            state.query_scope[new_q] = state.query_scope.get(old_q, "")
+        if widened:
+            self.bus.publish(
+                run_id, "log",
+                message=(f"{len(widened)} site:-scoped quer{'y' if len(widened) == 1 else 'ies'} "
+                         f"beyond the first opened to the whole web (only Google CSE "
+                         f"honours site:)"))
+        return [new_q for new_q, _old in pairs]
 
     @staticmethod
     def _productive_queries(state: "_RunState", breadth: int) -> list[str]:

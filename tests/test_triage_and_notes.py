@@ -496,3 +496,16 @@ async def test_the_note_taker_is_told_when_it_is_reading_a_demonstration_video()
         await take_notes(llm, brief="b", recency_desc="all time", today="2026-09-03", url="u",
                          title="t", detected_date=None, text="some text", source_kind=kind)
         assert ("SOURCE TYPE: video" in llm.prompt) is expected, kind
+
+
+def test_at_most_one_site_query_per_round_unless_the_site_is_an_authority():
+    from app.research.pipeline import limit_site_queries
+    out = limit_site_queries(["site:deskthority.net DIY trackball ZMK build",
+                              "site:geekhack.org custom trackball nRF52840",
+                              "site:rodbuilding.org reel seat repair",
+                              "DIY trackball ZMK firmware guide"],
+                             authority=frozenset({"rodbuilding.org"}))
+    assert out == [("site:deskthority.net DIY trackball ZMK build", "site:deskthority.net DIY trackball ZMK build"),
+                   ("custom trackball nRF52840", "site:geekhack.org custom trackball nRF52840"),   # opened to the web
+                   ("site:rodbuilding.org reel seat repair", "site:rodbuilding.org reel seat repair"),  # authority keeps its scope
+                   ("DIY trackball ZMK firmware guide", "DIY trackball ZMK firmware guide")]
