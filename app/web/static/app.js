@@ -39,7 +39,7 @@ function fmtEvent(e) {
     case "round_start": return `[${t}] ROUND ${e.round}/${e.depth}\n` + (e.queries || []).map((q, i) => `          · ${q}${(e.scopes || [])[i] ? `  [${e.scopes[i]}]` : ""}`).join("\n");
     case "searched": return `[${t}]   ${e.results} results → ${e.candidates} new candidates`;
     case "source_skipped": return `[${t}]   ✗ ${e.url}  (${e.reason})${e.title ? `  "${String(e.title).slice(0, 70)}"` : ""}`;
-    case "finding": return `[${t}]   ✓ [${e.idx}] ${e.title} (${e.domain}, ${e.relevance}/10)`;
+    case "finding": return `[${t}]   ✓ [${e.idx}] ${e.title} (${e.domain}) · ${e.relevance}/10`;
     case "gap": return `[${t}]   gap: saturated=${e.saturated}, next queries=${(e.next_queries || []).length}`;
     case "log": return `[${t}]   · ${e.message}`;
     case "error": return `[${t}] ERROR: ${e.message}`;

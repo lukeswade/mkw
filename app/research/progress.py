@@ -53,7 +53,7 @@ def format_event(e: dict, tz: str | None = None) -> str | None:
         return f"[{t}]   ✗ {e.get('url')}  ({e.get('reason')}){tail}"
     if typ == "finding":
         return (f"[{t}]   ✓ [{e.get('idx')}] {e.get('title')} "
-                f"({e.get('domain')}, {e.get('relevance')}/10)")
+                f"({e.get('domain')}) · {e.get('relevance')}/10")
     if typ == "gap":
         return (f"[{t}]   gap: saturated={e.get('saturated')}, "
                 f"next queries={len(e.get('next_queries', []))}")
