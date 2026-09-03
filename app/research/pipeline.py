@@ -33,8 +33,7 @@ from app.research import feeds, matrix, reddit, verify, youtube
 from app.research.dedupe import (DEFAULT_BLOCKED, VIDEO_HOSTS, canonicalize, domain_of, interleave, is_blocked, is_unreadable, lexical_overlap, looks_like_index, rank_diverse, shares_vocabulary, similarity, source_key, text_fingerprint, vocabulary)
 from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
-from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
-                                take_notes)
+from app.research.notes import (Finding, RELEVANCE_KEEP, finding_markdown, take_notes, verify_quotes)
 from app.research.progress import ProgressBus
 from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult,
                                    SearxngError, categories_for_scope, cutoff_for,
@@ -81,12 +80,35 @@ def candidates_per_round(breadth: int) -> int:
     return breadth * 8 + 4
 
 def max_llm_calls_for_depth(depth: int) -> int:
-    # A ceiling against runaways, not a target: every analyzed document is
-    # one notes call, so the budget must comfortably exceed the source cap.
-    # 3x, not 2x, since candidates_per_round doubled: more documents are now
-    # read per document kept, and this must stay a backstop rather than
-    # become the thing that ends the run.
-    return 25 + 3 * max_docs_for_depth(depth)
+    # A ceiling against runaways, not a target. It was 3x the source cap,
+    # sized when a run kept ~20% of what it read; at today's ~55% yield a
+    # depth-5 run averaged 103 of its 133 calls, and one that fills every
+    # round would have been cut mid-round. Derived from the round structure
+    # instead — every candidate in every round is at most one notes call,
+    # plus triage per round and the fixed planner/gap/synthesis calls — and
+    # never lower than the old ceiling.
+    rounds = rounds_for_depth(depth)
+    per_round = candidates_per_round(breadth_for_depth(depth)) + 3
+    return max(25 + 3 * max_docs_for_depth(depth), 12 + rounds * per_round)
+
+
+def round_limit(breadth: int, remaining_budget: int, read: int, kept: int) -> int:
+    """How many candidates this round may fetch.
+
+    candidates_per_round was doubled when a run kept ~20% of what it read.
+    At ~55% a depth-1 round of 28 candidates kept 15 against a budget of 8
+    and a depth-3 round kept 29 against 20 — quick looks that read three
+    times their budget. The round is trimmed to what the remaining budget
+    can absorb at the yield seen so far (0.4 until eight pages are read),
+    with a floor so a round is never starved.
+    """
+    full = candidates_per_round(breadth)
+    if remaining_budget <= 0:
+        return full
+    rate = (kept / read) if read >= 8 and kept else 0.4
+    rate = min(max(rate, 0.15), 0.9)
+    need = math.ceil(remaining_budget / rate) + 2
+    return max(min(full, need), breadth * 2 + 2)
 
 def saturation_patience(depth: int) -> int:
     """Consecutive 'saturated' verdicts needed before a run stops early.
@@ -203,6 +225,9 @@ class _RunState:
     # authority sites, productive domains). Their outcomes are the evidence for
     # whether those rules help or hurt.
     spared_urls: set[str] = field(default_factory=set)
+    # Pages read (fetched and judged) and evidence quotes removed as not verbatim.
+    read: int = 0
+    quotes_dropped: int = 0
     # Domains that have never produced a kept source for this install over
     # many reads and several runs (Repo.dead_domains). Ranked last, never
     # dropped: blocking is the reader's call, offered on the run page.
@@ -965,7 +990,15 @@ class Pipeline:
         vocab = vocabulary(query, brief, *queries)
         filler_dropped: list = []
         merged = interleave(merged_lists)
-        candidates = pick(merged, candidates_per_round(breadth))
+        limit_here = round_limit(breadth, max_docs_for_depth(state.depth) - len(state.findings),
+                                 state.read, len(state.findings)) if state.group_by is None \
+            else candidates_per_round(breadth)
+        if limit_here < candidates_per_round(breadth):
+            self.bus.publish(run_id, "log", message=(
+                f"round trimmed to {limit_here} candidates: "
+                f"{max(0, max_docs_for_depth(state.depth) - len(state.findings))} source(s) "
+                f"left in this depth's budget"))
+        candidates = pick(merged, limit_here)
 
         # Starved round: most results were duplicates or already seen. Pull
         # page 2 from the most productive queries before giving up — cheaper
@@ -1079,6 +1112,7 @@ class Pipeline:
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
                 self._record_outcome(run_id, c, "fail")
+                state.read += 1
                 return
             # A redirect target is the page we actually read. Only the URL we
             # asked for was remembered, so the same page could come back later
@@ -1125,6 +1159,7 @@ class Pipeline:
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
                 return
+            state.quotes_dropped += verify_quotes(notes, doc.text)
             if notes.relevance < getattr(self.cfg, "relevance_threshold",
                                          RELEVANCE_KEEP):
                 state.skipped += 1
@@ -1162,6 +1197,7 @@ class Pipeline:
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
                 self._record_outcome(run_id, c, "rejected", notes.relevance)
+                state.read += 1
                 return
             # idx assignment + append happen with no await in between → atomic
             idx = len(state.findings) + 1
@@ -1177,6 +1213,7 @@ class Pipeline:
             kept.append(finding)
             state.kept_by_source[source_key(c)] += 1
             self._record_outcome(run_id, c, "kept", notes.relevance)
+            state.read += 1
             finding.path = store.write_finding(idx, title, finding_markdown(finding))
             self.repo.add_finding(
                 run_id=run_id, idx=idx, url=finding.url, title=finding.title,
@@ -1336,6 +1373,7 @@ class Pipeline:
             "impersonated": getattr(fetcher, "impersonated", 0),
             "browser_solved": getattr(fetcher, "solved", 0),
             "pow_solved": getattr(fetcher, "pow_solved", 0),
+            "quotes_unverified": state.quotes_dropped,
             # What a healthy run of this depth would have kept, so the page
             # can tell a thin run from a normal one without re-deriving it.
             "sources_expected": max_docs_for_depth(state.depth),

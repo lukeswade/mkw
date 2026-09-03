@@ -164,3 +164,26 @@ def test_the_default_blocklist_applies_without_user_configuration():
     from app.research.dedupe import DEFAULT_BLOCKED
     for d in ("dictionary.com", "thesaurus.com", "merriam-webster.com"):
         assert d in DEFAULT_BLOCKED
+
+
+def test_the_call_ceiling_follows_the_round_structure_and_never_shrinks():
+    """3x the source cap was sized at ~20% yield; depth-5 runs averaged 103
+    of 133 calls at ~55% and a full run would have been cut mid-round."""
+    from app.research.pipeline import (max_llm_calls_for_depth, rounds_for_depth,
+                                       candidates_per_round, breadth_for_depth, max_docs_for_depth)
+    for depth in range(1, 11):
+        cap = max_llm_calls_for_depth(depth)
+        assert cap >= 25 + 3 * max_docs_for_depth(depth)                       # never lower than before
+        assert cap >= 12 + rounds_for_depth(depth) * (candidates_per_round(breadth_for_depth(depth)) + 3)
+    assert max_llm_calls_for_depth(5) > 25 + 3 * max_docs_for_depth(5)      # 153 vs the old 133
+    assert max_llm_calls_for_depth(10) > 25 + 3 * max_docs_for_depth(10)    # 327 vs the old 280
+
+
+def test_a_round_is_trimmed_to_what_the_budget_can_absorb_but_never_starved():
+    from app.research.pipeline import round_limit, candidates_per_round
+    full = candidates_per_round(3)                                              # 28 at depth 1
+    assert round_limit(3, remaining_budget=8, read=0, kept=0) == max(3 * 2 + 2, 22)   # 8 / 0.4 + 2 = 22
+    assert round_limit(3, remaining_budget=8, read=20, kept=14) == max(8, 14)         # observed 70% yield -> 8/0.7+2
+    assert round_limit(6, remaining_budget=40, read=0, kept=0) == candidates_per_round(6)   # plenty of budget: untouched
+    assert round_limit(3, remaining_budget=0, read=10, kept=10) == full            # budget met: the cap check ends the run
+    assert round_limit(3, remaining_budget=1, read=30, kept=27) == 3 * 2 + 2       # floor
