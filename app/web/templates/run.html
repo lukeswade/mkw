@@ -194,7 +194,8 @@
     {% endif %}
     <dt>Model</dt>
     <dd>{{ stats.llm.calls }} calls · {{ stats.llm.prompt_tokens }} in / {{ stats.llm.completion_tokens }} out
-      {%- if stats.llm.est_cost_usd is defined %} · est ${{ stats.llm.est_cost_usd }}{% endif %}</dd>
+      {%- if stats.llm.est_cost_usd is defined %} · est ${{ stats.llm.est_cost_usd }}{% endif %}
+      {%- if stats.get('quotes_unverified') %} · <span title="The note-taker offered quotes the source did not contain; the claims stay, the quotes were removed.">{{ stats.quotes_unverified }} quote{{ '' if stats.quotes_unverified == 1 else 's' }} removed as not verbatim</span>{% endif %}</dd>
   </dl>
 </details>
 {% endif %}

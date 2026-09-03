@@ -224,3 +224,49 @@ def finding_markdown(f: Finding) -> str:
 
 {facts}
 """
+
+
+# ---- evidence quotes must be verbatim ---------------------------------------
+_QUOTE_NORM = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
+                             "\u2013": "-", "\u2014": "-", "\u00a0": " "})
+
+
+def _norm(text: str) -> str:
+    t = (text or "").translate(_QUOTE_NORM).lower()
+    t = re.sub(r"[^a-z0-9\s]", " ", t)
+    return " ".join(t.split())
+
+
+def quote_is_verbatim(quote: str, text_norm: str) -> bool:
+    """True when the quote appears in the source, allowing for case,
+    whitespace and curly-punctuation differences, or — for longer quotes —
+    when most of its six-word runs do (a dropped article, a fixed typo)."""
+    q = _norm(quote)
+    if len(q) < 12:
+        return True                      # too short to judge; leave it
+    if q in text_norm:
+        return True
+    words = q.split()
+    if len(words) < 8:
+        return False
+    grams = [" ".join(words[i:i + 6]) for i in range(len(words) - 5)]
+    hits = sum(1 for g in grams if g in text_norm)
+    return hits / len(grams) >= 0.6
+
+
+def verify_quotes(notes: NotesOut, text: str) -> int:
+    """Remove evidence quotes the source does not contain; return how many.
+
+    The note-taker was asked for verbatim quotes and its output was rendered
+    as such, unchecked. A paraphrase or an invented sentence then sat inside
+    quotation marks under a real URL. The claim stays; the quote goes.
+    """
+    text_norm = _norm(text)
+    dropped = 0
+    for fact in notes.key_facts:
+        if fact.evidence_quote and not quote_is_verbatim(fact.evidence_quote, text_norm):
+            fact.evidence_quote = None
+            dropped += 1
+    if dropped:
+        log.info("%d evidence quote(s) removed as not verbatim", dropped)
+    return dropped

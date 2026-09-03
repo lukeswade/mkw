@@ -520,3 +520,22 @@ def test_triage_keeps_a_floor_not_half_the_round():
     assert triage_floor(36) == 4
     assert triage_floor(44) == 5         # was 22 kept; now 5
     assert triage_floor(60) == 6
+
+
+def test_quotes_the_source_does_not_contain_are_removed_and_counted():
+    from app.models import Fact, NotesOut
+    from app.research.notes import verify_quotes
+    text = ("The reel seat is bonded to the blank with a slow-cure epoxy; when that bond fails the "
+            "seat spins freely. Inject fresh epoxy through a small hole and rotate the seat to spread it — "
+            "“Rod Bond” or Flex Coat both work well here.")
+    # raw dicts: the model's own validator normalises facts on input
+    notes = NotesOut(relevance=7, summary="s", notes_md="n", key_facts=[
+        {"claim": "a", "evidence_quote": "the seat spins freely"},                                   # verbatim
+        {"claim": "b", "evidence_quote": '"Rod Bond" or Flex Coat both work well here'},               # curly vs straight quotes
+        {"claim": "c", "evidence_quote": "Inject fresh epoxy through a small hole and rotate the seat to spread it around"},  # one extra word: tolerated
+        {"claim": "d", "evidence_quote": "Use JB Weld and heat the seat with a torch to remove it"},  # not in the source
+        {"claim": "e", "evidence_quote": "epoxy"},                                                    # too short to judge
+    ])
+    assert len(notes.key_facts) == 5
+    assert verify_quotes(notes, text) == 1
+    assert [f.evidence_quote is not None for f in notes.key_facts] == [True, True, True, False, True]
