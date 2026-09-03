@@ -97,7 +97,20 @@ _GENERAL_WEB_ENGINES = frozenset({
     "bing", "google", "google cse", "duckduckgo", "brave", "startpage",
     "mojeek", "qwant", "yahoo", "wikipedia", "wikidata", "presearch",
     "marginalia", "mullvad leta",
+    # The API engine that a BRAVE_API_KEY turns on. It was missing here, so
+    # its 20 organic results per query sorted behind bing's first-word junk
+    # as "backfill": zero candidates from it in any run since engine logging
+    # began, while every search spent a paid request on it.
+    "braveapi",
 })
+# Keyed engines return real organic results for the query as written; the
+# scrapers' degraded, cookie-less sessions do not. Within the general tier
+# these take their turn first.
+_PREFERRED_ENGINES = frozenset({"braveapi", "marginalia", "google cse"})
+
+
+def engine_preferred(engine: str) -> bool:
+    return (engine or "").strip().lower() in _PREFERRED_ENGINES
 
 
 # Video engines. Normally tier 1 (a video is a worse answer than a page for
@@ -174,6 +187,7 @@ class SearchResult:
     published: datetime | None
     score: float
     via_query: str = ""  # the sub-query that surfaced this result
+    author: str = ""     # channel / account, when the engine reports one
 
 
 class Searcher:
@@ -273,6 +287,7 @@ class Searcher:
                 engine=item.get("engine") or "",
                 published=published,
                 score=float(item.get("score") or 0.0),
+                author=(item.get("author") or "").strip(),
             ))
         return out
 

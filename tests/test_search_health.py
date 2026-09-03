@@ -197,3 +197,13 @@ async def test_the_twin_can_be_switched_off_and_its_failure_is_not_fatal():
         await Searcher(BASE, client, small_index_engines=frozenset()).search(
             "how to remove a stuck reel seat from a fly rod", "all")
         assert calls["n"] == 1
+
+
+def test_the_paid_brave_engine_ranks_with_the_general_web_not_as_backfill():
+    """braveapi was absent from the general tier: 20 organic results per query
+    sorted behind bing's first-word junk, zero candidates from it in any run
+    while every search spent a paid request on it."""
+    from app.research.searcher import engine_tier, engine_preferred
+    assert engine_tier("braveapi") == 0 and engine_preferred("braveapi")
+    assert engine_tier("bing") == 0 and not engine_preferred("bing")
+    assert engine_tier("crossref") == 1
