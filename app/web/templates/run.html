@@ -175,6 +175,15 @@
       · {{ stats.sources_skipped }} skipped after reading
       · <strong>{{ stats.sources_kept }} kept</strong>
       {%- if stats.get('sources_expected') %} of up to {{ stats.sources_expected }} at this depth{% endif %}</dd>
+    {% if dead_domains %}
+    <dt>Never produced a source</dt>
+    <dd>{% for d in dead_domains %}<span class="dead-domain" id="dead-{{ loop.index }}">
+        <code>{{ d['domain'] }}</code> <small>({{ d['reads'] }} reads, {{ d['runs'] }} runs)</small>
+        <button class="follow-btn" hx-post="/settings/block-domain"
+                hx-vals='{"domain": "{{ d['domain'] }}"}' hx-target="#dead-{{ loop.index }}"
+                hx-swap="outerHTML" title="Never fetch this domain again">block</button></span>{{ ' · ' if not loop.last }}{% endfor %}
+      <span class="hint">— read across several of your runs, kept nothing; they already rank last</span></dd>
+    {% endif %}
     {% if ladder %}
     <dt>Pages that fought back</dt>
     <dd>

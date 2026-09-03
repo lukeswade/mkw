@@ -112,6 +112,52 @@ class Orchestrator:
             self.queue.put_nowait(run_id)
             log.info("re-enqueued run %s after restart", run_id)
         self._backfill_has_matrix()
+        self._backfill_outcomes()
+
+    def _backfill_outcomes(self) -> None:
+        """Seed candidate_outcomes from runs that predate the table, once."""
+        import json
+        import re
+        from urllib.parse import urlsplit
+        research_dir = self.cfg_loader().research_dir
+        done = 0
+        for row in self.repo.list_runs(limit=10_000):
+            if row["status"] not in ("completed", "cancelled", "interrupted", "failed"):
+                continue
+            if self.repo.has_outcomes(row["id"]):
+                continue
+            path = research_dir / row["dir"] / "events.jsonl"
+            if not path.is_file():
+                continue
+            n = 0
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if e.get("type") == "finding":
+                    # findings carry the domain but not the url; the domain is what matters
+                    self.repo.record_outcome(run_id=row["id"], url="", domain=e.get("domain", ""),
+                                             engine=e.get("engine", ""), outcome="kept",
+                                             relevance=e.get("relevance"))
+                    n += 1
+                elif e.get("type") == "source_skipped":
+                    reason = e.get("reason", "")
+                    if reason.startswith(("dropped", "duplicate")):
+                        continue
+                    m = re.search(r"relevance (\d+)/10", reason)
+                    host = urlsplit(e.get("url", "")).netloc.lower().removeprefix("www.")
+                    if not host:
+                        continue
+                    self.repo.record_outcome(run_id=row["id"], url=e.get("url", ""), domain=host,
+                                             engine=e.get("engine", ""),
+                                             outcome="rejected" if m else "fail",
+                                             relevance=int(m.group(1)) if m else None)
+                    n += 1
+            if n:
+                done += 1
+        if done:
+            log.info("candidate outcomes backfilled for %d run(s)", done)
 
     def _backfill_has_matrix(self) -> None:
         """Settle has_matrix for rows that predate the column, once.

@@ -152,6 +152,21 @@ async def add_feed(request: Request, site: str = Form("")):
         f'Reload to see it in the list.</span>')
 
 
+@router.post("/settings/block-domain")
+async def block_domain(request: Request, domain: str = Form("")):
+    """Add a domain to the blocklist from the run page, where the evidence
+    for blocking it is on screen."""
+    cfg = load_settings()
+    domain = domain.strip().lower().removeprefix("www.")
+    if not domain or "/" in domain or " " in domain:
+        return HTMLResponse('<span class="hint">Not a domain.</span>')
+    current = [d.strip() for d in (cfg.blocked_domains or "").replace(";", ",").split(",") if d.strip()]
+    if domain not in current:
+        current.append(domain)
+        save_settings(cfg.settings_path, {"blocked_domains": ", ".join(current)})
+    return HTMLResponse(f'<span class="hint"><code>{escape(domain)}</code> blocked — it will not be fetched again.</span>')
+
+
 @router.post("/settings/follow-source")
 async def follow_source(request: Request, domain: str = Form("")):
     """Subscribe to a source that already proved useful in a run.

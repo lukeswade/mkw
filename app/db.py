@@ -93,6 +93,22 @@ def _migrations() -> list:
         # and the New tab polled every five seconds. NULL means "not yet
         # checked"; Orchestrator.recover() fills those in once at boot.
         lambda conn: _add_column_if_missing(conn, "runs", "has_matrix", "INTEGER"),
+        # Every page read, with its outcome. Rejects used to live only in each
+        # run's event file, so the install could not learn that a domain had
+        # never produced a source across many runs. Idempotent by design.
+        lambda conn: conn.executescript("""
+            CREATE TABLE IF NOT EXISTS candidate_outcomes (
+                run_id     TEXT NOT NULL,
+                url        TEXT NOT NULL,
+                domain     TEXT NOT NULL,
+                engine     TEXT,
+                outcome    TEXT NOT NULL,      -- kept | rejected | fail
+                relevance  INTEGER,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_outcomes_domain ON candidate_outcomes(domain);
+            CREATE INDEX IF NOT EXISTS idx_outcomes_run ON candidate_outcomes(run_id);
+        """),
     ]
 
 
@@ -299,6 +315,37 @@ class Repo:
         return self.conn.execute(
             "SELECT * FROM findings WHERE run_id = ? ORDER BY idx", (run_id,)
         ).fetchall()
+
+    # ---- what every read taught us -------------------------------------
+    def record_outcome(self, *, run_id: str, url: str, domain: str, engine: str,
+                       outcome: str, relevance: int | None) -> None:
+        self.conn.execute(
+            "INSERT INTO candidate_outcomes (run_id, url, domain, engine, outcome, "
+            "relevance, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (run_id, url, domain.lower().removeprefix("www."), engine, outcome,
+             relevance, utcnow()))
+        self.conn.commit()
+
+    def has_outcomes(self, run_id: str) -> bool:
+        return self.conn.execute(
+            "SELECT 1 FROM candidate_outcomes WHERE run_id = ? LIMIT 1", (run_id,)
+        ).fetchone() is not None
+
+    def dead_domains(self, min_reads: int = 8, min_runs: int = 3) -> list[sqlite3.Row]:
+        """Domains read many times, across several runs, that never produced a
+        kept source. Yield is topic-bound, so a positive record says little
+        globally — but zero over that many reads on that many topics says a
+        lot."""
+        return self.conn.execute(
+            "SELECT domain, COUNT(*) AS reads, COUNT(DISTINCT run_id) AS runs "
+            "FROM candidate_outcomes GROUP BY domain "
+            "HAVING SUM(outcome = 'kept') = 0 AND reads >= ? AND runs >= ? "
+            "ORDER BY reads DESC", (min_reads, min_runs)).fetchall()
+
+    def dead_domains_in_run(self, run_id: str, **kw) -> list[sqlite3.Row]:
+        seen = {r["domain"] for r in self.conn.execute(
+            "SELECT DISTINCT domain FROM candidate_outcomes WHERE run_id = ?", (run_id,))}
+        return [d for d in self.dead_domains(**kw) if d["domain"] in seen]
 
     def kept_domains_for_runs(self, run_ids: list[str]) -> dict[str, int]:
         """domain -> kept sources across the given runs."""

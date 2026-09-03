@@ -661,3 +661,28 @@ def test_kept_domains_are_counted_across_the_given_runs_only(data_dir, monkeypat
     assert after["forum.com"] - before.get("forum.com", 0) == 3          # `other`'s forum.com not counted
     assert after["blog.net"] - before.get("blog.net", 0) == 1
     assert repo.kept_domains_for_runs([]) == {}
+
+
+def test_domains_that_never_produced_a_source_are_named_and_blockable(data_dir, monkeypatch):
+    """Rejects used to live only in event files; the install could not learn
+    that a domain had kept nothing across many runs. Now it can, and the run
+    page offers the block where the evidence is on screen."""
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    runs = [seed_completed_run(cfg) for _ in range(3)]
+    for i, rid in enumerate(runs):
+        for j in range(3):
+            repo.record_outcome(run_id=rid, url=f"https://junk.example/{i}{j}", domain="junk.example",
+                                engine="bing", outcome="rejected", relevance=1)
+        repo.record_outcome(run_id=rid, url=f"https://good.example/{i}", domain="good.example",
+                            engine="bing", outcome="kept", relevance=7)
+    dead = [d["domain"] for d in repo.dead_domains(min_reads=8, min_runs=3)]
+    assert dead == ["junk.example"]                                       # 9 reads, 3 runs, 0 kept
+    assert repo.dead_domains(min_reads=10, min_runs=3) == []               # thresholds hold
+    with TestClient(app) as client:
+        page = client.get(f"/runs/{runs[0]}").text
+        assert "Never produced a source" in page and "junk.example" in page and "good.example" not in page.split("Never produced a source")[1][:400]
+        r = client.post("/settings/block-domain", data={"domain": "junk.example"})
+        assert r.status_code == 200 and "blocked" in r.text
+        assert "junk.example" in json.loads((cfg.data_path / "settings.json").read_text())["blocked_domains"]
