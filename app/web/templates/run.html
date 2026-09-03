@@ -170,9 +170,9 @@
         {% for name, why in engines | dictsort %}<code title="{{ why }}">{{ name }}</code>{{ ', ' if not loop.last }}{% endfor %}
       {%- else %}; every engine answered{% endif %}</dd>
     <dt>Candidates</dt>
-    <dd>{{ stats.get('urls_considered', 0) }} considered
-      {%- if stats.get('pre_dropped') %} · {{ stats.pre_dropped }} dropped before a fetch{% endif %}
-      · {{ stats.sources_skipped }} skipped after reading
+    <dd>{% if stats.get('pre_dropped') %}{{ stats.pre_dropped }} search results filtered out before selection · {% endif -%}
+      {{ stats.get('urls_considered', 0) }} candidates considered
+      · {{ stats.sources_skipped }} skipped at triage or after reading
       · <strong>{{ stats.sources_kept }} kept</strong>
       {%- if stats.get('sources_expected') %} of up to {{ stats.sources_expected }} at this depth{% endif %}</dd>
     {% if dead_domains %}

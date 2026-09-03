@@ -78,6 +78,33 @@
           topic is so obscure that partial matches are all there is.</small>
       </label>
     </div>
+    <div class="grid">
+      <label>Planner prompt <small>(recommended: anchored)</small>
+        <select name="planner_variant">
+          <option value="anchored" {{ 'selected' if cfg.planner_variant == 'anchored' }}>anchored</option>
+          <option value="default" {{ 'selected' if cfg.planner_variant == 'default' }}>default</option>
+        </select>
+        <small class="field-help">Anchored queries always name the subject and lead with its most
+          distinctive term. A/B on one question: 35 sources kept vs 15, 14 vs 4 at 7/10+.</small>
+      </label>
+      <label>Per-query search scope <small>(recommended: on)</small>
+        <select name="query_scopes">
+          <option value="on" {{ 'selected' if cfg.query_scopes != 'off' }}>on</option>
+          <option value="off" {{ 'selected' if cfg.query_scopes == 'off' }}>off</option>
+        </select>
+        <small class="field-help">Each query goes only to the engines that can hold its answer
+          (web, video, code, papers…), within the run's categories. Off sends every query to every
+          engine. A/B: fewer refusals, fewer junk results, 6 kept vs 4.</small>
+      </label>
+      <label>Gap-analysis prompt <small>(recommended: default)</small>
+        <select name="gap_variant">
+          <option value="default" {{ 'selected' if cfg.gap_variant != 'anchored' }}>default</option>
+          <option value="anchored" {{ 'selected' if cfg.gap_variant == 'anchored' }}>anchored</option>
+        </select>
+        <small class="field-help">The anchored variant did not beat the default in its A/B
+          (18 vs 19 kept, more wasted reads); kept for a topic where round-two queries drift.</small>
+      </label>
+    </div>
     <label>
       <input type="checkbox" name="reference_chasing" {{ 'checked' if cfg.reference_chasing else '' }}>
       Follow references cited by kept sources

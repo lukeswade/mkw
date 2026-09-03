@@ -497,7 +497,7 @@ def test_the_run_page_tells_the_whole_story_in_one_place(data_dir, monkeypatch):
         page = client.get(f"/runs/{rid}").text
     assert "How this run went" in page
     for expected in ("3 rounds", "14 searches", "2 refused", "duckduckgo", "brave",
-                     "120 considered", "31 dropped before a fetch", "44 skipped",
+                     "120 candidates considered", "31 search results filtered out", "44 skipped",
                      "9 kept", "of up to 36", "6 retried with a Chrome fingerprint",
                      "2 needed the browser solver", "3 proof-of-work walls solved",
                      "40 calls", "est $0.12"):
@@ -705,3 +705,15 @@ def test_the_learned_page_shows_what_the_data_says(data_dir, monkeypatch):
     assert "junk.example" in page and "forum.example" in page
     assert "duckduckgo" in page and "Brave Search API requests" in page
     assert 'href="/learned"' in page                                    # in the nav
+
+
+def test_the_three_query_switches_are_on_the_settings_page_and_round_trip(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        page = client.get("/settings").text
+        for name in ("planner_variant", "query_scopes", "gap_variant"):
+            assert f'name="{name}"' in page
+        client.post("/settings", data={"gap_variant": "anchored", "query_scopes": "off"}, follow_redirects=False)
+        saved = json.loads((cfg.data_path / "settings.json").read_text())
+        assert saved["gap_variant"] == "anchored" and saved["query_scopes"] == "off"
