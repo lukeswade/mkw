@@ -539,3 +539,10 @@ def test_quotes_the_source_does_not_contain_are_removed_and_counted():
     assert len(notes.key_facts) == 5
     assert verify_quotes(notes, text) == 1
     assert [f.evidence_quote is not None for f in notes.key_facts] == [True, True, True, False, True]
+
+
+def test_authority_sites_start_at_the_ceiling_not_uncapped():
+    from app.research.pipeline import authority_domains_from, _SOURCE_CAP_MAX, adaptive_cap
+    auth = authority_domains_from("charm.li — service manuals\nrodbuilding.org — rod building forum\n\nhttps://www.badcaps.net/ — board repair")
+    assert auth == frozenset({"charm.li", "rodbuilding.org", "badcaps.net"})
+    assert _SOURCE_CAP_MAX == 6 and adaptive_cap(2, 0) == 2      # an authority site gets max(6, earned) in pick()

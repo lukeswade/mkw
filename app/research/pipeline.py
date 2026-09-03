@@ -228,6 +228,9 @@ class _RunState:
     # Pages read (fetched and judged) and evidence quotes removed as not verbatim.
     read: int = 0
     quotes_dropped: int = 0
+    # The last round fetched fewer candidates than usual because the depth's
+    # budget was nearly met — a thin result then says nothing about the topic.
+    last_round_trimmed: bool = False
     # Domains that have never produced a kept source for this install over
     # many reads and several runs (Repo.dead_domains). Ranked last, never
     # dropped: blocking is the reader's call, offered on the run page.
@@ -340,6 +343,18 @@ def triage_floor(n: int) -> int:
     by one bad verdict.
     """
     return max(3, -(-n // 10))
+
+
+def authority_domains_from(blob: str) -> frozenset[str]:
+    """Domains from the curated authority list: first token of each line."""
+    out = set()
+    for line in (blob or "").splitlines():
+        token = line.strip().split()[0] if line.strip() else ""
+        token = (token.strip("-•*").strip().lower().removeprefix("https://")
+                 .removeprefix("http://").removeprefix("www.").rstrip("/"))
+        if token and "." in token:
+            out.add(token.split("/")[0])
+    return frozenset(out)
 
 
 def _under_any(key: str, domains: frozenset[str]) -> bool:
@@ -490,21 +505,7 @@ class Pipeline:
         return [c for i, c in enumerate(candidates) if i not in drop]
 
     def _authority_domains(self) -> frozenset[str]:
-        """Domains from the curated authority list (first token of each line).
-
-        Curating a site as authoritative is a standing judgment that outranks
-        a title-level guess: triage dropped charm.li factory-manual pages
-        because their URLs named a sibling model, losing the best sources in
-        the run. Authority candidates therefore bypass pre-fetch filtering
-        entirely — they still face full relevance scoring after being read."""
-        out = set()
-        for line in (getattr(self.cfg, "authority_sites", "") or "").splitlines():
-            token = line.strip().split()[0].strip("-—:,") if line.strip() else ""
-            token = token.lower().removeprefix("http://").removeprefix("https://")
-            token = token.split("/")[0].removeprefix("www.")
-            if "." in token:
-                out.add(token)
-        return frozenset(out)
+        return authority_domains_from(getattr(self.cfg, "authority_sites", ""))
 
     def _blocked_domains(self) -> frozenset[str]:
         raw = getattr(self.cfg, "blocked_domains", "") or ""
@@ -785,7 +786,10 @@ class Pipeline:
                 self.bus.publish(run_id, "gap", saturated=gap.saturated,
                                  next_queries=gap.next_queries)
 
-                dry_rounds = dry_rounds + 1 if len(kept) < 2 else 0
+                # A round the budget trimmed cannot be judged dry: it was
+                # bounded by the cap, not by the topic.
+                dry_rounds = (dry_rounds + 1 if len(kept) < 2 and not state.last_round_trimmed
+                              else 0)
                 saturated_streak = saturated_streak + 1 if gap.saturated else 0
                 if (saturated_streak >= saturation_patience(depth)
                         and round_no >= min(2, rounds)):
@@ -958,12 +962,20 @@ class Pipeline:
             # A question that selected videos wants the videos: the host cap
             # does not apply to video hosts then (channel grouping still does
             # not — every video may stand on its own).
-            uncapped = self._authority_domains() | (VIDEO_HOSTS if promote else frozenset())
+            uncapped = VIDEO_HOSTS if promote else frozenset()
+            # Authority sites used to be uncapped outright. The one curated
+            # here keeps 58% of 80 reads — good, and 34 wasted reads — so they
+            # start at the ceiling every other source has to earn (six a
+            # round) instead of taking the whole round when a query lands on
+            # them. They still bypass triage: curation outranks a title guess.
+            authority = self._authority_domains()
+
+            def _cap(key: str) -> int:
+                earned = adaptive_cap(state.per_source,
+                                      state.kept_by_source[key] + state.seed_by_source[key])
+                return max(_SOURCE_CAP_MAX, earned) if _under_any(key, authority) else earned
             # Web research only: a brief's per-feed share is fixed by design.
-            cap_for = (None if state.group_by is not None else
-                       (lambda key: adaptive_cap(
-                           state.per_source,
-                           state.kept_by_source[key] + state.seed_by_source[key])))
+            cap_for = None if state.group_by is not None else _cap
             chosen = rank_diverse(pool, state.seen_urls,
                                   per_domain=state.per_source,
                                   limit=limit, group=state.group_by,
@@ -971,7 +983,8 @@ class Pipeline:
             if cap_for is not None:
                 taken = Counter(source_key(c) for c in chosen)
                 earned = {k: n for k, n in taken.items()
-                          if n > state.per_source and not _under_any(k, uncapped)}
+                          if n > state.per_source and not _under_any(k, uncapped)
+                          and not _under_any(k, authority)}
                 if earned:
                     # A share can be earned in this run or carried in from
                     # related earlier research; the log says which.
@@ -993,7 +1006,8 @@ class Pipeline:
         limit_here = round_limit(breadth, max_docs_for_depth(state.depth) - len(state.findings),
                                  state.read, len(state.findings)) if state.group_by is None \
             else candidates_per_round(breadth)
-        if limit_here < candidates_per_round(breadth):
+        state.last_round_trimmed = limit_here < candidates_per_round(breadth)
+        if state.last_round_trimmed:
             self.bus.publish(run_id, "log", message=(
                 f"round trimmed to {limit_here} candidates: "
                 f"{max(0, max_docs_for_depth(state.depth) - len(state.findings))} source(s) "

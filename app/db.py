@@ -349,6 +349,16 @@ class Repo:
             "HAVING reads >= ? AND kept > 0 ORDER BY 1.0 * kept / reads DESC, reads DESC LIMIT ?",
             (min_reads, limit)).fetchall()
 
+    def yield_for_domains(self, domains: list[str]) -> list[sqlite3.Row]:
+        if not domains:
+            return []
+        marks = ",".join("?" * len(domains))
+        return self.conn.execute(
+            f"SELECT domain, COUNT(*) AS reads, SUM(outcome = 'kept') AS kept, "
+            f"COUNT(DISTINCT run_id) AS runs FROM candidate_outcomes "
+            f"WHERE domain IN ({marks}) GROUP BY domain ORDER BY reads DESC",
+            [d.lower() for d in domains]).fetchall()
+
     def stats_since(self, since_iso: str) -> list[dict]:
         rows = self.conn.execute(
             "SELECT created_at, categories, stats_json FROM runs WHERE kind = 'research' "

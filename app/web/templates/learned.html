@@ -21,6 +21,20 @@
 </article>
 
 <article class="card">
+  <h3>Your authority sites</h3>
+  <p class="hint">The curated list from Settings. These bypass triage and start every round at the six-slot ceiling other sources have to earn — so their yield is worth watching: a site that keeps little is taking slots a proven forum would have used.</p>
+  {% if authority %}
+  <table class="learned">
+    <thead><tr><th>domain</th><th>kept / read</th><th>yield</th><th>runs</th></tr></thead>
+    <tbody>{% for d in authority %}
+      <tr><td><code>{{ d['domain'] }}</code></td><td>{{ d['kept'] }} / {{ d['reads'] }}</td>
+          <td>{{ ((100 * d['kept'] / d['reads']) | round | int ~ '%') if d['reads'] else '—' }}</td><td>{{ d['runs'] }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="empty-note">No authority sites configured.</p>{% endif %}
+</article>
+
+<article class="card">
   <h3>Sources that never pay off</h3>
   <p class="hint">Read at least eight times across three or more runs, kept nothing. They already rank last in every round; blocking them is your call.</p>
   {% if dead %}

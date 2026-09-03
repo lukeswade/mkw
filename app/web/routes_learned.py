@@ -12,7 +12,9 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request
 
+from app.config import load_settings
 from app.research.estimate import estimate_run
+from app.research.pipeline import authority_domains_from
 
 router = APIRouter()
 
@@ -56,8 +58,14 @@ async def learned(request: Request):
             "sources": getattr(est, "sources_label", "") or getattr(est, "sources", ""),
         })
 
+    authority = sorted(authority_domains_from(getattr(load_settings(), "authority_sites", "")))
+    ay = {r["domain"]: r for r in repo.yield_for_domains(authority)}
+
     return _tpl(request).TemplateResponse(request, "learned.html", {
         "nav": "learned",
+        "authority": [{"domain": d, "reads": ay[d]["reads"] if d in ay else 0,
+                       "kept": ay[d]["kept"] if d in ay else 0, "runs": ay[d]["runs"] if d in ay else 0}
+                      for d in authority],
         "dead": repo.dead_domains(),
         "productive": repo.productive_domains(),
         "engines": engines, "recent_runs": len(recent),
