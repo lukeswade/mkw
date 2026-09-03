@@ -211,3 +211,13 @@ def test_repos_and_subreddits_are_capped_per_repo_and_per_sub():
                _r("https://github.com/o/r2"), _r("https://www.reddit.com/r/A/comments/1/x"), _r("https://www.reddit.com/r/B/comments/2/y")]
     picked = rank_diverse(results, set(), per_domain=2, limit=10)
     assert len(picked) == 5          # r1 capped at 2; r2, r/A, r/B each their own source
+
+
+def test_a_source_that_has_earned_it_gets_a_larger_share():
+    """Round one gives every source two slots; a per-source cap function lets
+    a proven source take more while unknown ones stay at two."""
+    pool = [_r(f"https://forum.com/{i}") for i in range(6)] + [_r(f"https://other.com/{i}") for i in range(4)]
+    caps = {"forum.com": 4}
+    picked = rank_diverse(pool, set(), per_domain=2, limit=20, cap_for=lambda k: caps.get(k, 2))
+    from collections import Counter
+    assert Counter(r.url.split("/")[2] for r in picked) == {"forum.com": 4, "other.com": 2}

@@ -461,3 +461,10 @@ def test_filler_is_dropped_only_when_real_matches_can_fill_the_round():
     assert dropped == junk
     kept, dropped = filter_by_vocabulary(real + junk, vocab, limit=10)     # starved: keep, rank later
     assert dropped == [] and len(kept) == 4
+
+
+def test_the_adaptive_cap_starts_at_two_and_is_earned():
+    from app.research.pipeline import adaptive_cap
+    assert adaptive_cap(2, 0) == 2          # round one, or a source that kept nothing
+    assert adaptive_cap(2, 2) == 4          # kept two of two -> four next round
+    assert adaptive_cap(2, 9) == 6          # ceiling

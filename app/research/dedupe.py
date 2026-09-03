@@ -235,7 +235,8 @@ def source_key(r: SearchResult) -> str:
 def rank_diverse(results: list[SearchResult], seen: set[str], *,
                  per_domain: int = 2, limit: int = 12,
                  group=None,
-                 uncapped: frozenset[str] = frozenset()) -> list[SearchResult]:
+                 uncapped: frozenset[str] = frozenset(),
+                 cap_for=None) -> list[SearchResult]:
     """Pick fetch candidates: drop seen/duplicate URLs, cap per-source count.
 
     `group` decides what counts as one source, defaulting to the domain. A
@@ -243,6 +244,10 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
     live on github.com — capping by domain let two entries through from all
     three combined, which is the opposite of what a curated reading list
     should do.
+
+    `cap_for(key)` overrides per_domain per source when given: the cap
+    exists to stop one SEO farm flooding a round, but a source that has
+    already kept two of two this run has earned more than an unknown one.
 
     `uncapped` domains ignore per_domain. The cap exists to stop one SEO farm
     flooding a round; a site the user has curated as authoritative is the
@@ -259,8 +264,9 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
         if cu in seen or cu in taken:
             continue
         d = key(r)
+        cap = cap_for(d) if cap_for is not None else per_domain
         # `uncapped` is judged on the URL's host, whatever the group key is.
-        if domain_counts[d] >= per_domain and not _under(domain_of(cu), uncapped):
+        if domain_counts[d] >= cap and not _under(domain_of(cu), uncapped):
             continue
         taken.add(cu)
         domain_counts[d] += 1
