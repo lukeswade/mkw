@@ -172,3 +172,42 @@ def test_root_and_index_pages_are_recognised_not_thread_pages():
     for url in ("https://koreader.rocks/user_guide/", "https://www.rodbuilding.org/read.php?2,106022",
                 "https://kindlemodding.org/jailbreaking/WinterBreak/"):
         assert not looks_like_index(url), url
+
+
+def _yt(vid, author):
+    return SearchResult(url=f"https://www.youtube.com/watch?v={vid}", title=vid, snippet="",
+                        engine="youtube", published=None, score=1.0, author=author)
+
+
+def test_one_source_is_a_channel_a_repo_a_subreddit_not_a_host():
+    """All of YouTube counted as one domain: a question that asked for videos
+    got two per round while the engine had twenty on point."""
+    from app.research.dedupe import source_key
+    assert source_key(_yt("a1", "Stretch Clendennen")) == "youtube:stretch clendennen"
+    assert source_key(_yt("a2", "")) == "youtube:https://youtube.com/watch?v=a2"
+    assert source_key(_r("https://github.com/bastardkb/charybdis/blob/main/README.md")) == "github.com:bastardkb/charybdis"
+    assert source_key(_r("https://github.com/bastardkb")) == "github.com"
+    assert source_key(_r("https://www.reddit.com/r/Trackballs/comments/abc/x/")) == "reddit:r/trackballs"
+    assert source_key(_r("https://medium.com/@someone/post-1")) == "medium:@someone"
+    assert source_key(_r("https://rodbuilding.org/read.php?2,1")) == "rodbuilding.org"
+
+
+def test_video_results_from_different_channels_all_get_through():
+    results = [_yt("v1", "A"), _yt("v2", "A"), _yt("v3", "A"),      # three from one channel
+               _yt("v4", "B"), _yt("v5", "C"), _yt("v6", "C")]
+    picked = rank_diverse(results, set(), per_domain=2, limit=10)
+    assert [r.url[-2:] for r in picked] == ["v1", "v2", "v4", "v5", "v6"]     # channel A capped at 2, not YouTube at 2
+
+
+def test_a_videos_run_lifts_the_cap_on_video_hosts_entirely():
+    from app.research.dedupe import VIDEO_HOSTS
+    results = [_yt(f"v{i}", "A") for i in range(5)] + [_r("https://x.com/1"), _r("https://x.com/2"), _r("https://x.com/3")]
+    picked = rank_diverse(results, set(), per_domain=2, limit=10, uncapped=VIDEO_HOSTS)
+    assert sum("youtube" in r.url for r in picked) == 5 and sum("x.com" in r.url for r in picked) == 2
+
+
+def test_repos_and_subreddits_are_capped_per_repo_and_per_sub():
+    results = [_r("https://github.com/o/r1/blob/a"), _r("https://github.com/o/r1/blob/b"), _r("https://github.com/o/r1/blob/c"),
+               _r("https://github.com/o/r2"), _r("https://www.reddit.com/r/A/comments/1/x"), _r("https://www.reddit.com/r/B/comments/2/y")]
+    picked = rank_diverse(results, set(), per_domain=2, limit=10)
+    assert len(picked) == 5          # r1 capped at 2; r2, r/A, r/B each their own source

@@ -29,14 +29,15 @@ from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
 from app.research import feeds, matrix, reddit, verify, youtube
-from app.research.dedupe import (DEFAULT_BLOCKED, canonicalize, domain_of, interleave, is_blocked, is_unreadable, lexical_overlap, looks_like_index, rank_diverse, shares_vocabulary, similarity, text_fingerprint, vocabulary)
+from app.research.dedupe import (DEFAULT_BLOCKED, VIDEO_HOSTS, canonicalize, domain_of, interleave, is_blocked, is_unreadable, lexical_overlap, looks_like_index, rank_diverse, shares_vocabulary, similarity, text_fingerprint, vocabulary)
 from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (RELEVANCE_KEEP, Finding, finding_markdown,
                                 take_notes)
 from app.research.progress import ProgressBus
 from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult,
-                                   SearxngError, cutoff_for, engine_tier)
+                                   SearxngError, cutoff_for, engine_preferred,
+                                   engine_tier)
 from app.research.storage import RunStore, validate_citations
 
 log = logging.getLogger(__name__)
@@ -197,6 +198,10 @@ class _RunState:
     # answer the question" — a terse changelog is high value, not low.
     notes_template: str | None = None
     fingerprints: list[tuple[frozenset[int], str]] = field(default_factory=list)
+    # Canonical URLs triage condemned but a rule put back (the half-round cap,
+    # authority sites, productive domains). Their outcomes are the evidence for
+    # whether those rules help or hurt.
+    spared_urls: set[str] = field(default_factory=set)
     searched: list[str] = field(default_factory=list)
     state_md: str = ""
     rounds_done: int = 0
@@ -309,6 +314,7 @@ class Pipeline:
             log.warning("triage degraded to keep-all: %s", e)
             return candidates
         drop = {i for i in out.drop if 0 <= i < len(candidates)}
+        condemned = set(drop)
         authority = self._authority_domains()
         if authority:
             spared = {i for i in drop
@@ -344,6 +350,8 @@ class Pipeline:
             log.info("triage over-culled (%d of %d); sparing %d best-ranked",
                      len(drop), len(candidates), len(spared))
             drop -= spared
+        for i in condemned - drop:
+            state.spared_urls.add(canonicalize(candidates[i].url))
         if drop:
             state.skipped += len(drop)
             for i, c in enumerate(candidates):
@@ -746,12 +754,17 @@ class Pipeline:
                 not shares_vocabulary(f"{r.title} {r.snippet} {r.url}", vocab)
                 if state.group_by is None else False,   # surviving filler last of all
                 engine_tier(r.engine, promote),
+                not engine_preferred(r.engine),   # keyed engines take their turn first
                 looks_like_index(r.url),      # roots and indexes last in tier
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
+            # A question that selected videos wants the videos: the host cap
+            # does not apply to video hosts then (channel grouping still does
+            # not — every video may stand on its own).
+            uncapped = self._authority_domains() | (VIDEO_HOSTS if promote else frozenset())
             chosen = rank_diverse(pool, state.seen_urls,
                                   per_domain=state.per_source,
                                   limit=limit, group=state.group_by,
-                                  uncapped=self._authority_domains())
+                                  uncapped=uncapped)
             for c in chosen:
                 state.seen_urls.add(canonicalize(c.url))
             return chosen
@@ -868,7 +881,8 @@ class Pipeline:
             except SkipReason as e:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url, reason=str(e),
-                                 title=(c.title or "")[:120], engine=c.engine or "")
+                                 title=(c.title or "")[:120], engine=c.engine or "",
+                                 spared=canonicalize(c.url) in state.spared_urls)
                 return
             # A redirect target is the page we actually read. Only the URL we
             # asked for was remembered, so the same page could come back later
@@ -885,7 +899,8 @@ class Pipeline:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
                                  reason=f"duplicate of {dup} content",
-                                 title=(c.title or "")[:120], engine=c.engine or "")
+                                 title=(c.title or "")[:120], engine=c.engine or "",
+                                 spared=canonicalize(c.url) in state.spared_urls)
                 return
             state.fingerprints.append((fp, domain_of(final_url)))
             detected_date = doc.date or (c.published.date().isoformat()
@@ -896,7 +911,8 @@ class Pipeline:
                         state.skipped += 1
                         self.bus.publish(run_id, "source_skipped", url=c.url,
                                          reason=f"outside recency window ({detected_date})",
-                                 title=(c.title or "")[:120], engine=c.engine or "")
+                                 title=(c.title or "")[:120], engine=c.engine or "",
+                                 spared=canonicalize(c.url) in state.spared_urls)
                         return
                 except ValueError:
                     pass
@@ -910,7 +926,8 @@ class Pipeline:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
                                  reason="unusable notes output",
-                                 title=(c.title or "")[:120], engine=c.engine or "")
+                                 title=(c.title or "")[:120], engine=c.engine or "",
+                                 spared=canonicalize(c.url) in state.spared_urls)
                 return
             if notes.relevance < getattr(self.cfg, "relevance_threshold",
                                          RELEVANCE_KEEP):
@@ -946,7 +963,8 @@ class Pipeline:
                                        f"{domain_of(final_url)}")))
                 self.bus.publish(run_id, "source_skipped", url=c.url,
                                  reason=f"relevance {notes.relevance}/10",
-                                 title=(c.title or "")[:120], engine=c.engine or "")
+                                 title=(c.title or "")[:120], engine=c.engine or "",
+                                 spared=canonicalize(c.url) in state.spared_urls)
                 return
             # idx assignment + append happen with no await in between → atomic
             idx = len(state.findings) + 1
@@ -967,7 +985,9 @@ class Pipeline:
                 relevance=finding.relevance, path=finding.path,
                 summary=finding.summary)
             self.bus.publish(run_id, "finding", idx=idx, title=finding.title,
-                             domain=finding.domain, relevance=finding.relevance)
+                             domain=finding.domain, relevance=finding.relevance,
+                             engine=c.engine or "",
+                             spared=canonicalize(c.url) in state.spared_urls)
 
             # Citation chasing: the references a good source links to are
             # often better than anything a search engine returns, and

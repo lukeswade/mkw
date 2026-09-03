@@ -327,7 +327,10 @@ def test_a_brief_caps_per_feed_not_per_domain(data_dir):
             for repo in ("mlx", "llama.cpp", "ollama") for n in range(1, 4)]
 
     by_domain = rank_diverse(pool, set(), per_domain=2, limit=30)
-    assert len(by_domain) == 2                       # the bug: one domain, two items
+    # The default now groups a code forge by repo (two per repo), so the
+    # host-level bug is gone — but a curated list still wants every feed
+    # represented in full, which only per-feed grouping gives.
+    assert len(by_domain) == 6
 
     by_feed = rank_diverse(pool, set(), per_domain=6, limit=30,
                            group=lambda x: x.via_query)

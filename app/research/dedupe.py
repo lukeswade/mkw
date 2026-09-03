@@ -201,6 +201,37 @@ def _under(host: str, domains: frozenset[str]) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
+# Hosts where "one domain" is thousands of independent authors. Capping them
+# per host treated all of YouTube as a single source: a question that asked
+# for videos got two per round while the engine had twenty on point, and the
+# run then died of the "dry rounds" that cap manufactured.
+VIDEO_HOSTS = frozenset({"youtube.com", "youtu.be", "youtube-nocookie.com",
+                         "music.youtube.com"})
+_REPO_HOSTS = frozenset({"github.com", "gitlab.com", "codeberg.org", "bitbucket.org"})
+
+
+def source_key(r: SearchResult) -> str:
+    """What counts as one source for the diversity cap.
+
+    YouTube: the channel (the engine reports it as `author`), else the video.
+    Code forges: owner/repo. Reddit: the subreddit. Medium: the account.
+    Everything else: the domain, as before.
+    """
+    url = canonicalize(r.url)
+    host = domain_of(url)
+    path = [seg for seg in urlsplit(url).path.split("/") if seg]
+    if _under(host, VIDEO_HOSTS):
+        author = (getattr(r, "author", "") or "").strip().lower()
+        return f"youtube:{author}" if author else f"youtube:{url}"
+    if _under(host, _REPO_HOSTS) and len(path) >= 2:
+        return f"{host}:{path[0].lower()}/{path[1].lower()}"
+    if host.endswith("reddit.com") and len(path) >= 2 and path[0] == "r":
+        return f"reddit:r/{path[1].lower()}"
+    if host == "medium.com" and path:
+        return f"medium:{path[0].lower()}"
+    return host
+
+
 def rank_diverse(results: list[SearchResult], seen: set[str], *,
                  per_domain: int = 2, limit: int = 12,
                  group=None,
@@ -219,7 +250,7 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
     was yielding two per round. Authority sites already bypass triage for the
     same reason: curated judgment outranks a heuristic.
     """
-    key = group or (lambda r: domain_of(canonicalize(r.url)))
+    key = group or source_key
     out: list[SearchResult] = []
     taken: set[str] = set()
     domain_counts: Counter[str] = Counter()
@@ -228,7 +259,8 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
         if cu in seen or cu in taken:
             continue
         d = key(r)
-        if domain_counts[d] >= per_domain and not _under(str(d), uncapped):
+        # `uncapped` is judged on the URL's host, whatever the group key is.
+        if domain_counts[d] >= per_domain and not _under(domain_of(cu), uncapped):
             continue
         taken.add(cu)
         domain_counts[d] += 1
