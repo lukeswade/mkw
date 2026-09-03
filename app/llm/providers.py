@@ -31,10 +31,15 @@ class Provider:
 
 
 PROVIDERS: dict[str, Provider] = {
+    # V4 Flash, peak-hour list prices (api-docs.deepseek.com/quick_start/pricing,
+    # read 2026-09-02): $0.44/M in on a cache miss, $0.014 on a hit, $1.32/M
+    # out; off-peak (01-04 and 06-10 UTC weekdays) is half. The old
+    # deepseek-chat numbers under-reported a run's cost by 2-3x.
     "deepseek": Provider(
-        "deepseek", "DeepSeek", "https://api.deepseek.com", "deepseek-chat",
-        price_in=0.28, price_out=0.42, price_cache_in=0.028,
-        hint="Cheap and strong at structured output. Key: platform.deepseek.com"),
+        "deepseek", "DeepSeek", "https://api.deepseek.com", "deepseek-v4-flash",
+        price_in=0.44, price_out=1.32, price_cache_in=0.014,
+        hint="V4 Flash: cheap, 1M context, JSON output. Key: platform.deepseek.com. "
+             "Estimates use peak prices; off-peak is half."),
     "openai": Provider(
         "openai", "OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini",
         price_in=0.40, price_out=1.60, price_cache_in=0.10,

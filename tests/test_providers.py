@@ -115,11 +115,11 @@ def test_deepseek_cost_prices_cache_hits(data_dir):
     llm._track("notes", Resp())
     s = llm.usage_summary()
     assert s["cached_tokens"] == 900_000
-    # 100k miss @ $0.28 + 900k hit @ $0.028 + 100k out @ $0.42
-    expected = round(0.1 * 0.28 + 0.9 * 0.028 + 0.1 * 0.42, 4)
+    # 100k miss @ $0.44 + 900k hit @ $0.014 + 100k out @ $1.32 (V4 Flash, peak)
+    expected = round(0.1 * 0.44 + 0.9 * 0.014 + 0.1 * 1.32, 4)
     assert s["est_cost_usd"] == expected
     # sanity: the old all-miss math would have said ~2.4x more
-    assert s["est_cost_usd"] < 0.1
+    assert s["est_cost_usd"] < 0.25            # a 1M-token run with 90% cache hits stays cheap
 
 
 def test_cost_without_cache_info_uses_miss_price(data_dir):
@@ -140,7 +140,7 @@ def test_cost_without_cache_info_uses_miss_price(data_dir):
     llm._track("notes", Resp())
     s = llm.usage_summary()
     assert "cached_tokens" not in s
-    assert s["est_cost_usd"] == 0.28
+    assert s["est_cost_usd"] == 0.44
 
 
 async def test_a_streamed_call_reports_the_servers_token_counts(data_dir):
