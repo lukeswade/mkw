@@ -342,6 +342,26 @@ class Repo:
             "HAVING SUM(outcome = 'kept') = 0 AND reads >= ? AND runs >= ? "
             "ORDER BY reads DESC", (min_reads, min_runs)).fetchall()
 
+    def productive_domains(self, min_reads: int = 6, limit: int = 25) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT domain, COUNT(*) AS reads, SUM(outcome = 'kept') AS kept, "
+            "COUNT(DISTINCT run_id) AS runs FROM candidate_outcomes GROUP BY domain "
+            "HAVING reads >= ? AND kept > 0 ORDER BY 1.0 * kept / reads DESC, reads DESC LIMIT ?",
+            (min_reads, limit)).fetchall()
+
+    def stats_since(self, since_iso: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT created_at, categories, stats_json FROM runs WHERE kind = 'research' "
+            "AND stats_json IS NOT NULL AND created_at >= ?", (since_iso,)).fetchall()
+        out = []
+        for r in rows:
+            try:
+                d = json.loads(r["stats_json"]); d["_created_at"] = r["created_at"]; d["_categories"] = r["categories"] or ""
+                out.append(d)
+            except (TypeError, ValueError):
+                continue
+        return out
+
     def dead_domains_in_run(self, run_id: str, **kw) -> list[sqlite3.Row]:
         seen = {r["domain"] for r in self.conn.execute(
             "SELECT DISTINCT domain FROM candidate_outcomes WHERE run_id = ?", (run_id,))}

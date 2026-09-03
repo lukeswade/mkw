@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Learned · Deep Research{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>What this install has learned</h1>
+  <p class="page-desc">From every page it has read and every search it has made. Nothing here is a setting — it is what the data says.</p>
+</div>
+
+<article class="card">
+  <h3>Sources that pay off</h3>
+  <p class="hint">Domains read at least six times, ranked by how often a read became a kept source. Yield is topic-bound, so a strong record here is used only for questions related to the ones that produced it.</p>
+  {% if productive %}
+  <table class="learned">
+    <thead><tr><th>domain</th><th>kept / read</th><th>yield</th><th>runs</th></tr></thead>
+    <tbody>{% for d in productive %}
+      <tr><td><code>{{ d['domain'] }}</code></td><td>{{ d['kept'] }} / {{ d['reads'] }}</td>
+          <td>{{ (100 * d['kept'] / d['reads']) | round | int }}%</td><td>{{ d['runs'] }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="empty-note">Not enough reads yet.</p>{% endif %}
+</article>
+
+<article class="card">
+  <h3>Sources that never pay off</h3>
+  <p class="hint">Read at least eight times across three or more runs, kept nothing. They already rank last in every round; blocking them is your call.</p>
+  {% if dead %}
+  <table class="learned">
+    <thead><tr><th>domain</th><th>reads</th><th>runs</th><th></th></tr></thead>
+    <tbody>{% for d in dead %}
+      <tr id="dead-{{ loop.index }}"><td><code>{{ d['domain'] }}</code></td><td>{{ d['reads'] }}</td><td>{{ d['runs'] }}</td>
+          <td><button class="follow-btn" hx-post="/settings/block-domain" hx-vals='{"domain": "{{ d['domain'] }}"}'
+                      hx-target="#dead-{{ loop.index }} td:last-child" hx-swap="innerHTML">block</button></td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="empty-note">Nothing qualifies yet.</p>{% endif %}
+</article>
+
+<article class="card">
+  <h3>Search engines, last 14 days</h3>
+  <p class="hint">How many of the {{ recent_runs }} research runs each engine refused at least once — CAPTCHAs, rate limits, parsing errors. Refusals are tied to your network address, not to this tool.</p>
+  {% if engines %}
+  <table class="learned">
+    <thead><tr><th>engine</th><th>runs refused</th><th>share</th></tr></thead>
+    <tbody>{% for e in engines %}
+      <tr><td><code>{{ e['engine'] }}</code></td><td>{{ e['runs_refused'] }}</td>
+          <td><span class="bar" style="width: {{ (100 * e['share']) | round | int }}%"></span> {{ (100 * e['share']) | round | int }}%</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="empty-note">No refusals recorded.</p>{% endif %}
+  <p class="hint">Brave Search API requests this month ({{ month }}): <strong>{{ brave_requests }}</strong> — one per search that includes the general category.</p>
+</article>
+
+<article class="card">
+  <h3>Estimate calibration</h3>
+  <p class="hint">What the New page's estimate knows about each depth from your own completed runs. "Calibrated" means enough samples at that depth to use its own history.</p>
+  <table class="learned">
+    <thead><tr><th>depth</th><th>runs</th><th>calibrated</th><th>keep rate</th><th>time</th></tr></thead>
+    <tbody>{% for c in calibration %}
+      <tr><td>{{ c['depth'] }}</td><td>{{ c['samples'] }}</td><td>{{ 'yes' if c['calibrated'] else '—' }}</td>
+          <td>{{ (100 * c['keep_rate']) | round | int ~ '%' if c['keep_rate'] else '—' }}</td><td>{{ c['duration'] or '—' }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</article>
+{% endblock %}

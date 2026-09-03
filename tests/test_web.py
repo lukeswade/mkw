@@ -686,3 +686,22 @@ def test_domains_that_never_produced_a_source_are_named_and_blockable(data_dir, 
         r = client.post("/settings/block-domain", data={"domain": "junk.example"})
         assert r.status_code == 200 and "blocked" in r.text
         assert "junk.example" in json.loads((cfg.data_path / "settings.json").read_text())["blocked_domains"]
+
+
+def test_the_learned_page_shows_what_the_data_says(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    runs = [seed_completed_run(cfg) for _ in range(3)]
+    for i, rid in enumerate(runs):
+        repo.set_stats(rid, {"rounds": 1, "searches": 5, "sources_kept": 1, "sources_skipped": 1,
+                             "blocked_engines": {"duckduckgo": "CAPTCHA"}, "llm": {"calls": 3, "prompt_tokens": 1, "completion_tokens": 1}})
+        for j in range(3):
+            repo.record_outcome(run_id=rid, url=f"https://junk.example/{i}{j}", domain="junk.example", engine="bing", outcome="rejected", relevance=0)
+        for j in range(2):
+            repo.record_outcome(run_id=rid, url=f"https://forum.example/{i}{j}", domain="forum.example", engine="braveapi", outcome="kept", relevance=8)
+    with TestClient(app) as client:
+        page = client.get("/learned").text
+    assert "junk.example" in page and "forum.example" in page
+    assert "duckduckgo" in page and "Brave Search API requests" in page
+    assert 'href="/learned"' in page                                    # in the nav
