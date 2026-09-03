@@ -170,7 +170,8 @@ def select_excerpts(text: str, keywords: list[str], window: int = 1200, max_exce
 async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      url: str, title: str, detected_date: str | None,
                      text: str, keywords: list[str] | None = None,
-                     template: str | None = None) -> NotesOut | None:
+                     template: str | None = None,
+                     source_kind: str = "") -> NotesOut | None:
     """Returns None when the model output is unusable (doc gets skipped)."""
     if len(text) > _INPUT_CHARS:
         # Too big to feed whole: keyword-focused excerpts if we have
@@ -181,7 +182,9 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
         text = filtered or clip_text(text)
 
 
+    source_note = prompts.VIDEO_SOURCE_NOTE if source_kind == "video" else ""
     prompt = (template or prompts.NOTES).format(
+        source_note=source_note,
         brief=brief, recency_desc=recency_desc, today=today, url=url,
         title=title, detected_date=detected_date or "unknown",
         text=text,

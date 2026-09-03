@@ -735,3 +735,34 @@ def test_the_submission_id_comes_out_of_any_thread_url():
     assert reddit.thread_id(
         "https://old.reddit.com/r/x/comments/abc/") == "abc"
     assert reddit.thread_id("https://www.reddit.com/r/rodbuilding/") is None
+
+
+@respx.mock
+async def test_a_video_without_captions_is_read_from_its_description(data_dir):
+    """A demonstration video with no captions was discarded whole — the Mana
+    Ball DIY trackball build among them — though its description says what it
+    shows and links the repo. Captions lead when they carry enough; the
+    description completes or replaces them."""
+    from app.research import youtube
+    desc = ("Full build of my open-source modular trackball: PMW3610 sensor, nRF52840, ZMK firmware. "
+            "3D print files and PCB on GitHub: https://github.com/example/mana-ball — parts list in the pinned comment. "
+            "Chapters: sensor board, case, firmware flashing, calibration.")
+    respx.post("https://www.youtube.com/youtubei/v1/player").mock(return_value=httpx.Response(200, json={
+        "playabilityStatus": {"status": "OK"},
+        "videoDetails": {"title": "Mana Ball - Open Source DIY Modular Trackball", "author": "Maker",
+                         "shortDescription": desc, "keywords": ["trackball", "zmk"]},
+        "microformat": {"playerMicroformatRenderer": {"publishDate": "2026-05-01"}}}))
+    async with httpx.AsyncClient() as client:
+        doc = await youtube.transcript(client, "vn09xzBtV5k")
+    assert doc is not None and "(video description)" in doc.title
+    assert "github.com/example/mana-ball" in doc.text and "Tags: trackball, zmk" in doc.text
+    assert doc.date == "2026-05-01"
+
+
+@respx.mock
+async def test_a_video_with_only_a_title_is_still_skipped(data_dir):
+    from app.research import youtube
+    respx.post("https://www.youtube.com/youtubei/v1/player").mock(return_value=httpx.Response(200, json={
+        "playabilityStatus": {"status": "OK"}, "videoDetails": {"title": "Untitled", "author": "x", "shortDescription": "short"}}))
+    async with httpx.AsyncClient() as client:
+        assert await youtube.transcript(client, "dQw4w9WgXcQ") is None

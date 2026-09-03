@@ -479,3 +479,20 @@ def test_round_one_credit_comes_only_from_related_runs_and_skips_platforms():
                               "reddit.com": 8, "youtube.com": 6, "one-off.net": 1})
     assert seed == {"classicflyrodforum.com": 2, "paflyfish.com": 1}
     assert adaptive_cap(2, 0 + seed["classicflyrodforum.com"]) == 4      # starts round one at four
+
+
+async def test_the_note_taker_is_told_when_it_is_reading_a_demonstration_video():
+    from app.models import NotesOut
+    from app.research.notes import take_notes
+
+    class Capture:
+        def __init__(self): self.prompt = ""
+        async def chat_json(self, kind, messages, schema, **kw):
+            self.prompt = messages[0]["content"]
+            return NotesOut(relevance=7, summary="s", notes_md="n", key_facts=[])
+
+    for kind, expected in (("video", True), ("", False)):
+        llm = Capture()
+        await take_notes(llm, brief="b", recency_desc="all time", today="2026-09-03", url="u",
+                         title="t", detected_date=None, text="some text", source_kind=kind)
+        assert ("SOURCE TYPE: video" in llm.prompt) is expected, kind

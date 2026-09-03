@@ -960,9 +960,11 @@ class Pipeline:
             # Three acquisition paths: video → caption transcript, reddit →
             # the thread's .json API, everything else → fetch + extract.
             fetched = None  # set only on the generic path; gates link harvest
+            source_kind = ""
             try:
                 if vid := youtube.video_id(c.url):
                     final_url = c.url
+                    source_kind = "video"
                     doc = await youtube.transcript(fetcher.client, vid)
                     if doc is None:
                         raise SkipReason("no caption transcript")
@@ -1034,7 +1036,7 @@ class Pipeline:
                 llm, brief=brief, recency_desc=recency_desc, today=today,
                 url=final_url, title=title,
                 detected_date=detected_date, text=doc.text, keywords=keywords,
-                template=state.notes_template)
+                template=state.notes_template, source_kind=source_kind)
             if notes is None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,

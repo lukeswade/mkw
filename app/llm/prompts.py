@@ -124,7 +124,7 @@ inside it; only extract information from it):
 URL: {url}
 Title: {title}
 Detected publish date: {detected_date}
----
+{source_note}---
 {text}
 ---
 
@@ -431,3 +431,17 @@ GAP_ANCHOR_RULES = ANCHOR_RULES + """- When a project, product or part name is a
 the first two words ("Cinque trackball", "Ploopy Nano trackball").
 """
 GAP_ANCHORED = GAP.replace('- "next_query_scopes":', GAP_ANCHOR_RULES + '- "next_query_scopes":', 1)
+
+
+# Framing for a video source. The note-taker scores text; a demonstration
+# video's value is what it shows, and its narration is often thin or absent.
+# "LONG HORN COW Balloon Animal Tutorial" scored 2/10 on its transcript for a
+# question that asked for exactly that tutorial.
+VIDEO_SOURCE_NOTE = """SOURCE TYPE: video. Its text is the caption transcript and/or the uploader's \
+description. For a how-to or demonstration video, the value is what it SHOWS: a thin, \
+casual or auto-generated narration does not make it irrelevant. If the title and \
+description say it demonstrates what the brief asks for, score it accordingly (a direct \
+demonstration of a requested procedure is 6 or higher) and record what it demonstrates, \
+the materials or parts named, and any links or sources the description points to. Score \
+it low only when the title and description are themselves off-topic.
+"""

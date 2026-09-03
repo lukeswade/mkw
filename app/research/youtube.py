@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _YT_HOSTS = ("youtube.com", "music.youtube.com", "youtube-nocookie.com")
 
+# Below this, a description says nothing a title did not.
+_MIN_DESCRIPTION_CHARS = 200
+
 _PLAYER_API = "https://www.youtube.com/youtubei/v1/player"
 _ANDROID_CONTEXT = {"client": {"clientName": "ANDROID",
                                "clientVersion": "20.10.38",
@@ -119,31 +122,49 @@ async def transcript(client: httpx.AsyncClient, vid: str) -> Extracted | None:
         tracks = (pr.get("captions", {})
                     .get("playerCaptionsTracklistRenderer", {})
                     .get("captionTracks") or [])
-        if not tracks:
-            return None
-        base = _pick_track(tracks).get("baseUrl") or ""
+        captions = ""
+        base = (_pick_track(tracks).get("baseUrl") or "") if tracks else ""
         if base.startswith("/"):
             base = "https://www.youtube.com" + base
-        if not base.startswith("http"):
-            return None
-        sep = "&" if "?" in base else "?"
-        try:
-            cap = await client.get(f"{base}{sep}fmt=json3", headers=headers,
-                                   follow_redirects=True)
-            if cap.status_code != 200:
-                return None
-        except httpx.HTTPError:
-            log.debug("caption fetch failed for %s", vid, exc_info=True)
-            return None
-    text = _caption_text(cap.content)
-    if len(text) < MIN_TEXT_CHARS:
-        return None
+        if base.startswith("http"):
+            sep = "&" if "?" in base else "?"
+            try:
+                cap = await client.get(f"{base}{sep}fmt=json3", headers=headers,
+                                       follow_redirects=True)
+                if cap.status_code == 200:
+                    captions = _caption_text(cap.content)
+            except httpx.HTTPError:
+                log.debug("caption fetch failed for %s", vid, exc_info=True)
     details = pr.get("videoDetails", {})
     micro = pr.get("microformat", {}).get("playerMicroformatRenderer", {})
     title = (details.get("title") or "").strip() or None
     author = (details.get("author") or "").strip()
+    # A demonstration video often narrates little ("twist here, like this")
+    # or has no captions at all, and was discarded whole — the Mana Ball DIY
+    # trackball build among them. Its description usually says what it shows
+    # and links the parts, the repo, the write-up. Captions lead when they
+    # carry enough; the description completes or replaces them.
+    description = (details.get("shortDescription") or "").strip()
+    keywords = [k for k in (details.get("keywords") or []) if isinstance(k, str)]
+    parts = []
+    if title:
+        parts.append(f"# {title}")
+    if description:
+        parts.append("## Video description\n\n" + description)
+    if keywords:
+        parts.append("Tags: " + ", ".join(keywords[:25]))
+    if len(captions) >= MIN_TEXT_CHARS:
+        text = captions
+        kind = "video transcript"
+        if description and len(captions) < MIN_TEXT_CHARS * 4:
+            text = "\n\n".join(parts + ["## Transcript\n\n" + captions])
+    elif len("\n\n".join(parts)) >= _MIN_DESCRIPTION_CHARS:
+        text = "\n\n".join(parts + (["## Transcript\n\n" + captions] if captions else []))
+        kind = "video description"
+    else:
+        return None
     if title and author:
-        title = f"{title} — {author} (video transcript)"
+        title = f"{title} — {author} ({kind})"
     return Extracted(
         text=text[:MAX_TEXT_CHARS], title=title,
         date=_clean_date(micro.get("publishDate") or micro.get("uploadDate")))
