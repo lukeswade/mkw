@@ -206,6 +206,8 @@ class _RunState:
     # Kept sources per diversity key (channel, repo, subreddit, domain) — what
     # a source has earned toward a larger share of later rounds.
     kept_by_source: Counter = field(default_factory=Counter)
+    # Credit carried in from related earlier runs (see seed_from_related).
+    seed_by_source: Counter = field(default_factory=Counter)
     searched: list[str] = field(default_factory=list)
     state_md: str = ""
     rounds_done: int = 0
@@ -234,6 +236,28 @@ _SOURCE_CAP_MAX = 6
 
 def adaptive_cap(base: int, kept_so_far: int, ceiling: int = _SOURCE_CAP_MAX) -> int:
     return min(ceiling, base + kept_so_far)
+
+
+def seed_from_related(kept_by_domain: dict[str, int]) -> dict[str, int]:
+    """Round-one credit per source from what related earlier runs kept.
+
+    Yield is topic-bound — a forum that keeps 85% on fly-rod questions keeps
+    nothing on a Kindle question — so this is computed only over runs the
+    knowledge layer judged related to THIS question. Three or more kept
+    sources across them earn two extra slots (a start of four), exactly two
+    earn one. Generic platforms are excluded: a kept reddit thread says
+    nothing about the next subreddit.
+    """
+    seed: dict[str, int] = {}
+    for domain, n in kept_by_domain.items():
+        d = (domain or "").lower().removeprefix("www.")
+        if not d or any(d == g or d.endswith("." + g) for g in _GENERIC_DOMAINS):
+            continue
+        if n >= 3:
+            seed[d] = 2
+        elif n == 2:
+            seed[d] = 1
+    return seed
 
 
 def _under_any(key: str, domains: frozenset[str]) -> bool:
@@ -535,6 +559,7 @@ class Pipeline:
 
             # 1. prior knowledge from earlier runs (knowledge layer, optional)
             prior = ""
+            related: list = []
             if self.rag is not None and bool(row_get(row, "use_prior", 1)):
                 prior, related = await self.rag.prior_knowledge(query, exclude_run=run_id)
                 for other_id, score in related:
@@ -542,6 +567,25 @@ class Pipeline:
                 if related:
                     self.bus.publish(run_id, "log",
                                      message=f"building on {len(related)} related earlier run(s)")
+            elif self.rag is not None and depth > 0 and kind == "research":
+                # Memory is off for the planner, but sourcing may still learn
+                # which sites paid off on this topic: that feeds the cap, not
+                # the content.
+                try:
+                    related = await self.rag.related_runs(query, exclude_run=run_id)
+                except Exception as e:  # the knowledge layer is optional
+                    log.debug("related-run lookup failed: %s", e)
+                    related = []
+            if related and depth > 0 and kind == "research":
+                seed = seed_from_related(self.repo.kept_domains_for_runs(
+                    [rid for rid, _s in related]))
+                if seed:
+                    state.seed_by_source.update(seed)
+                    self.bus.publish(
+                        run_id, "log",
+                        message=("earlier research on this topic kept sources from "
+                                 + ", ".join(sorted(seed, key=lambda d: -seed[d]))
+                                 + " — they start with a larger share"))
 
             if depth == 0:
                 # Depth 0 is an instant answer in the style of a search
@@ -784,8 +828,9 @@ class Pipeline:
             uncapped = self._authority_domains() | (VIDEO_HOSTS if promote else frozenset())
             # Web research only: a brief's per-feed share is fixed by design.
             cap_for = (None if state.group_by is not None else
-                       (lambda key: adaptive_cap(state.per_source,
-                                                 state.kept_by_source[key])))
+                       (lambda key: adaptive_cap(
+                           state.per_source,
+                           state.kept_by_source[key] + state.seed_by_source[key])))
             chosen = rank_diverse(pool, state.seen_urls,
                                   per_domain=state.per_source,
                                   limit=limit, group=state.group_by,

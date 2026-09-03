@@ -300,6 +300,16 @@ class Repo:
             "SELECT * FROM findings WHERE run_id = ? ORDER BY idx", (run_id,)
         ).fetchall()
 
+    def kept_domains_for_runs(self, run_ids: list[str]) -> dict[str, int]:
+        """domain -> kept sources across the given runs."""
+        if not run_ids:
+            return {}
+        marks = ",".join("?" * len(run_ids))
+        rows = self.conn.execute(
+            f"SELECT domain, COUNT(*) AS n FROM findings WHERE run_id IN ({marks}) "
+            f"GROUP BY domain", run_ids).fetchall()
+        return {r["domain"]: r["n"] for r in rows}
+
     # ---- cross-run links ------------------------------------------------
     def add_run_link(self, src: str, dst: str, kind: str, score: float | None) -> None:
         self.conn.execute(

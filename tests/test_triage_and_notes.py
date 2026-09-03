@@ -468,3 +468,14 @@ def test_the_adaptive_cap_starts_at_two_and_is_earned():
     assert adaptive_cap(2, 0) == 2          # round one, or a source that kept nothing
     assert adaptive_cap(2, 2) == 4          # kept two of two -> four next round
     assert adaptive_cap(2, 9) == 6          # ceiling
+
+
+def test_round_one_credit_comes_only_from_related_runs_and_skips_platforms():
+    """Yield is topic-bound, so credit is computed over runs judged related to
+    this question; 3+ kept earns two slots, exactly 2 earns one, and generic
+    platforms earn nothing — a kept reddit thread says nothing about reddit."""
+    from app.research.pipeline import seed_from_related, adaptive_cap
+    seed = seed_from_related({"classicflyrodforum.com": 5, "www.paflyfish.com": 2,
+                              "reddit.com": 8, "youtube.com": 6, "one-off.net": 1})
+    assert seed == {"classicflyrodforum.com": 2, "paflyfish.com": 1}
+    assert adaptive_cap(2, 0 + seed["classicflyrodforum.com"]) == 4      # starts round one at four

@@ -120,6 +120,13 @@ class RagService:
             key=lambda t: -t[1])[:LINK_TOP_N]
         return "\n".join(lines), related
 
+    async def related_runs(self, query: str, exclude_run: str | None = None
+                           ) -> list[tuple[str, float]]:
+        """Which earlier runs this question resembles — the sourcing signal,
+        usable even when the planner is told nothing about them."""
+        _text, related = await self.prior_knowledge(query, exclude_run=exclude_run)
+        return related
+
     # ---- pipeline hook: after synthesis ----------------------------------------
     async def index_run(self, repo: Repo, run_id: str) -> int:
         self._refresh()

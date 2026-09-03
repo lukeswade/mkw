@@ -646,3 +646,18 @@ def test_a_retry_is_labelled_a_re_run_not_a_follow_up(data_dir, monkeypatch):
         b = client.get(f"/runs/{followup}").text
     assert "re-run of" in a and "follows up on" not in a
     assert "follows up on" in b and "re-run of" not in b
+
+
+def test_kept_domains_are_counted_across_the_given_runs_only(data_dir, monkeypatch):
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    a, b, other = (seed_completed_run(cfg) for _ in range(3))     # each already carries fixture findings
+    before = repo.kept_domains_for_runs([a, b])
+    for i, (run, dom) in enumerate([(a, "forum.com"), (a, "forum.com"), (b, "forum.com"),
+                                    (b, "blog.net"), (other, "forum.com")]):
+        repo.add_finding(run_id=run, idx=100 + i, url=f"https://{dom}/{i}", title="t", domain=dom,
+                         published_date=None, relevance=7, path=f"findings/x{i}.md", summary="s")
+    after = repo.kept_domains_for_runs([a, b])
+    assert after["forum.com"] - before.get("forum.com", 0) == 3          # `other`'s forum.com not counted
+    assert after["blog.net"] - before.get("blog.net", 0) == 1
+    assert repo.kept_domains_for_runs([]) == {}
