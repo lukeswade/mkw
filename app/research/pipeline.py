@@ -840,11 +840,16 @@ class Pipeline:
                 earned = {k: n for k, n in taken.items()
                           if n > state.per_source and not _under_any(k, uncapped)}
                 if earned:
+                    # A share can be earned in this run or carried in from
+                    # related earlier research; the log says which.
+                    def _label(k: str, n: int) -> str:
+                        name = k.split(":", 1)[-1] or k
+                        tag = " (earlier research)" if state.seed_by_source[k] and not state.kept_by_source[k] else ""
+                        return f"{name} ×{n}{tag}"
                     self.bus.publish(
                         run_id, "log",
-                        message=("earned a larger share this round: " + ", ".join(
-                            f"{k.split(':', 1)[-1] or k} ×{n}"
-                            for k, n in sorted(earned.items(), key=lambda kv: -kv[1]))))
+                        message=("larger share this round: " + ", ".join(
+                            _label(k, n) for k, n in sorted(earned.items(), key=lambda kv: -kv[1]))))
             for c in chosen:
                 state.seen_urls.add(canonicalize(c.url))
             return chosen
