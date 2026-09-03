@@ -70,10 +70,13 @@ async def _retry_for_queries(llm: LLM, prompt: str, searched: list[str],
 async def analyze(llm: LLM, *, query: str, brief: str, recency_desc: str,
                   round_no: int, depth: int, breadth: int, state_md: str,
                   new_findings: list[Finding], searched: list[str],
-                  authority: str = "") -> GapOut:
+                  authority: str = "", variant: str = "default") -> GapOut:
     authority_block = (prompts.AUTHORITY_BLOCK.format(authority_sites=authority)
                        if authority else "")
-    prompt = prompts.GAP.format(
+    # "anchored" is under A/B test (GAP_VARIANT); the stern re-ask below
+    # builds on the same prompt, so it inherits the variant.
+    template = prompts.GAP_ANCHORED if variant == "anchored" else prompts.GAP
+    prompt = template.format(
         round=round_no, depth=depth, query=query, brief=brief,
         recency_desc=recency_desc, state_md=state_md or "(empty)",
         round_findings=render_round_findings(new_findings),

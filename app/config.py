@@ -45,6 +45,7 @@ ENV_MAP = {
     "display_timezone": "DISPLAY_TIMEZONE",
     "planner_variant": "PLANNER_VARIANT",
     "query_scopes": "QUERY_SCOPES",
+    "gap_variant": "GAP_VARIANT",
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
@@ -154,6 +155,8 @@ class Settings:
     # Per-query search scopes from the planner/gap stages ("on"/"off"). Off
     # sends every query to every engine in the run's categories, as before.
     query_scopes: str = "on"
+    # Gap-analysis prompt under A/B test: "default" or "anchored".
+    gap_variant: str = "default"
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"

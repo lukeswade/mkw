@@ -420,3 +420,14 @@ corpus does not cover it — never invent information."""
 # mounting methods" pulled Ubuntu download pages — and several queries led
 # with a common word that Bing resolved to flights and a stock ticker.
 PLANNER_ANCHORED = PLANNER.replace('- "keywords":', ANCHOR_RULES + '- "keywords":', 1)
+
+
+# Gap-analysis A/B variant: the planner's anchoring rules, plus the one the
+# trackball run earned — "Cinque keyboard trackball github zmk" led with a
+# project name that is also an Italian coastline, and Bing returned travel
+# pages that triage then spared. GAP_VARIANT=anchored selects it.
+GAP_ANCHOR_RULES = ANCHOR_RULES + """- When a project, product or part name is also a common word or a place name \
+(Cinque, Nano, Reform, Flake), never lead with it alone: pair it with the subject in \
+the first two words ("Cinque trackball", "Ploopy Nano trackball").
+"""
+GAP_ANCHORED = GAP.replace('- "next_query_scopes":', GAP_ANCHOR_RULES + '- "next_query_scopes":', 1)

@@ -115,3 +115,24 @@ def test_the_anchored_planner_is_now_the_default_with_a_kill_switch(data_dir, mo
     assert Settings(data_dir=str(data_dir)).planner_variant == "anchored"
     monkeypatch.setenv("DATA_DIR", str(data_dir)); monkeypatch.setenv("PLANNER_VARIANT", "default")
     assert load_settings(str(data_dir)).planner_variant == "default"
+
+
+async def test_the_anchored_gap_variant_is_opt_in_and_reaches_the_retry(data_dir):
+    from app.models import GapOut
+    from app.research import gap
+
+    class Capture:
+        def __init__(self): self.prompts = []
+        async def chat_json(self, kind, messages, schema, **kw):
+            self.prompts.append(messages[0]["content"])
+            # first answer: not saturated, no queries -> forces the stern re-ask
+            return GapOut(state_md="s", saturated=False, next_queries=[] if len(self.prompts) == 1 else ["Cinque trackball ZMK"])
+
+    for variant, expected in (("default", False), ("anchored", True)):
+        llm = Capture()
+        out = await gap.analyze(llm, query="DIY trackball", brief="b", recency_desc="all time",
+                                round_no=1, depth=2, breadth=3, state_md="", new_findings=[],
+                                searched=["x"], variant=variant)
+        assert len(llm.prompts) == 2                                   # the re-ask happened
+        assert all(("Anchoring rules" in p) is expected for p in llm.prompts), variant
+        assert out.next_queries == ["Cinque trackball ZMK"]

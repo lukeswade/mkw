@@ -698,7 +698,8 @@ class Pipeline:
                     recency_desc=recency_desc, round_no=round_no, depth=rounds,
                     breadth=breadth, state_md=state.state_md,
                     new_findings=kept, searched=state.searched,
-                    authority=getattr(self.cfg, "authority_sites", ""))
+                    authority=getattr(self.cfg, "authority_sites", ""),
+                    variant=getattr(self.cfg, "gap_variant", "default"))
                 state.state_md = gap.state_md
                 store.write_round(round_no, self._round_md(
                     round_no, queries, kept, gap.saturated, state))
