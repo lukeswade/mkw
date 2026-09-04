@@ -238,7 +238,8 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
                  uncapped: frozenset[str] = frozenset(),
                  cap_for=None,
                  per_engine: int | None = None,
-                 engine_skips: Counter | None = None) -> list[SearchResult]:
+                 engine_skips: Counter | None = None,
+                 held_back: list | None = None) -> list[SearchResult]:
     """Pick fetch candidates: drop seen/duplicate URLs, cap per-source count.
 
     `group` decides what counts as one source, defaulting to the domain. A
@@ -262,7 +263,8 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
     engines returning the answer got nothing in; no engine is that good.
     Results with no engine attribution are exempt (they are not one
     source). `engine_skips`, when given, counts what each engine was held
-    back, for the run log.
+    back, for the run log; `held_back` collects those results so a round
+    that triage then guts can be refilled from them.
     """
     key = group or source_key
     out: list[SearchResult] = []
@@ -282,6 +284,8 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
         if per_engine is not None and eng and engine_counts[eng] >= per_engine:
             if engine_skips is not None:
                 engine_skips[eng] += 1
+            if held_back is not None:
+                held_back.append(r)
             continue
         taken.add(cu)
         domain_counts[d] += 1

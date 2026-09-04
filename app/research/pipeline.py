@@ -951,7 +951,9 @@ class Pipeline:
         promote = (VIDEO_ENGINES if "video" in (searcher.categories or "")
                    else frozenset())
 
-        def pick(pool: list, limit: int) -> list:
+        held_back_pool: list = []   # what the engine share cap set aside this round
+
+        def pick(pool: list, limit: int, *, share: bool = True) -> list:
             # Stable sort keeps round-robin order inside each tier, so every
             # sub-query still contributes. Ordering: a practical web page
             # outranks a journal abstract; within a tier, results whose
@@ -1004,13 +1006,14 @@ class Pipeline:
             # and the cap would only shrink the round.
             attributed = {(r.engine or "").strip().lower() for r in pool} - {""}
             per_engine = (engine_share(limit)
-                          if state.group_by is None and len(attributed) > 1 else None)
+                          if share and state.group_by is None and len(attributed) > 1 else None)
             engine_skips: Counter = Counter()
             chosen = rank_diverse(pool, state.seen_urls,
                                   per_domain=state.per_source,
                                   limit=limit, group=state.group_by,
                                   uncapped=uncapped, cap_for=cap_for,
-                                  per_engine=per_engine, engine_skips=engine_skips)
+                                  per_engine=per_engine, engine_skips=engine_skips,
+                                  held_back=held_back_pool if per_engine else None)
             if engine_skips:
                 self.bus.publish(run_id, "log", message=(
                     f"engine share capped at {per_engine} this round: " + ", ".join(
@@ -1077,8 +1080,28 @@ class Pipeline:
         # time before scoring 0/10 — this call costs seconds and drops most
         # of them. Degrades to keeping everything.
         if len(candidates) > 3:
+            before = len(candidates)
             candidates = await self._triage(run_id, llm, query, brief,
                                             queries, candidates, state)
+            # Refill: when triage guts the round, the slots it freed go to
+            # what the engine share cap set aside — the second-best results
+            # of the engines that had more to offer — through triage again.
+            # A balloon run's round 2 shrank from 36 to 5 candidates while
+            # DuckDuckGo Videos, the engine that finds these tutorials, sat on
+            # 157 results the cap had held back.
+            room = limit_here - len(candidates)
+            if held_back_pool and room > 0 and len(candidates) < before / 2:
+                refill = pick(held_back_pool, room, share=False)
+                offered = len(refill)
+                if len(refill) > 3:
+                    refill = await self._triage(run_id, llm, query, brief,
+                                                queries, refill, state)
+                if refill:
+                    self.bus.publish(run_id, "log", message=(
+                        f"round refilled: triage kept {len(candidates)} of {before}, "
+                        f"so {len(refill)} of {offered} held back by the engine share "
+                        f"cap join the round"))
+                    candidates.extend(refill)
 
         total_results = sum(len(l) for l in merged_lists)
         self.bus.publish(run_id, "searched", results=total_results,

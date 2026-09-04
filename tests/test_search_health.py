@@ -290,6 +290,9 @@ def test_no_engine_fills_more_than_its_share_of_a_round():
     chosen = rank_diverse(pool, set(), per_domain=2, limit=12, per_engine=4, engine_skips=skips)
     assert Counter(c.engine for c in chosen) == {"bing videos": 4, "duckduckgo videos": 4}   # the same share for all
     assert skips == {"bing videos": 26, "duckduckgo videos": 1}
+    held = []
+    rank_diverse(pool, set(), per_domain=2, limit=12, per_engine=4, held_back=held)
+    assert len(held) == 27 and all(h.engine in ("bing videos", "duckduckgo videos") for h in held)
     # results with no attribution are not one source and are never capped as one
     assert len(rank_diverse([mk(i, "") for i in range(10)], set(), per_domain=2, limit=8, per_engine=2)) == 8
     assert engine_share(60) == 20 and engine_share(28) == 10 and engine_share(2) == 1

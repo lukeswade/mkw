@@ -567,3 +567,35 @@ def test_authority_sites_start_at_the_ceiling_not_uncapped():
     auth = authority_domains_from("charm.li — service manuals\nrodbuilding.org — rod building forum\n\nhttps://www.badcaps.net/ — board repair")
     assert auth == frozenset({"charm.li", "rodbuilding.org", "badcaps.net"})
     assert _SOURCE_CAP_MAX == 6 and adaptive_cap(2, 0) == 2      # an authority site gets max(6, earned) in pick()
+
+
+@respx.mock
+async def test_a_round_triage_guts_is_refilled_from_what_the_share_cap_held_back(data_dir):
+    """Two engines each offer 40 results; the share cap takes a third of the
+    round from each. Triage then condemns nearly all of them. The freed slots
+    go to what the cap held back, through a second triage, instead of the
+    round running on three candidates."""
+    cfg = make_cfg(data_dir)
+    def res(eng, i):
+        r = sx_result(f"https://{eng}{i}.com/p", f"Solid state battery report {eng} {i}")
+        r["engine"] = eng
+        return r
+    pool = [res("alpha", i) for i in range(40)] + [res("beta", i) for i in range(40)]
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(pool)))
+    # distinct bodies: identical pages fold into one under the duplicate-content check
+    respx.get(url__regex=r"https://(alpha|beta)\d+\.com/p").mock(
+        side_effect=lambda req: httpx.Response(200, html=article(
+            f"Solid state battery report from {req.url.host}: cathode data {req.url.host}")))
+
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    s["triage"] = [{"drop": list(range(1, 60))},   # first look: condemn all but the first
+                   {"drop": []}]                    # the refill: all worth reading
+    repo, llm, orch, run_id = _run(cfg, s)
+    await orch.execute_now(run_id)
+
+    assert llm.calls["triage"] == 2
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert "round refilled" in events
+    from app.research.pipeline import triage_floor
+    survivors_alone = triage_floor(16)             # what the round would have read without the refill
+    assert len(repo.findings_for_run(run_id)) > survivors_alone
