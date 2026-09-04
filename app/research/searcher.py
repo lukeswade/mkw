@@ -113,23 +113,29 @@ def engine_preferred(engine: str) -> bool:
     return (engine or "").strip().lower() in _PREFERRED_ENGINES
 
 
-# An engine with no record yet sorts as if half its results were kept: never
-# buried before it has one, never trusted ahead of one that has earned it.
-UNKNOWN_ENGINE_YIELD = 0.5
+# An engine with no record yet (fewer reads than Repo.engine_yields counts)
+# takes its turn after every engine that has one. It used to sort as if half
+# its results were kept, which on 2026-09-04 put Bing Videos (4 reads) ahead
+# of DuckDuckGo Videos (65 reads, 45% kept) on the round Bing was serving
+# junk — 420 junk results took all 60 slots. A default never beats a
+# measurement.
 
 
 def engine_order(engine: str, promote: frozenset[str] = frozenset(),
-                 yields: dict[str, float] | None = None) -> tuple[int, int, float]:
-    """Sort key: (tier, turn, -yield). Keyed engines AND the engines the run
-    promoted (video engines on a videos run) take the first turn within their
-    tier — without that, two keyed engines' 39 results filled a 28-slot round
-    before the promoted YouTube engine got a single candidate in. Within a
-    turn, engines whose results have turned into kept sources more often (the
-    install's own last fortnight) come first."""
+                 yields: dict[str, float] | None = None) -> tuple[int, int, int, float]:
+    """Sort key: (tier, turn, unproven, -yield). Keyed engines AND the
+    engines the run promoted (video engines on a videos run) take the first
+    turn within their tier — without that, two keyed engines' 39 results
+    filled a 28-slot round before the promoted YouTube engine got a single
+    candidate in. Within a turn, engines with a record come before engines
+    without one, and among those with a record the ones whose results have
+    turned into kept sources more often (the install's own last fortnight)
+    come first."""
     e = (engine or "").strip().lower()
     first = engine_preferred(e) or e in promote
-    y = (yields or {}).get(e, UNKNOWN_ENGINE_YIELD)
-    return (engine_tier(e, promote), 0 if first else 1, -round(y, 3))
+    y = (yields or {}).get(e)
+    return (engine_tier(e, promote), 0 if first else 1,
+            0 if y is not None else 1, -round(y or 0.0, 3))
 
 
 # Video engines. Normally tier 1 (a video is a worse answer than a page for

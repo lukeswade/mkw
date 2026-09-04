@@ -259,12 +259,37 @@ def test_planner_and_gap_scopes_are_optional_and_tolerant():
 
 
 def test_engines_are_drawn_in_order_of_what_their_results_have_been_worth():
-    from app.research.searcher import engine_order, UNKNOWN_ENGINE_YIELD
+    from app.research.searcher import engine_order
     yields = {"braveapi": 0.61, "bing": 0.12, "google cse": 0.40}
     order = sorted(["bing", "braveapi", "google cse", "mojeek"], key=lambda e: engine_order(e, yields=yields))
     assert order[:2] == ["braveapi", "google cse"]               # keyed engines first turn, then by yield
-    assert order[2:] == ["mojeek", "bing"]                       # unknown (0.5) ahead of a measured 12%
-    assert engine_order("newengine", yields=yields)[2] == -UNKNOWN_ENGINE_YIELD
+    assert order[2:] == ["bing", "mojeek"]                       # a measured 12% still beats no record at all
+    assert engine_order("newengine", yields=yields)[2] == 1      # unproven: after every engine with a record
+    assert engine_order("bing", yields=yields)[2] == 0
+    # the failure this guards: a fresh video engine must not outrank a proven one on a videos run
+    from app.research.searcher import VIDEO_ENGINES
+    v = {"duckduckgo videos": 0.446, "youtube": 0.526}
+    got = sorted(["bing videos", "duckduckgo videos", "youtube"], key=lambda e: engine_order(e, VIDEO_ENGINES, v))
+    assert got == ["youtube", "duckduckgo videos", "bing videos"]
+
+
+def test_no_engine_fills_more_than_its_share_of_a_round():
+    """Bing Videos, 60 results a query and serving junk, took all 60 slots of
+    a round while DuckDuckGo Videos and YouTube held the answer."""
+    from collections import Counter
+    from app.research.dedupe import rank_diverse
+    from app.research.pipeline import engine_share
+    from app.research.searcher import SearchResult
+    mk = lambda i, eng: SearchResult(url=f"https://site{i}.com/p", title="t", snippet="",
+                                     engine=eng, published=None, score=0.0)
+    pool = [mk(i, "bing videos") for i in range(30)] + [mk(100 + i, "duckduckgo videos") for i in range(5)]
+    skips = Counter()
+    chosen = rank_diverse(pool, set(), per_domain=2, limit=12, per_engine=4, engine_skips=skips)
+    assert Counter(c.engine for c in chosen) == {"bing videos": 4, "duckduckgo videos": 4}   # the same share for all
+    assert skips == {"bing videos": 26, "duckduckgo videos": 1}
+    # results with no attribution are not one source and are never capped as one
+    assert len(rank_diverse([mk(i, "") for i in range(10)], set(), per_domain=2, limit=8, per_engine=2)) == 8
+    assert engine_share(60) == 20 and engine_share(28) == 10 and engine_share(2) == 1
 
 
 async def test_a_long_query_also_reaches_youtube_shortened_when_videos_are_in_scope():
