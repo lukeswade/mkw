@@ -465,3 +465,19 @@ async def test_a_claim_check_searches_the_categories_it_was_given(data_dir):
     assert sx.called
     sent = sx.calls[0].request.url.params["categories"]
     assert sent.startswith("it,q&a"), sent
+
+
+async def test_a_verdicts_quote_must_exist_in_the_evidence_it_cites():
+    from app.models import VerdictOut
+    from app.research.verify import Evidence, judge
+
+    class Fake:
+        def __init__(self, quote): self.quote = quote
+        async def chat_json(self, kind, messages, schema, **kw):
+            return VerdictOut(verdict="supported", confidence=8, reasoning="r", quote=self.quote, sources=[1])
+
+    ev = [Evidence(n=1, label="web", url="https://x", text="The 2UZ-FE uses iridium plugs with a 0.043 inch gap. Torque them to 13 ft-lbs.")]
+    assert (await judge(Fake("Torque them to 13 ft-lbs."), "claim", ev)).quote == "Torque them to 13 ft-lbs."
+    repaired = (await judge(Fake("the 2UZ-FE uses iridium spark plugs with a 0.043 gap"), "claim", ev)).quote
+    assert repaired == "The 2UZ-FE uses iridium plugs with a 0.043 inch gap."               # paraphrase -> the evidence's own sentence
+    assert (await judge(Fake("Replace the coil packs every 30,000 miles"), "claim", ev)).quote == ""       # not in the evidence

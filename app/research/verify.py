@@ -103,15 +103,31 @@ def render_evidence(items: list[Evidence]) -> str:
     ) or "(no evidence found)"
 
 
+def verbatim_quote(quote: str, evidence: list[Evidence]) -> str:
+    """The quote as the evidence actually has it: kept when verbatim,
+    replaced with the evidence's own sentence when one clearly matches,
+    dropped otherwise. The verdict table renders it inside quotation marks
+    under real sources, so it must be real — the same rule notes follow."""
+    from app.research.notes import _norm, _sentences, quote_is_verbatim, repair_quote
+    if not quote:
+        return ""
+    joined = "\n".join(e.text for e in evidence)
+    if quote_is_verbatim(quote, _norm(joined)):
+        return quote
+    return repair_quote(quote, _sentences(joined)) or ""
+
+
 async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
     if not evidence:
         return VerdictOut(verdict="unverifiable", confidence=0,
                           reasoning="No evidence was found for this claim.")
     try:
-        return await llm.chat_json(
+        out = await llm.chat_json(
             "verify", [{"role": "user", "content": prompts.VERDICT.format(
                 claim=claim, evidence=render_evidence(evidence))}],
             VerdictOut, max_tokens=900, temperature=0.1)
+        out.quote = verbatim_quote(out.quote, evidence)
+        return out
     except Exception as e:
         log.warning("verdict failed for %r: %s", claim[:60], e)
         return VerdictOut(verdict="unverifiable", confidence=0,
