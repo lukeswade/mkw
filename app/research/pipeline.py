@@ -35,6 +35,7 @@ from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (Finding, RELEVANCE_KEEP, finding_markdown, take_notes, verify_quotes)
 from app.research.progress import ProgressBus
+from app.research.bench import EngineBench
 from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult, refill_order,
                                    SearxngError, categories_for_scope, cutoff_for,
                                    engine_order, engine_tier)
@@ -655,7 +656,8 @@ class Pipeline:
                 searcher = Searcher(
                     cfg.searxng_url, http,
                     categories=run_categories or cfg.search_categories,
-                    max_concurrent=cfg.search_concurrency)
+                    max_concurrent=cfg.search_concurrency,
+                    bench=EngineBench(self.repo))
             fetcher = Fetcher(cfg, http)
 
             # 1. prior knowledge from earlier runs (knowledge layer, optional)
@@ -1144,6 +1146,8 @@ class Pipeline:
                          if total_results == 0
                          else f"{len(searcher.blocked_engines)} search engine(s) "
                               f"refused this round: {blocked}"))
+        for msg in (searcher.drain_bench_events() if hasattr(searcher, "drain_bench_events") else []):
+            self.bus.publish(run_id, "log", message=msg)
         if not candidates:
             return []
 
@@ -1583,7 +1587,8 @@ class Pipeline:
                 cfg.searxng_url, http,
                 categories=((row_get(row, "categories", "") or "").strip()
                             or cfg.search_categories),
-                max_concurrent=cfg.search_concurrency)
+                max_concurrent=cfg.search_concurrency,
+                bench=EngineBench(self.repo))
             fetcher = Fetcher(cfg, http)
             for i, claim in enumerate(checked, 1):
                 if self.cancel_requested:

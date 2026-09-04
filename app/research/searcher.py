@@ -265,11 +265,17 @@ class Searcher:
     def __init__(self, base_url: str, client: httpx.AsyncClient,
                  categories: str = DEFAULT_CATEGORIES,
                  max_concurrent: int = 2, timeout: float = 45.0,
-                 small_index_engines: frozenset[str] = SMALL_INDEX_ENGINES):
+                 small_index_engines: frozenset[str] = SMALL_INDEX_ENGINES,
+                 bench=None):
         self.base_url = base_url.rstrip("/")
         self.client = client
         self.categories = categories or DEFAULT_CATEGORIES
         self.small_index_engines = small_index_engines
+        # research/bench.py: engines a network block has taken out. Optional;
+        # without one every query goes by category exactly as before.
+        self.bench = bench
+        self.bench_events: list[str] = []
+        self._engine_map_cache: dict[str, set[str]] | None = None
         # Searches need a longer budget than page fetches: SearXNG fans one
         # query out to a dozen-plus engines and waits for the slow ones. The
         # shared 15s client timeout was killing multi-category queries.
@@ -310,9 +316,20 @@ class Searcher:
         if engines:
             params["engines"] = engines
         else:
-            params["categories"] = categories_for(recency, categories or self.categories)
-            if "general" in split_categories(params["categories"]):
+            cats = categories_for(recency, categories or self.categories)
+            params["categories"] = cats
+            if "general" in split_categories(cats):
                 self.brave_requests += 1
+            # A benched engine is left out by naming every other engine in
+            # the categories — the only way the API excludes one. Nothing
+            # benched, or no engine map: the categories go as before.
+            excluded = self.bench.excluded() if self.bench is not None else frozenset()
+            if excluded:
+                emap = await self._engine_map()
+                wanted = set().union(*(emap.get(c, set()) for c in split_categories(cats))) if emap else set()
+                if wanted & excluded and wanted - excluded:
+                    params["engines"] = ",".join(sorted(wanted - excluded))
+                    del params["categories"]
         time_range = RECENCY_TO_TIME_RANGE.get(recency)
         if time_range:
             params["time_range"] = time_range
@@ -339,6 +356,15 @@ class Searcher:
                 self.blocked_engines[str(entry[0])] = str(entry[-1])
         if unresponsive:
             log.info("searxng unresponsive engines for %r: %s", query, unresponsive)
+        if self.bench is not None:
+            try:
+                refused = {str(e[0]): str(e[-1]) for e in unresponsive
+                           if isinstance(e, (list, tuple)) and e}
+                answered = {str(eng) for item in data.get("results", [])
+                            for eng in (item.get("engines") or [])}
+                self.bench_events.extend(self.bench.observe(refused, answered))
+            except Exception as ex:  # noqa: BLE001 — bookkeeping never stops a search
+                log.debug("bench bookkeeping failed: %s", ex)
         if not data.get("results"):
             self.empty_searches += 1
 
@@ -369,6 +395,28 @@ class Searcher:
                 author=(item.get("author") or "").strip(),
             ))
         return out
+
+    async def _engine_map(self) -> dict[str, set[str]]:
+        """category → enabled engine names, from SearXNG's /config, once per
+        searcher. Empty when unavailable, which means "search by category"."""
+        if self._engine_map_cache is None:
+            try:
+                resp = await self.client.get(f"{self.base_url}/config", timeout=self.timeout)
+                resp.raise_for_status()
+                emap: dict[str, set[str]] = {}
+                for e in resp.json().get("engines", []):
+                    if e.get("enabled"):
+                        for cat in e.get("categories") or []:
+                            emap.setdefault(str(cat), set()).add(str(e["name"]))
+                self._engine_map_cache = emap
+            except Exception as ex:  # noqa: BLE001
+                log.debug("engine map unavailable: %s", ex)
+                self._engine_map_cache = {}
+        return self._engine_map_cache
+
+    def drain_bench_events(self) -> list[str]:
+        events, self.bench_events = self.bench_events, []
+        return events
 
     async def search(self, query: str, recency: str, *, pageno: int = 1,
                      categories: str | None = None) -> list[SearchResult]:

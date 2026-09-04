@@ -109,6 +109,18 @@ def _migrations() -> list:
             CREATE INDEX IF NOT EXISTS idx_outcomes_domain ON candidate_outcomes(domain);
             CREATE INDEX IF NOT EXISTS idx_outcomes_run ON candidate_outcomes(run_id);
         """),
+        # Engines a network-level block has taken out (research/bench.py).
+        lambda conn: conn.executescript("""
+            CREATE TABLE IF NOT EXISTS engine_bench (
+                engine        TEXT PRIMARY KEY,
+                refusals      INTEGER NOT NULL DEFAULT 0,
+                first_refused TEXT,
+                last_reason   TEXT,
+                benched_until TEXT,
+                strikes       INTEGER NOT NULL DEFAULT 0,
+                updated_at    TEXT NOT NULL
+            );
+        """),
     ]
 
 
@@ -324,6 +336,23 @@ class Repo:
             "relevance, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (run_id, url, domain.lower().removeprefix("www."), engine, outcome,
              relevance, utcnow()))
+        self.conn.commit()
+
+    # ---- engines a network block has taken out (research/bench.py) -------
+    def engine_bench_all(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM engine_bench").fetchall()
+
+    def engine_bench_upsert(self, engine: str, *, refusals: int, first_refused: str | None,
+                            last_reason: str | None, benched_until: str | None,
+                            strikes: int) -> None:
+        self.conn.execute(
+            "INSERT INTO engine_bench (engine, refusals, first_refused, last_reason, "
+            "benched_until, strikes, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(engine) DO UPDATE SET refusals=excluded.refusals, "
+            "first_refused=excluded.first_refused, last_reason=excluded.last_reason, "
+            "benched_until=excluded.benched_until, strikes=excluded.strikes, "
+            "updated_at=excluded.updated_at",
+            (engine, refusals, first_refused, last_reason, benched_until, strikes, utcnow()))
         self.conn.commit()
 
     def has_outcomes(self, run_id: str) -> bool:

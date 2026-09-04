@@ -436,7 +436,13 @@ What helps, in order of effort:
    hour for a CAPTCHA, a day for a Cloudflare or reCAPTCHA challenge — and
    says nothing. The bench lives in memory, so
    `docker compose restart searxng` clears it at once; do this before
-   assuming an engine is gone for good.
+   assuming an engine is gone for good. Blocks tied to your address are
+   different: SearXNG's retry every three minutes keeps them fresh. The app
+   keeps a bench of its own for those — an engine that has refused every
+   search for half an hour (too many requests, a CAPTCHA, an access denial)
+   is left out of queries for six hours, then tried once; an answer clears
+   it, another refusal doubles the sit-out, up to two days. The run log
+   says when an engine is benched and when it returns.
 
 The `general` set here is not the stock one. DuckDuckGo, Startpage, Qwant
 and Mojeek refused every one of the last 38 runs from a home address and
