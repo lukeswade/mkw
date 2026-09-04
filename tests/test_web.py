@@ -760,3 +760,18 @@ def test_the_estimate_trusts_the_last_fortnight_when_it_has_enough_runs(data_dir
     est = estimate_run(repo, 5)
     assert est.calibrated and est.samples == 3 # the fortnight, not the forty
     assert 15 * 60 < est.seconds < 30 * 60     # ~20 min for ~10 sources, not ~80
+
+
+def test_the_brave_budget_is_tracked_and_the_new_page_warns_at_80_percent(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    for _ in range(3):
+        rid = seed_completed_run(cfg)
+        repo.set_stats(rid, {"searches": 30, "sources_kept": 1, "sources_skipped": 1, "llm": {"calls": 1, "prompt_tokens": 1, "completion_tokens": 1}})
+    with TestClient(app) as client:
+        assert "Brave Search API:" not in client.get("/").text                       # untracked: no banner
+        client.post("/settings", data={"brave_monthly_quota": "100"}, follow_redirects=False)
+        home = client.get("/").text
+        assert "Brave Search API: 90 of 100 requests" in home                          # 90 >= 80%
+        assert "90</strong> of 100 (90%)" in client.get("/learned").text

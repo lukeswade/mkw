@@ -48,6 +48,7 @@ ENV_MAP = {
     "gap_variant": "GAP_VARIANT",
     "notes_order": "NOTES_ORDER",
     "notes_recheck": "NOTES_RECHECK",
+    "brave_monthly_quota": "BRAVE_MONTHLY_QUOTA",
     "search_categories": "SEARCH_CATEGORIES",
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
@@ -86,6 +87,7 @@ UI_EDITABLE = {
     "planner_variant",
     "query_scopes",
     "gap_variant",
+    "brave_monthly_quota",
     "reference_chasing",
     "blocked_domains",
     "authority_sites",
@@ -170,6 +172,9 @@ class Settings:
     # at borderline 3-5 scores), under A/B.
     notes_order: str = "instructions_first"
     notes_recheck: str = "off"
+    # Brave Search API requests your plan allows per month; 0 = not tracked.
+    # One request per search that includes the general category.
+    brave_monthly_quota: int = 0
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
     search_categories: str = "general,science"

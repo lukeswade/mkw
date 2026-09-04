@@ -349,6 +349,15 @@ class Repo:
             "HAVING reads >= ? AND kept > 0 ORDER BY 1.0 * kept / reads DESC, reads DESC LIMIT ?",
             (min_reads, limit)).fetchall()
 
+    def brave_requests_since(self, since_iso: str) -> int:
+        """Searches on research runs since `since_iso` whose categories include
+        general (or the default, which does) — one Brave API request each."""
+        total = 0
+        for d in self.stats_since(since_iso):
+            if not d["_categories"] or "general" in d["_categories"]:
+                total += int(d.get("searches") or 0)
+        return total
+
     def engine_yields(self, since_iso: str, min_reads: int = 15) -> dict[str, float]:
         """engine -> kept / pages read, over reads since `since_iso`. What an
         engine's results have actually been worth, as opposed to a tier

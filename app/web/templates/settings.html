@@ -105,6 +105,13 @@
           (18 vs 19 kept, more wasted reads); kept for a topic where round-two queries drift.</small>
       </label>
     </div>
+    <label>Brave Search API monthly quota <small>(0 = not tracked)</small>
+      <input type="number" name="brave_monthly_quota" min="0" step="100" value="{{ cfg.brave_monthly_quota }}"
+             placeholder="e.g. 2000">
+      <small class="field-help">Requests your plan allows per month. Each search that includes the
+        general category costs one. The Learned page shows this month's count against it, and the
+        New page warns at 80%.</small>
+    </label>
     <label>
       <input type="checkbox" name="reference_chasing" {{ 'checked' if cfg.reference_chasing else '' }}>
       Follow references cited by kept sources

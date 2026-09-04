@@ -130,6 +130,18 @@ def _runs_context(request: Request, limit: int = 20) -> dict:
     return {"runs": runs, "list_heading": "Research runs"}
 
 
+def _brave_warning(repo, cfg) -> dict | None:
+    """Used / quota when the month's Brave requests have passed 80% of the
+    plan; None when untracked or comfortably within it."""
+    quota = int(getattr(cfg, "brave_monthly_quota", 0) or 0)
+    if quota <= 0:
+        return None
+    from datetime import datetime, timezone
+    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    used = repo.brave_requests_since(month_start.isoformat())
+    return {"used": used, "quota": quota} if used >= 0.8 * quota else None
+
+
 def _index_context(request: Request, depth: int = 3) -> dict:
     cfg = request.app.state.cfg_loader()
     ctx = _runs_context(request)
@@ -139,6 +151,7 @@ def _index_context(request: Request, depth: int = 3) -> dict:
         "provider_label": cfg.provider.label,
         "estimate": estimate_run(request.app.state.repo, depth=depth),
         "category_options": category_options(cfg.search_categories),
+        "brave_warning": _brave_warning(request.app.state.repo, cfg),
         "default_categories": split_categories(cfg.search_categories),
     })
     return ctx

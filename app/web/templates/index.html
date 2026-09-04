@@ -13,6 +13,14 @@
   </article>
   {% endif %}
 
+  {% if brave_warning %}
+  <article class="banner banner-thin">
+    <p><strong>Brave Search API: {{ brave_warning.used }} of {{ brave_warning.quota }} requests used this month.</strong>
+       Each search that includes the general category costs one; past the quota Brave refuses and
+       runs fall back to the other engines. Lower the depth, drop general for a topic that lives
+       elsewhere, or wait for the month to roll over.</p>
+  </article>
+  {% endif %}
   {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
   <form method="post" action="/runs" class="new-run card">
     <textarea name="query" rows="3" required minlength="3" autofocus

@@ -44,8 +44,8 @@ async def learned(request: Request):
 
     # One Brave request per search on any run whose categories include general
     # (or the default, which does). The braveapi engine sits in general.
-    brave = sum((d.get("searches") or 0) for d in repo.stats_since(month_start)
-                if not d["_categories"] or "general" in d["_categories"])
+    brave = repo.brave_requests_since(month_start)
+    brave_quota = int(getattr(load_settings(), "brave_monthly_quota", 0) or 0)
 
     calibration = []
     for depth in range(1, 11):
@@ -73,6 +73,6 @@ async def learned(request: Request):
         "dead": repo.dead_domains(),
         "productive": repo.productive_domains(),
         "engines": engines, "recent_runs": len(recent),
-        "brave_requests": brave, "month": now.strftime("%B %Y"),
+        "brave_requests": brave, "brave_quota": brave_quota, "month": now.strftime("%B %Y"),
         "calibration": calibration,
     })
