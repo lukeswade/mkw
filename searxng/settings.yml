@@ -313,14 +313,9 @@ engines:
   - name: huggingface
     disabled: false
 
-  # Google CSE: Google answered "Our systems have detected unusual traffic
-  # from your network" from 2026-09-04 ~00:30 UTC after 223 CSE queries in
-  # one evening hour; every run then re-tried it each 180s and kept the flag
-  # fresh. Off until this address changes (router power-cycle for a new WAN
-  # IP), then flip both back to false: it kept 66 of 229 pages over the
-  # fortnight before, the second-best engine here.
-  - name: google cse
-    disabled: true
-  - name: google cse images
-    disabled: true
+  # Google CSE stays enabled here even while Google blocks this address
+  # ("unusual traffic from your network", 2026-09-04): the app's own bench
+  # (app/research/bench.py) leaves it out of queries for six hours at a
+  # time and lets it back in as its own probe, so SearXNG never re-pokes it
+  # every 180s. Disabling it here would hide it from that probe.
   # @@ API_ENGINES @@
