@@ -163,10 +163,12 @@ class Settings:
     query_scopes: str = "on"
     # Gap-analysis prompt under A/B test: "default" or "anchored".
     gap_variant: str = "default"
-    # Batch-2 A/B switches. notes_order: "default" | "instructions_first"
-    # (rubric before the document, for a cacheable prefix). notes_recheck:
-    # "off" | "on" (a second look at borderline 3-5 scores; same page scored 2 and 7).
-    notes_order: str = "default"
+    # notes_order: "instructions_first" won its A/B (avg kept relevance 7.44 vs
+    # 6.2, 14 vs 10 at 7+, half the wasted reads, 20% faster) and puts the
+    # constant rubric ahead of the document so a KV cache can reuse it;
+    # "default" is the kill switch. notes_recheck: "off" | "on" (a second look
+    # at borderline 3-5 scores), under A/B.
+    notes_order: str = "instructions_first"
     notes_recheck: str = "off"
     # SearXNG categories to query. general alone is four engines that all
     # rate-limit; science backfills with sources that do not.
