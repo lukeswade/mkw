@@ -254,6 +254,11 @@ class Searcher:
         # looks identical to "this topic has no sources".
         self.searches = 0
         self.empty_searches = 0
+        # Requests that reached Brave's API: one per SearXNG request carrying
+        # the general category. Twins sent to named engines and queries
+        # scoped to videos/it/science do not count — "searches" did, and
+        # over-read the Brave dashboard by two thirds.
+        self.brave_requests = 0
         self.blocked_engines: dict[str, str] = {}
 
     @property
@@ -278,6 +283,8 @@ class Searcher:
             params["engines"] = engines
         else:
             params["categories"] = categories_for(recency, categories or self.categories)
+            if "general" in split_categories(params["categories"]):
+                self.brave_requests += 1
         time_range = RECENCY_TO_TIME_RANGE.get(recency)
         if time_range:
             params["time_range"] = time_range

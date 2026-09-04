@@ -286,3 +286,17 @@ async def test_a_long_query_also_reaches_youtube_shortened_when_videos_are_in_sc
     s2 = Searcher("http://sx", client, categories="general,science", small_index_engines=frozenset())
     await s2.search("how to twist a rock on hand sign from a 260 balloon animal tutorial", "all")
     assert not [p for p in seen if "engines" in p]                             # videos not in scope: no twin
+
+
+async def test_only_requests_that_carry_general_count_as_brave_requests():
+    """'searches' over-read the Brave dashboard by two thirds: it counted the
+    twins sent to named engines and the queries scoped away from general."""
+    import httpx
+    from app.research.searcher import Searcher
+    async def handler(req): return httpx.Response(200, json={"results": [], "unresponsive_engines": []})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    s = Searcher("http://sx", client, categories="general,science,videos", small_index_engines=frozenset({"wiby"}))
+    await s.search("how to twist a longhorn balloon animal from a 260 balloon step by step", "all")   # general + a twin
+    await s.search("longhorn balloon tutorial", "all", categories="videos")                             # scoped: not Brave
+    await s.search("reel seat", "all", categories="general")                                            # general only
+    assert s.searches == 4 and s.brave_requests == 2

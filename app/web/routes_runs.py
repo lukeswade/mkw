@@ -136,9 +136,8 @@ def _brave_warning(repo, cfg) -> dict | None:
     quota = int(getattr(cfg, "brave_monthly_quota", 0) or 0)
     if quota <= 0:
         return None
-    from datetime import datetime, timezone
-    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    used = repo.brave_requests_since(month_start.isoformat())
+    from app.billing_cycle import cycle_start
+    used = repo.brave_requests_since(cycle_start(getattr(cfg, "brave_cycle_day", 1)).isoformat())
     return {"used": used, "quota": quota} if used >= 0.8 * quota else None
 
 

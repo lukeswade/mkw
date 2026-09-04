@@ -27,7 +27,7 @@ _SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password",
                        "embedding_api_key")
 # Bounded integers: (field, low, high). Garbage leaves the setting alone.
 _INT_FIELDS = (("llm_concurrency", 1, 16), ("relevance_threshold", 0, 10),
-               ("brave_monthly_quota", 0, 100_000_000))
+               ("brave_monthly_quota", 0, 100_000_000), ("brave_cycle_day", 1, 31))
 
 
 @router.get("/settings")

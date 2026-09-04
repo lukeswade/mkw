@@ -350,11 +350,15 @@ class Repo:
             (min_reads, limit)).fetchall()
 
     def brave_requests_since(self, since_iso: str) -> int:
-        """Searches on research runs since `since_iso` whose categories include
-        general (or the default, which does) — one Brave API request each."""
+        """Brave API requests since `since_iso`: the exact per-request count
+        where a run recorded one, else the older estimate (every search on a
+        run whose categories include general — which over-reads, since twins
+        and scoped queries never reach Brave)."""
         total = 0
         for d in self.stats_since(since_iso):
-            if not d["_categories"] or "general" in d["_categories"]:
+            if d.get("brave_requests") is not None:
+                total += int(d["brave_requests"])
+            elif not d["_categories"] or "general" in d["_categories"]:
                 total += int(d.get("searches") or 0)
         return total
 

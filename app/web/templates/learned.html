@@ -62,7 +62,7 @@
     {% endfor %}</tbody>
   </table>
   {% else %}<p class="empty-note">No refusals recorded.</p>{% endif %}
-  <p class="hint">Brave Search API requests this month ({{ month }}): <strong>{{ brave_requests }}</strong>{% if brave_quota %} of {{ brave_quota }} ({{ (100 * brave_requests / brave_quota) | round | int }}%){% endif %} — one per search that includes the general category.{% if not brave_quota %} Enter your plan's monthly quota in Settings to track it.{% endif %}</p>
+  <p class="hint">Brave Search API requests this billing cycle ({{ month }}): <strong>{{ brave_requests }}</strong>{% if brave_quota %} of {{ brave_quota }} ({{ (100 * brave_requests / brave_quota) | round | int }}%){% endif %} — one per search that includes the general category.{% if not brave_quota %} Enter your plan's quota and cycle start day in Settings to track it.{% endif %}</p>
 </article>
 
 <article class="card">

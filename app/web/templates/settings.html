@@ -108,9 +108,14 @@
     <label>Brave Search API monthly quota <small>(0 = not tracked)</small>
       <input type="number" name="brave_monthly_quota" min="0" step="100" value="{{ cfg.brave_monthly_quota }}"
              placeholder="e.g. 2000">
-      <small class="field-help">Requests your plan allows per month. Each search that includes the
-        general category costs one. The Learned page shows this month's count against it, and the
-        New page warns at 80%.</small>
+      <small class="field-help">Requests your plan allows per cycle. Each SearXNG request that includes the
+        general category costs one; queries scoped to videos, code or papers do not. The Learned page
+        shows this cycle's count against it, and the New page warns at 80%.</small>
+    </label>
+    <label>Brave billing cycle starts on day <small>(of the month)</small>
+      <input type="number" name="brave_cycle_day" min="1" max="31" value="{{ cfg.brave_cycle_day }}">
+      <small class="field-help">The day your Brave plan began — the dashboard's "current cycle" counts
+        from it, not from the 1st. Clamped to short months.</small>
     </label>
     <label>
       <input type="checkbox" name="reference_chasing" {{ 'checked' if cfg.reference_chasing else '' }}>

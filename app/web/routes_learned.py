@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request
 
+from app.billing_cycle import cycle_start
 from app.config import load_settings
 from app.research.estimate import estimate_run
 from app.research.pipeline import authority_domains_from
@@ -28,7 +29,9 @@ async def learned(request: Request):
     repo = request.app.state.repo
     now = datetime.now(timezone.utc)
     since_14d = (now - timedelta(days=14)).isoformat()
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    cfg = load_settings()
+    cycle = cycle_start(getattr(cfg, "brave_cycle_day", 1), now)
+    month_start = cycle.isoformat()
 
     recent = repo.stats_since(since_14d)
     refused: Counter = Counter()
@@ -45,7 +48,7 @@ async def learned(request: Request):
     # One Brave request per search on any run whose categories include general
     # (or the default, which does). The braveapi engine sits in general.
     brave = repo.brave_requests_since(month_start)
-    brave_quota = int(getattr(load_settings(), "brave_monthly_quota", 0) or 0)
+    brave_quota = int(getattr(cfg, "brave_monthly_quota", 0) or 0)
 
     calibration = []
     for depth in range(1, 11):
@@ -73,6 +76,7 @@ async def learned(request: Request):
         "dead": repo.dead_domains(),
         "productive": repo.productive_domains(),
         "engines": engines, "recent_runs": len(recent),
-        "brave_requests": brave, "brave_quota": brave_quota, "month": now.strftime("%B %Y"),
+        "brave_requests": brave, "brave_quota": brave_quota,
+        "month": f"cycle since {cycle.strftime('%b %-d')}",
         "calibration": calibration,
     })

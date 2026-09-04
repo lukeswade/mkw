@@ -1386,6 +1386,7 @@ class Pipeline:
         stats = {
             "rounds": state.rounds_done,
             "searches": getattr(searcher, "searches", 0),
+            "brave_requests": getattr(searcher, "brave_requests", None),
             "empty_searches": getattr(searcher, "empty_searches", 0),
             "blocked_engines": dict(getattr(searcher, "blocked_engines", {})),
             "urls_considered": len(state.seen_urls),
