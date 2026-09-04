@@ -738,3 +738,25 @@ def test_two_runs_of_one_question_can_be_compared_side_by_side(data_dir, monkeyp
         assert client.get("/compare?a=nope&b=nope").status_code == 404
         run_page = client.get(f"/runs/{a}").text
         assert f"/compare?a={a}&b={b}" in run_page                 # same question -> offered on the run page
+
+
+def test_the_estimate_trusts_the_last_fortnight_when_it_has_enough_runs(data_dir, monkeypatch):
+    """A fortnight ago a depth-5 run took 84 minutes; this week 22. The median
+    of the last 40 runs was still promising the old number."""
+    from datetime import datetime, timedelta, timezone
+    from app.research.estimate import estimate_run
+    app, cfg = make_app(data_dir, monkeypatch)
+    repo = Repo(connect(cfg.db_path))
+    now = datetime.now(timezone.utc)
+    def run_at(days_ago, minutes, kept=10):
+        rid = seed_completed_run(cfg)
+        start = now - timedelta(days=days_ago); end = start + timedelta(minutes=minutes)
+        repo.conn.execute("UPDATE runs SET depth=5, started_at=?, finished_at=?, created_at=? WHERE id=?",
+                          (start.isoformat(), end.isoformat(), start.isoformat(), rid))
+        repo.conn.commit()
+        repo.set_stats(rid, {"sources_kept": kept, "sources_skipped": 10, "llm": {"calls": 1, "prompt_tokens": 1, "completion_tokens": 1}})
+    for _ in range(4): run_at(30, 80)          # old, slow
+    for _ in range(3): run_at(2, 20)           # recent, fast
+    est = estimate_run(repo, 5)
+    assert est.calibrated and est.samples == 3 # the fortnight, not the forty
+    assert 15 * 60 < est.seconds < 30 * 60     # ~20 min for ~10 sources, not ~80

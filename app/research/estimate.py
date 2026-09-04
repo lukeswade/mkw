@@ -25,6 +25,10 @@ MIN_SAMPLES = 2
 # only until the install has its own history to measure from.
 KEEP_RATE = 0.55
 HISTORY_RUNS = 40
+# The pipeline changes; a fortnight ago a depth-5 run took 84 minutes and
+# this week it takes 22. When the last two weeks hold enough runs, they are
+# the history; older runs only fill in when they do not.
+HISTORY_DAYS = 14
 
 
 @dataclass
@@ -104,7 +108,15 @@ def _history(repo, depth: int) -> _History:
         " WHERE status = 'completed' AND stats_json IS NOT NULL"
         "   AND kind = 'research' AND depth > 0"
         " ORDER BY created_at DESC LIMIT ?", (HISTORY_RUNS,)).fetchall()
-    from datetime import datetime
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)).isoformat()
+
+    def _recent(r) -> bool:
+        return bool(r["started_at"]) and r["started_at"] >= cutoff
+
+    recent = [r for r in rows if _recent(r)]
+    if sum(1 for r in recent if r["finished_at"]) >= MIN_SAMPLES:
+        rows = recent
 
     secs: list[float] = []
     costs: list[float] = []
