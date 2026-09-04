@@ -231,7 +231,10 @@ def test_a_scope_narrows_a_query_to_categories_the_run_selected_never_wider():
     assert c("video+social", allowed) == "videos,social media"
     assert c("code", allowed) is None                      # `it` not selected: fall back, don't widen
     assert c("academic", "general") is None
-    assert c("", allowed) is None and c("nonsense", allowed) is None
+    # no usable scope = a web query, plus video when the run selected it — not every category
+    assert c("", allowed) == "general,videos" and c("nonsense", allowed) == "general,videos"
+    assert c("", "general,science") == "general"
+    assert c("", "science,it") is None                     # general not selected: the run's list stands
     assert c("WEB + Video", allowed) == "general,videos"    # tolerant of case and spacing
 
 

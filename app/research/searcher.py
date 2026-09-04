@@ -171,12 +171,18 @@ SCOPE_CATEGORIES = {
 def categories_for_scope(scope: str, allowed: str) -> str | None:
     """SearXNG categories for a query's scope, narrowed to what the run
     selected — a scope may narrow the run's categories, never widen them.
-    None means "no usable scope: use the run's categories as before"."""
+    A query with no usable scope is a web query: general, plus videos when
+    the run selected video. It used to mean "every category the run
+    selected", and a balloon question's unscoped queries hit Crossref,
+    OpenAlex and PubMed until all three suspended it (2026-09-04). None —
+    "use the run's categories" — only when the run did not select general."""
     wanted = [SCOPE_CATEGORIES[t] for t in
               re.split(r"[+,/ ]+", (scope or "").strip().lower()) if t in SCOPE_CATEGORIES]
-    if not wanted:
-        return None
     allowed_set = set(split_categories(allowed))
+    if not wanted:
+        if "general" not in allowed_set:
+            return None
+        return "general,videos" if "videos" in allowed_set else "general"
     kept = [c for c in dict.fromkeys(wanted) if not allowed_set or c in allowed_set]
     return ",".join(kept) if kept else None
 

@@ -61,7 +61,10 @@ async def test_empty_categories_fall_back_to_global(data_dir):
     run_id = orch.enqueue(RunParams(query="solid state batteries", depth=1,
                                     recency="all", origin="cli"))
     await orch.execute_now(run_id)
-    assert seen and all(c == "general,science" for c in seen)
+    # The ceiling fell back to the global default (general,science); an
+    # unscoped query is a web query, so it searched general (see
+    # categories_for_scope). An empty ceiling would have sent both.
+    assert seen and all(c == "general" for c in seen)
 
 
 # ---- web form + retry inheritance -------------------------------------------------
