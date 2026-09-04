@@ -574,9 +574,9 @@ async def test_both_escalation_rungs_are_on_by_default(data_dir):
     cfg = load_settings(str(data_dir))
     assert cfg.browser_impersonation is True
     assert cfg.browser_solver_url == "http://flaresolverr:8191"
-    # and reference chasing, which is the other thing a fresh install
-    # silently did without
-    assert cfg.reference_chasing is True
+    # Reference chasing is the opposite case: on for a fortnight it kept 3 of
+    # 73 pages it read, so a fresh install leaves it off.
+    assert cfg.reference_chasing is False
 
 
 @respx.mock

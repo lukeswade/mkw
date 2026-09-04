@@ -184,10 +184,12 @@ class Settings:
     search_categories: str = "general,science"
     search_concurrency: int = 2
     relevance_threshold: int = 4
-    # Fetch the most promising references cited by kept sources (one hop,
-    # capped per round). The links a good source chooses are often better
-    # than anything a search engine returns.
-    reference_chasing: bool = True
+    # Fetch the most promising references cited by kept sources (one hop).
+    # Off by default: over a fortnight on this install it read 73 chased
+    # pages and kept 3, and 55 of the 56 rejected scored 0-2 — not
+    # near-misses. When on it is capped per round and per run (pipeline
+    # _REFS_PER_ROUND / _REFS_PER_RUN), so a bad topic cannot spend a run on it.
+    reference_chasing: bool = False
     # Comma-separated domains never worth fetching for you (e.g. pinterest.com)
     blocked_domains: str = ""
     # Curated sites holding authoritative primary documents, offered to the

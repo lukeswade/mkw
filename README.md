@@ -300,8 +300,9 @@ Most fields explain themselves on the page. The ones people ask about:
   UTC either way.
 - **Blocked domains** — sites you never want fetched.
 - **Follow references** — when a source makes the cut, its best outbound
-  links become candidates too. The references a good page chooses are often
-  better than anything a search engine returns. On by default.
+  links become candidates too. Off by default: over a fortnight on this
+  install it read 73 chased pages and kept 3, and the rejects scored 0-2,
+  not near-misses. When on it is capped at 4 references a round and 6 a run.
 
 ### Telegram (optional)
 

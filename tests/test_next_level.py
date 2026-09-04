@@ -91,6 +91,7 @@ def _script(synth="# T\n\nBody [1].\n"):
 @respx.mock
 async def test_citation_chasing_fetches_referenced_pages(data_dir):
     cfg = make_cfg(data_dir)
+    cfg.reference_chasing = True   # off by default since 2026-09-04
     linked = article("Article A").replace(
         "</article>",
         '<a href="https://ref-site.com/battery-manufacturing-deep-dive">'
@@ -138,6 +139,59 @@ async def test_chasing_can_be_disabled(data_dir):
                                     recency="all", origin="cli"))
     await orch.execute_now(run_id)
     assert len(repo.findings_for_run(run_id)) == 1
+
+
+@respx.mock
+async def test_chasing_is_capped_per_run_not_just_per_round(data_dir):
+    """Two rounds, each with two kept pages citing two references: 8 refs
+    harvested, 4 allowed a round — but the run cap of 6 means round 2 gets
+    the 2 that are left, and the log says why the other 2 were not fetched."""
+    from app.research.pipeline import _REFS_PER_ROUND, _REFS_PER_RUN
+    assert _REFS_PER_RUN < 2 * _REFS_PER_ROUND  # else this test proves nothing
+    cfg = make_cfg(data_dir)
+    cfg.reference_chasing = True
+
+    def page(title, refs):
+        links = "".join(
+            f'<a href="https://ref{n}.com/solid-state-battery-report">'
+            f"solid state battery report {n}</a>" for n in refs)
+        return article(title).replace("</article>", links + "</article>")
+
+    results = {
+        "q1": [("https://site-a.com/solid-state", "Solid state battery A", page("A", [1, 2])),
+               ("https://site-b.com/solid-state", "Solid state battery B", page("B", [3, 4]))],
+        "q2": [("https://site-c.com/solid-state", "Solid state battery C", page("C", [5, 6])),
+               ("https://site-d.com/solid-state", "Solid state battery D", page("D", [7, 8]))],
+    }
+    respx.get(f"{SX}/search").mock(side_effect=lambda req: httpx.Response(200, json=sx_payload(
+        [sx_result(u, t) for u, t, _h in results.get(req.url.params.get("q"), [])])))
+    for rows in results.values():
+        for url, _t, html in rows:
+            respx.get(url).mock(return_value=httpx.Response(200, html=html))
+    for n in range(1, 9):
+        respx.get(f"https://ref{n}.com/solid-state-battery-report").mock(
+            return_value=httpx.Response(200, html=article(f"Report {n}")))
+
+    script = _script()
+    script["planner"] = [{"title": "T", "brief": "Investigate solid state batteries.",
+                          "subqueries": ["q1"]}]
+    script["gap"] = [{"state_md": "s", "saturated": False, "next_queries": ["q2"]},
+                     {"state_md": "s", "saturated": True, "next_queries": []}]
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(script))
+    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=3,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    findings = repo.findings_for_run(run_id)
+    chased = [f for f in findings if f["domain"].startswith("ref")]
+    assert len(chased) == _REFS_PER_RUN, sorted(f["domain"] for f in findings)
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert events.count("chasing ") == 2
+    assert f"{_REFS_PER_RUN} of {_REFS_PER_RUN} this run" in events
+    # four kept pages were read, so no ref was lost to anything but the cap
+    assert len([f for f in findings if f["domain"].startswith("site-")]) == 4
 
 
 # ---- e2e: blocked domains -------------------------------------------------------

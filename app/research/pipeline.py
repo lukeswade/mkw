@@ -123,8 +123,13 @@ def saturation_patience(depth: int) -> int:
 _WEAK_FLOOR = 2
 _WEAK_MAX = 4
 
-# Citation chasing: at most this many cited references are fetched per round.
+# Citation chasing: at most this many cited references are fetched per round,
+# and per run. The run cap is the 14-day median (2026-09-04: 13 runs chased
+# 73, median 6, max 10, kept 3), so a typical run is untouched and only the
+# 7-10 runs clamp. Front-loaded: round 1 may take all 4, later rounds share
+# what is left.
 _REFS_PER_ROUND = 4
+_REFS_PER_RUN = 6
 # When gap analysis proposes nothing but the run is not saturated and rounds
 # remain, the most productive queries so far are re-run on the next result
 # page rather than ending the run. Pages past this are engine filler.
@@ -227,6 +232,8 @@ class _RunState:
     spared_urls: set[str] = field(default_factory=set)
     # Pages read (fetched and judged) and evidence quotes removed as not verbatim.
     read: int = 0
+    # Cited references fetched so far this run (capped at _REFS_PER_RUN).
+    refs_chased: int = 0
     quotes_dropped: int = 0
     quotes_repaired: int = 0
     # The last round fetched fewer candidates than usual because the depth's
@@ -1265,14 +1272,22 @@ class Pipeline:
         await asyncio.gather(*(process(c) for c in candidates))
 
         if references and not self.cancel_requested:
-            chase = pick(references, _REFS_PER_ROUND)
+            budget = min(_REFS_PER_ROUND, _REFS_PER_RUN - state.refs_chased)
+            chase = pick(references, budget) if budget > 0 else []
             if chase:
+                state.refs_chased += len(chase)
                 self.bus.publish(
                     run_id, "log",
                     message=(f"chasing {len(chase)} reference(s) cited by "
-                             f"kept sources"))
+                             f"kept sources ({state.refs_chased} of "
+                             f"{_REFS_PER_RUN} this run)"))
                 await asyncio.gather(
                     *(process(c, harvest_refs=False) for c in chase))
+            elif budget <= 0:
+                self.bus.publish(
+                    run_id, "log",
+                    message=(f"{len(references)} cited reference(s) not "
+                             f"chased: the run's cap of {_REFS_PER_RUN} is spent"))
         return kept
 
     # ---- finalization ---------------------------------------------------------------

@@ -138,6 +138,7 @@ async def test_notes_excerpts_only_oversized_documents():
 @respx.mock
 async def test_thin_index_page_chases_its_child_links(data_dir):
     cfg = make_cfg(data_dir)
+    cfg.reference_chasing = True   # index descent rides the chasing switch
     index_html = (
         "<html><head><title>Spark Plug</title></head><body><main><article>"
         "<h1>Spark Plug</h1>"

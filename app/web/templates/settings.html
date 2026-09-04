@@ -122,8 +122,10 @@
       Follow references cited by kept sources
     </label>
     <p class="hint">When a source makes the cut, its most relevant outbound
-      links become candidates too — the references a good page chooses are
-      often better than anything a search engine returns.</p>
+      links become candidates too. Off by default: over a fortnight here it
+      read 73 chased pages and kept 3. When on it is capped at 4 references a
+      round and 6 a run, so it can add a hard-to-search source without
+      spending the run.</p>
     <label>Blocked domains <small>(comma-separated, never fetched)</small>
       <input type="text" name="blocked_domains" value="{{ cfg.blocked_domains }}"
              placeholder="e.g. pinterest.com, quora.com">
