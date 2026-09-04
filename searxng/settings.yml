@@ -178,6 +178,9 @@ engines:
   # week ago, 8 results on the same query today — re-enabled and measured.
   - name: mwmbl
     disabled: false
+    # 8 results in 0.5s on one query, a timeout that held the whole search
+    # for 8s on the next. Cap what a bad moment can cost.
+    timeout: 3.0
 
   # --- resilient general-web engines ---
   - name: mojeek
@@ -278,6 +281,13 @@ engines:
   - name: wikinews
     disabled: true
   - name: wikicommons.videos
+    disabled: true
+
+  # Tor-only engines: 'can't register engine (loading engine failed)' on every
+  # start, since there is no Tor here. Off so the log says something useful.
+  - name: ahmia
+    disabled: true
+  - name: torch
     disabled: true
 
   # @@ API_ENGINES @@
