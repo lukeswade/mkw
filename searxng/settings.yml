@@ -313,4 +313,14 @@ engines:
   - name: huggingface
     disabled: false
 
+  # Google CSE: Google answered "Our systems have detected unusual traffic
+  # from your network" from 2026-09-04 ~00:30 UTC after 223 CSE queries in
+  # one evening hour; every run then re-tried it each 180s and kept the flag
+  # fresh. Off until this address changes (router power-cycle for a new WAN
+  # IP), then flip both back to false: it kept 66 of 229 pages over the
+  # fortnight before, the second-best engine here.
+  - name: google cse
+    disabled: true
+  - name: google cse images
+    disabled: true
   # @@ API_ENGINES @@
