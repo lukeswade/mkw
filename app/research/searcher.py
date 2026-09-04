@@ -241,6 +241,49 @@ _QUERY_STOPWORDS = frozenset(
     "what which why when where who i my your best top guide diy".split())
 
 
+def query_terms(text: str) -> frozenset[str]:
+    """Lowercase word tokens of the user's own question — what tells a
+    speculative proper noun from one they actually asked about."""
+    return frozenset(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+def _entity_positions(tokens: list[str]) -> list[int]:
+    """Indices of tokens that look like a name rather than a word:
+    ALL-CAPS acronyms and Capitalised words."""
+    out = []
+    for i, tok in enumerate(tokens):
+        core = tok.strip("\"'()[],.:;")
+        if len(core) < 2 or not any(c.isalpha() for c in core):
+            continue
+        if core.isupper() or (core[:1].isupper() and any(c.islower() for c in core[1:])):
+            out.append(i)
+    return out
+
+
+def generalize_query(query: str, known: frozenset[str] = frozenset()) -> str:
+    """A query that returned nothing, with its rare names thinned out.
+
+    Naming three or four rare entities at once matches no page: 25 of one
+    depth-10 run's 54 searches came back empty, every one of them a brand
+    string the planner had assembled ("Workato AIRO Genie structured
+    output"). Drop the names the user's own question never used; if the
+    question used them all, keep the subject and drop the rest. Empty string
+    when there is nothing to thin — the caller then accepts the empty result.
+    """
+    tokens = query.split()
+    entities = _entity_positions(tokens)
+    if len(entities) < 2:
+        return ""
+    drop = {i for i in entities
+            if tokens[i].strip("\"'()[],.:;").lower() not in known}
+    if not drop:
+        drop = set(entities[1:])
+    kept = [t for i, t in enumerate(tokens) if i not in drop]
+    if len(kept) < 2 or len(kept) == len(tokens):
+        return ""
+    return " ".join(kept)
+
+
 def shorten_query(query: str, words: int = _SHORT_WORDS) -> str:
     """The first few content words of a query — what a small index can match."""
     tokens = [w for w in query.split() if not w.lower().startswith("site:")]
@@ -266,7 +309,7 @@ class Searcher:
                  categories: str = DEFAULT_CATEGORIES,
                  max_concurrent: int = 2, timeout: float = 45.0,
                  small_index_engines: frozenset[str] = SMALL_INDEX_ENGINES,
-                 bench=None):
+                 bench=None, known_terms: frozenset[str] = frozenset()):
         self.base_url = base_url.rstrip("/")
         self.client = client
         self.categories = categories or DEFAULT_CATEGORIES
@@ -274,6 +317,9 @@ class Searcher:
         # research/bench.py: engines a network block has taken out. Optional;
         # without one every query goes by category exactly as before.
         self.bench = bench
+        # The user's own question, tokenised: see generalize_query.
+        self.known_terms = known_terms
+        self.generalized = 0
         self.bench_events: list[str] = []
         self._engine_map_cache: dict[str, set[str]] | None = None
         # Searches need a longer budget than page fetches: SearXNG fans one
@@ -437,6 +483,18 @@ class Searcher:
                          "shorter: %r", short)
                 return await self.search(short, recency, pageno=pageno,
                                          categories=categories)
+
+        # A query that matched nothing anywhere is usually over-specified
+        # with rare names rather than wrong about the topic. One retry with
+        # them thinned out turns a wasted search into evidence.
+        if not out and pageno == 1 and not site:
+            general = generalize_query(query, self.known_terms)
+            if general:
+                log.info("no results for %r — retrying generalized: %r",
+                         query, general)
+                self.generalized += 1
+                out = await self._query(general, recency, pageno=pageno,
+                                        categories=categories)
 
         # The short twin for small-index engines (see SMALL_INDEX_ENGINES).
         # Page 1 only, never for site: queries, and only when shortening

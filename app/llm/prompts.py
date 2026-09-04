@@ -25,10 +25,14 @@ Number of initial search queries to produce: {breadth}
 {prior_block}{authority_block}
 Produce a JSON object with exactly these keys:
 - "title": a short descriptive title for this research (max 10 words)
-- "brief": 2-4 sentences stating what the research must establish — the specific angles, subtopics, and what a complete answer looks like
+- "facets": array of 1-12 short names (2-5 words each) for the DISTINCT things this question asks for. Read the question to its end and give every separate ask its own facet — each numbered or bulleted item, each named use case, each explicit deliverable ("caveats and known gaps", "how it compares with competitors", "how to embed it in our UI") is its own facet, never folded into a neighbour. A short question has one or two facets; a long brief with a list in it has one per item. These are what the run is scored against: a facet no source answers is reported to the reader as unanswered, so name what was actually asked rather than what you expect to find.
+- "brief": 2-4 sentences stating what the research must establish. It must cover EVERY facet you just named — the brief is the filter every later stage uses, and an ask missing from it can never be searched for.
 - "subqueries": array of exactly {breadth} distinct web search queries (plain strings), SPREAD ACROSS THE DIFFERENT FACETS of the brief you just wrote. Never spend two queries on one facet while another facet has none — a query set that all asks for the same kind of thing returns one kind of source. Specifications, part numbers and measurements are ONE facet: at most one query, however many numbers the brief mentions. If the brief asks how to do something, at least one query must search the way a person doing the job would ("how to X", "X step by step", "X DIY", "X guide") — that is what surfaces walkthroughs, forum threads and videos, which specification queries never return. Use terminology a domain expert would search for, avoid near-duplicates, and where the recency focus makes it useful include a year in the query text.
+- "query_facets": array aligned with "subqueries" — the facet each query attacks, copied EXACTLY from your "facets" list. Cover as many different facets as there are query slots; when there are more facets than slots, take the most important ones now (later rounds are allocated to whatever is still uncovered). Never give two queries to one facet while another facet has none.
 - "query_scopes": array aligned with "subqueries" — where each query should be searched. One of: "web" (general search engines; the default), "video" (YouTube and video engines — for how-to and demonstration content), "code" (GitHub, package indexes, developer Q&A — ONLY for software, firmware or programming), "academic" (papers — ONLY for scientific, medical or engineering-research questions), "qa" (Stack Exchange sites — ONLY for software and sysadmin questions), "news" (current events), "social" (reddit and forum discussion), "files" (documents). Combine with "+" ("web+video", "web+social"). Irrelevant engines slow the search, add junk, and get the shared address rate-limited: name only scopes that can plausibly hold the answer. Most queries are "web", "web+video" or "web+social".
 - "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) that are strongly associated with the target information across these subqueries. These will be used for fast text extraction from large documents.
+
+A query naming three or four rare proper nouns at once ("Acme AIRO Genie structured output") matches no page and returns nothing: a quarter of one run's searches came back empty that way. Name the subject and ONE other distinctive term, and put the rest of the meaning in ordinary words. Not every query should name the subject vendor either — a facet like "how competitors compare" or "what this class of product typically costs" is answered by pages that never mention it.
 
 Respond with only the JSON object."""
 
@@ -224,15 +228,26 @@ New findings this round:
 
 Queries already searched (do not repeat or trivially rephrase):
 {searched}
-{authority_block}
+{coverage_block}{authority_block}
 Produce a JSON object with exactly these keys:
 - "state_md": REWRITE the complete research state document in markdown, merging the new findings into it: what is now established (cite source ids like [3]), what is uncertain or disputed, what is still missing. Max 1500 words. This document is the pipeline's only memory — keep it complete and dense.
 - "saturated": boolean — true only if further searching is unlikely to add material insight on the brief
 - "next_queries": if not saturated, an array of up to {breadth} NEW search queries attacking the biggest remaining gaps (plain strings, no duplicates of past queries). Spread them across DIFFERENT gaps rather than several angles on one, and if a gap is procedural ("how is it actually done") phrase at least one query the way someone doing the task would search. KEEP EACH QUERY SHORT AND SEARCHABLE — roughly 3-8 words a person would actually type. Do not encode the precise answer you are hoping for: "valve cover torque 7 ft-lbs vs 11 ft-lbs factory manual" and "best swivel socket for tight clearance rear bank" match no page and return tangential junk, while "2UZ-FE valve cover torque" and "rear spark plug socket clearance" find the pages that contain those answers. A narrow gap still needs a broad query. Empty array if saturated.
+- "next_query_facets": array aligned with "next_queries" — the facet of the question each query attacks, copied EXACTLY from the coverage list above. Spend these queries on the facets with NO sources first: a facet with twenty sources does not need a twenty-first, and an unanswered part of the question is the biggest gap there is, whatever the state document says.
 - "next_query_scopes": array aligned with "next_queries" — where each should be searched: "web" (default), "video" (how-to/demonstration), "code" (ONLY software/firmware/programming), "academic" (ONLY scientific/medical research), "qa" (ONLY software/sysadmin), "news", "social" (reddit/forums), "files"; combine with "+". Irrelevant engines slow the search, add junk and get the shared address rate-limited — name only scopes that can hold the answer.
 - "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) relevant to the next_queries for fast text extraction.
 
 Respond with only the JSON object."""
+
+# What each facet of the question has produced so far, shown to gap analysis
+# so it attacks unanswered asks before it deepens answered ones.
+COVERAGE_BLOCK = """
+Coverage so far — sources kept per facet of the question:
+{coverage}
+
+A facet showing 0 has not been researched at all. Those come first.
+"""
+
 
 CLAIMS = """You are the claim-extraction stage of a fact-checking pipeline. \
 Break the document below into the specific assertions it makes.
@@ -321,6 +336,21 @@ support; if no source supports a point, leave it out or mark it as unverified.
 
 Write only the markdown document itself, no preamble and no bibliography \
 (the bibliography is generated separately)."""
+
+# Facets no source answered. Synthesis is given the original question, so
+# without this it writes a confident section for every ask — on 2026-09-04
+# four unresearched use cases each got a section, cited to unrelated vendor
+# documentation. The reader cannot see which sections rest on nothing.
+SYNTH_COVERAGE_BLOCK = """
+These parts of the question produced NO sources at all:
+{uncovered}
+
+Do not write a section on any of them and do not answer them from your own
+knowledge — an unresearched answer that looks researched is the worst thing
+this document can contain. Say nothing about them; they are listed for the
+reader separately. Do not add a "Not researched" heading yourself.
+"""
+
 
 SYNTH_DELTA_BLOCK = """
 This run UPDATES earlier research on the same topic. The previous overview is

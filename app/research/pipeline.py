@@ -35,8 +35,9 @@ from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (Finding, RELEVANCE_KEEP, finding_markdown, take_notes, verify_quotes)
 from app.research.progress import ProgressBus
+from app.research import facets as facet_plan
 from app.research.bench import EngineBench
-from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult, refill_order,
+from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult, refill_order, query_terms,
                                    SearxngError, categories_for_scope, cutoff_for,
                                    engine_order, engine_tier)
 from app.research.storage import RunStore, validate_citations
@@ -248,6 +249,13 @@ class _RunState:
     # round's refill (see searcher.refill_order).
     engine_read: Counter = field(default_factory=Counter)
     engine_kept: Counter = field(default_factory=Counter)
+    # The distinct things this question asks for, the facet each query
+    # attacks, and how many sources each facet has produced. Rounds are
+    # allocated against this table (see research/facets.py).
+    facets: list = field(default_factory=list)
+    query_facet: dict = field(default_factory=dict)
+    facet_kept: Counter = field(default_factory=Counter)
+    facet_subject: str = ""
     quotes_dropped: int = 0
     quotes_repaired: int = 0
     # The last round fetched fewer candidates than usual because the depth's
@@ -657,7 +665,8 @@ class Pipeline:
                     cfg.searxng_url, http,
                     categories=run_categories or cfg.search_categories,
                     max_concurrent=cfg.search_concurrency,
-                    bench=EngineBench(self.repo))
+                    bench=EngineBench(self.repo),
+                    known_terms=query_terms(query))
             fetcher = Fetcher(cfg, http)
 
             # 1. prior knowledge from earlier runs (knowledge layer, optional)
@@ -759,8 +768,17 @@ class Pipeline:
                 variant=getattr(self.cfg, "planner_variant", "default"))
             self.repo.update_run(run_id, title=the_plan.title)
             store.update_meta(title=the_plan.title, brief=the_plan.brief)
+            state.facets = facet_plan.clean_facets(the_plan.facets)
+            state.query_facet.update(facet_plan.align(
+                state.facets, the_plan.subqueries, the_plan.query_facets))
+            state.facet_subject = facet_plan.subject_terms(
+                the_plan.title, the_plan.keywords)
             self.bus.publish(run_id, "plan", title=the_plan.title,
                              brief=the_plan.brief, subqueries=the_plan.subqueries)
+            if state.facets:
+                self.bus.publish(run_id, "log", message=(
+                    f"{len(state.facets)} part(s) of the question to answer: "
+                    + "; ".join(state.facets)))
 
             # 3. research rounds
             try:
@@ -779,6 +797,31 @@ class Pipeline:
             for round_no in range(1, rounds + 1):
                 self._check_cancel()
                 state.rounds_done = round_no
+                # Slots go to the parts of the question with the fewest
+                # sources, and no part may take more than a third of a round
+                # while another has none. Without this a long question runs
+                # every round on whichever facet answered first.
+                queries, starved, spare = facet_plan.allocate(
+                    queries, state.query_facet, state.facet_kept,
+                    state.facets, breadth)
+                if starved:
+                    added = []
+                    for f in starved[:max(0, breadth - len(queries))]:
+                        for q in (facet_plan.facet_query(f, state.facet_subject),
+                                  facet_plan.facet_query(f, "")):
+                            if q and q not in queries and q not in state.searched:
+                                state.query_facet[q] = f
+                                state.query_scope.setdefault(q, "web")
+                                added.append(q)
+                                break
+                    if added:
+                        queries = queries + added
+                        self.bus.publish(run_id, "log", message=(
+                            f"no sources yet for {', '.join(starved[:4])}"
+                            + (" …" if len(starved) > 4 else "")
+                            + f" — searching {len(added)} of them directly"))
+                if len(queries) < breadth and spare:
+                    queries = queries + spare[:breadth - len(queries)]
                 self.bus.publish(run_id, "round_start", round=round_no,
                                  depth=rounds, queries=queries,
                                  scopes=[state.query_scope.get(q, "") for q in queries])
@@ -806,7 +849,8 @@ class Pipeline:
                     breadth=breadth, state_md=state.state_md,
                     new_findings=kept, searched=state.searched,
                     authority=getattr(self.cfg, "authority_sites", ""),
-                    variant=getattr(self.cfg, "gap_variant", "default"))
+                    variant=getattr(self.cfg, "gap_variant", "default"),
+                    coverage=facet_plan.coverage_lines(state.facets, state.facet_kept))
                 state.state_md = gap.state_md
                 store.write_round(round_no, self._round_md(
                     round_no, queries, kept, gap.saturated, state))
@@ -829,6 +873,8 @@ class Pipeline:
                     break
                 if gap.next_queries:
                     state.query_scope.update(zip(gap.next_queries, gap.next_query_scopes))
+                    state.query_facet.update(facet_plan.align(
+                        state.facets, gap.next_queries, gap.next_query_facets))
                     queries = self._apply_site_limit(run_id, state, gap.next_queries)
                     current_keywords = gap.keywords
                     pageno = 1
@@ -872,6 +918,9 @@ class Pipeline:
             state.engine_read[eng] += 1
             if outcome == "kept":
                 state.engine_kept[eng] += 1
+                facet = state.query_facet.get(getattr(c, "via_query", "") or "")
+                if facet:
+                    state.facet_kept[facet] += 1
         try:
             self.repo.record_outcome(run_id=run_id, url=canonicalize(c.url),
                                      domain=domain_of(c.url), engine=c.engine or "",
@@ -885,6 +934,8 @@ class Pipeline:
         widened = [(new_q, old_q) for new_q, old_q in pairs if new_q != old_q]
         for new_q, old_q in widened:
             state.query_scope[new_q] = state.query_scope.get(old_q, "")
+            if old_q in state.query_facet:
+                state.query_facet[new_q] = state.query_facet[old_q]
         if widened:
             self.bus.publish(
                 run_id, "log",
@@ -1395,12 +1446,14 @@ class Pipeline:
         if findings:
             self.bus.publish(run_id, "phase", phase="synthesis",
                              sources=len(findings))
+            unanswered = facet_plan.uncovered(state.facets, state.facet_kept)
             overview = await synthesizer.synthesize(
                 llm, query=query, title=the_plan.title, brief=the_plan.brief,
                 recency_desc=recency_desc, today=today,
                 state_md=state.state_md, findings=findings,
                 bus=self.bus, run_id=run_id,
-                previous_overview=previous_overview)
+                previous_overview=previous_overview,
+                uncovered_facets=unanswered)
             if thin:
                 overview = (
                     "> **Thin result.** No source strongly matched this "
@@ -1414,6 +1467,17 @@ class Pipeline:
             if removed:
                 self.bus.publish(run_id, "log",
                                  message=f"stripped invalid citations: {sorted(removed)}")
+            if unanswered:
+                # Named in the document itself, not just the log: a reader
+                # cannot otherwise tell a researched section from one the
+                # model wrote out of its own head.
+                overview = (overview.rstrip() + "\n\n## Not researched\n\n"
+                            + "The run found no sources for these parts of the "
+                            + "question, and nothing above answers them:\n\n"
+                            + "\n".join(f"- {f}" for f in unanswered) + "\n")
+                self.bus.publish(run_id, "log", message=(
+                    f"{len(unanswered)} part(s) of the question found no "
+                    f"sources: " + "; ".join(unanswered)))
             fu = await synthesizer.follow_ups(llm, query=query, overview=overview)
         elif searcher is not None and searcher.degraded:
             # Every search came back empty *and* engines were reporting blocks.

@@ -86,8 +86,15 @@ class RunParams(BaseModel):
 
 class PlannerOut(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+    # The distinct things the question asks for. Data, not prose: the round
+    # loop counts sources per facet and spends its slots on the thin ones
+    # (research/facets.py). Optional — a model that omits them gets the old
+    # single-thread behaviour.
+    facets: list[str] = Field(default_factory=list, max_length=12)
     brief: str = ""
     subqueries: list[str] = Field(min_length=1, max_length=12)
+    # One facet per subquery, aligned by index. Optional and tolerant.
+    query_facets: list[str] = Field(default_factory=list, max_length=12)
     keywords: list[str] = Field(default_factory=list, max_length=20)
     # One scope per subquery ("web", "web+video", "code", ...), aligned by
     # index. Optional: a model that omits it gets the run's full categories.
@@ -105,6 +112,11 @@ class PlannerOut(BaseModel):
     @classmethod
     def _clean_scopes(cls, v):
         return [str(x).strip().lower() for x in (v or []) if x is not None]
+
+    @field_validator("facets", "query_facets", mode="before")
+    @classmethod
+    def _clean_facets(cls, v):
+        return [str(x).strip().lower() for x in (v or []) if x is not None][:12]
 
 
 class Fact(BaseModel):
@@ -222,6 +234,13 @@ class GapOut(BaseModel):
     next_queries: list[str] = Field(default_factory=list, max_length=12)
     keywords: list[str] = Field(default_factory=list, max_length=20)
     next_query_scopes: list[str] = Field(default_factory=list, max_length=12)
+    # Which facet of the question each next query attacks (research/facets.py).
+    next_query_facets: list[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator("next_query_facets", "next_query_scopes", mode="before")
+    @classmethod
+    def _clean_facet_tags(cls, v):
+        return [str(x).strip().lower() for x in (v or []) if x is not None][:12]
 
     @field_validator("next_queries")
     @classmethod

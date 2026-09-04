@@ -69,6 +69,7 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                      recency_desc: str, today: str, state_md: str,
                      findings: list[Finding], bus=None, run_id: str = "",
                      previous_overview: str = "",
+                     uncovered_facets: list[str] | None = None,
                      placeholder_on_failure: bool = True) -> str:
     blocks = [_note_block(f) for f in findings]
 
@@ -80,6 +81,11 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         today=today, state_md=state_md or "(none)",
         notes_block="\n".join(blocks),
     )
+    if uncovered_facets:
+        # Synthesis is given the original question, so left alone it writes a
+        # confident section for every ask, researched or not.
+        prompt += prompts.SYNTH_COVERAGE_BLOCK.format(
+            uncovered="\n".join(f"- {f}" for f in uncovered_facets))
     if previous_overview:
         # Evergreen refreshes and follow-ups lead with what changed — nobody
         # wants to re-read a 90%-identical overview to find the new part.
