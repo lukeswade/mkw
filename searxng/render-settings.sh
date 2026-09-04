@@ -112,6 +112,10 @@ else
     engine: core
     shortcut: cor
     api_key: '$CORE_API_KEY'
+    # Measured 2026-09-04: normal answers 2.4-5.6s, one in five past the
+    # instance's 8s default — and one timeout suspends the engine for three
+    # minutes, most of a round. 12s covers the tail; max_request_timeout is 15.
+    timeout: 12.0
     inactive: false
     disabled: false"
         echo "render-settings: core.ac.uk enabled"
