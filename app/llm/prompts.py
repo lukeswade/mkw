@@ -442,8 +442,12 @@ description. For a how-to or demonstration video, the value is what it SHOWS: a 
 casual or auto-generated narration does not make it irrelevant. If the title and \
 description say it demonstrates what the brief asks for, score it accordingly (a direct \
 demonstration of a requested procedure is 6 or higher) and record what it demonstrates, \
-the materials or parts named, and any links or sources the description points to. Score \
-it low only when the title and description are themselves off-topic.
+the materials or parts named, and any links or sources the description points to. A \
+demonstration of a component or base form the requested result is built from — a balloon \
+hand for a hand-sign question, a head or horns for an animal, a named twist or join the \
+brief's shapes use — is real material on part of the brief (4-6), not tangential \
+background, even when the video's own subject differs. Score it low only when the title \
+and description are themselves off-topic.
 """
 
 
