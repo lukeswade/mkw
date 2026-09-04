@@ -87,6 +87,35 @@ else
     disabled: false"
         echo "render-settings: marginalia enabled"
     fi
+    if [ -n "${GITHUB_CODE_TOKEN:-}" ]; then
+        BLOCK="$BLOCK
+  - name: github code
+    engine: github_code
+    shortcut: ghc
+    # Stock declares only 'code', and a search for category 'it' (the app's
+    # code scope) selects engines whose categories contain 'it' — a
+    # code-only engine is never asked. Both, so the scope reaches it.
+    categories: [it, code]
+    ghc_auth:
+      type: personal_access_token
+      token: '$GITHUB_CODE_TOKEN'
+    ghc_highlight_matching_lines: true
+    # Stock declares it inactive (useless without a token); same merge trap
+    # as braveapi above.
+    inactive: false
+    disabled: false"
+        echo "render-settings: github code enabled"
+    fi
+    if [ -n "${CORE_API_KEY:-}" ]; then
+        BLOCK="$BLOCK
+  - name: core.ac.uk
+    engine: core
+    shortcut: cor
+    api_key: '$CORE_API_KEY'
+    inactive: false
+    disabled: false"
+        echo "render-settings: core.ac.uk enabled"
+    fi
 
     if [ -n "$BLOCK" ]; then
         # python, not sed: the key is arbitrary text and sed would treat & and

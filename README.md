@@ -421,8 +421,13 @@ What helps, in order of effort:
    the scraper it replaces (1,000 requests a month free; the Learned page
    counts them against your billing cycle). A Marginalia key
    (`MARGINALIA_API_KEY`) adds a small independent index that specialises in
-   the non-commercial web. The app enables each engine when its key is
-   present and never writes a key into a committed file.
+   the non-commercial web. A GitHub fine-grained token (`GITHUB_CODE_TOKEN`,
+   public repositories, read-only, no other permission) turns on GitHub
+   code search for the code scope, which refuses unauthenticated calls. A
+   free [CORE](https://core.ac.uk/services/api) key (`CORE_API_KEY`) adds
+   its open-access paper index to the science category. The app enables
+   each engine when its key is present and never writes a key into a
+   committed file; `.env.example` has the click-path for each.
 4. **Lean on what never blocks.** The `science` category (on by default)
    reaches Crossref, OpenAlex, Semantic Scholar and arXiv. The small
    independent indexes (mwmbl, searchmysite, wiby) answer when the majors

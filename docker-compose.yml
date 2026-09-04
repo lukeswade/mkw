@@ -57,6 +57,8 @@ services:
       # Optional. Set in .env; each one that is present adds its engine.
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
       MARGINALIA_API_KEY: ${MARGINALIA_API_KEY:-}
+      GITHUB_CODE_TOKEN: ${GITHUB_CODE_TOKEN:-}
+      CORE_API_KEY: ${CORE_API_KEY:-}
     restart: unless-stopped
     # No ports: only reachable from the internal Docker network.
 
