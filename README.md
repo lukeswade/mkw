@@ -165,8 +165,10 @@ While a run is going you see its log stream live. When it is finished:
 - **Overview** — the cited synthesis. Every `[n]` jumps to the bibliography.
   If this run builds on earlier research, a follow-up or a daily refresh, it
   leads with *what's new since the last look* rather than repeating itself.
-- **Sources** — every kept source with its notes, verbatim evidence, and a
-  ☆ *Follow* button that turns that site into a brief source.
+- **Sources** — every kept source with its notes and evidence quotes — each
+  quote checked against the page; one the page does not contain is repaired
+  to the page's own sentence or removed — and a ☆ *Follow* button that turns
+  that site into a brief source.
 - **Comparison** — appears once you press *Build comparison* on a run that
   weighs things against each other (see below).
 - **Further research** — suggested follow-ups, each a one-click run that
@@ -174,11 +176,14 @@ While a run is going you see its log stream live. When it is finished:
 - **Log** — the full record.
 
 Below the tabs, **How this run went** folds out the whole story in one place:
-how many rounds and searches, which engines refused, how many candidates were
-dropped before being read versus after, how many pages fought back (and how
-they were beaten), and what the model cost. A run that kept almost nothing
-also gets a banner at the top saying *why* — engines refusing (fixable — see
-*When search goes quiet* below) or a topic with little to find (not).
+how many rounds and searches, which engines refused, how many results were
+filtered out before selection, how many pages were read and kept, how many
+pages fought back (and how they were beaten), how many quotes were repaired
+or removed, and what the model cost. A run that kept almost nothing also gets
+a banner at the top saying *why* — engines refusing (fixable — see *When
+search goes quiet* below) or a topic with little to find (not). If the same
+question has other completed runs, the header offers each as a one-click
+**side-by-side comparison**.
 
 **Exports** — three ways to take the whole record with you: **PDF**, a
 self-contained **HTML** page (dark-mode aware, opens from a double-click,
@@ -210,6 +215,24 @@ Everything you have researched, searchable by keyword or by meaning. Each
 run carries a badge for what it is — research, brief, claim check — plus a
 marker if it has a comparison table. Deleting a run removes it everywhere,
 files included; take a backup first if you might want it later.
+
+### Learned
+
+What this install has worked out from its own runs — nothing on this page is
+a setting, it is what the data says:
+
+- **Sources that pay off** — domains ranked by how often a read became a kept
+  source. On a new question, the sources that proved themselves on *related*
+  earlier questions start round one with a larger share.
+- **Your authority sites** and their yield, since those bypass triage.
+- **Sources that never pay off** — read many times across several runs, kept
+  nothing. They already rank last; a button blocks them for good.
+- **Search engines, last 14 days** — how often each refused, and how often
+  each engine's results turned into kept sources, which is what decides the
+  order engines are drawn from.
+- **Brave requests this month**, against your plan if you enter it.
+- **Estimate calibration** — what the New page's estimate knows about each
+  depth from your recent runs.
 
 ### Ask
 
@@ -267,8 +290,14 @@ Most fields explain themselves on the page. The ones people ask about:
 - **Authority sites** — a short list of "domain — what it holds" for
   goldmines search engines barely index (the shipped example is charm.li, the
   mirror of full factory service manuals). When a topic fits one, the planner
-  dedicates a query to it, and its pages are exempt from the two-per-site cap
-  that keeps ordinary rounds diverse. Add your own as you find them.
+  dedicates a query to it, its pages skip triage, and it starts every round
+  at the six-slot ceiling other sources have to earn. Add your own as you
+  find them — and watch their yield on the Learned page.
+- **Planner prompt / per-query scope / gap-analysis prompt** — three switches
+  that were each decided by a paired A/B run; the recommended value is marked
+  and the result is in each explainer. Leave them unless you are testing.
+- **Display time zone** — every clock the server prints. Runs are stored in
+  UTC either way.
 - **Blocked domains** — sites you never want fetched.
 - **Follow references** — when a source makes the cut, its best outbound
   links become candidates too. The references a good page chooses are often
@@ -299,6 +328,17 @@ docker compose exec app python -m app.cli ask "a question over everything so far
 docker compose exec app python -m app.cli reindex    # rebuild indexes from the .md files
 ```
 
+**A/B testing a change** — one question, two arms back to back under
+different settings, scored side by side:
+
+```bash
+docker compose exec app python -m app.cli ab "your question" --depth 4 --env-a "GAP_VARIANT=default" --env-b "GAP_VARIANT=anchored"
+```
+
+The table shows kept sources, quality, waste, time and cost for each arm and
+links to the same comparison in the app. Every tuning decision in this
+project was made this way; one run per arm is directional, not proof.
+
 ---
 
 ## How it reads the web
@@ -307,25 +347,36 @@ Search returns far more than is worth reading, and much of the web does not
 want to be read. What happens between a query and a source:
 
 1. **Search** goes through your own [SearXNG](https://github.com/searxng/searxng)
-   instance, so no search engine sees an API key or a profile. Small
-   independent indexes (boardreader, searchmysite, wiby — the ones that find
-   forum and hobbyist pages the majors bury) match nearly word-for-word, so
-   long queries are also sent to them shortened to their key terms.
-2. **Triage** — a fast-model pass over titles and snippets drops product
-   listings, wrong-model pages and content farms before anything is fetched.
-   Scraped SEO clones of the same article collapse into one source.
+   instance, so no search engine sees an API key or a profile. The planner
+   names each query's *scope* — web, video, code, papers, forums — so a
+   balloon question never asks PubMed. Small independent indexes
+   (searchmysite, wiby) and video engines match short keyword strings, so long
+   queries also go to them shortened to their key terms. Engines are drawn in
+   the order their results have actually turned into kept sources for you.
+2. **Selection and triage** — results that share no word with the question
+   are never fetched; storefronts and unreadable hosts are filtered; each
+   source starts with two slots a round and earns more by keeping what it is
+   given (sources that paid off on related earlier questions start higher);
+   then a fast-model pass over titles and snippets drops the obvious junk
+   before anything is fetched, with a floor so one bad verdict cannot empty a
+   round. Scraped SEO clones of the same article collapse into one source.
 3. **Fetch**, with an escalation ladder for pages that refuse: a retry
    presenting a real Chrome TLS fingerprint (recovers most CDN blocks —
    Britannica, Merriam-Webster — without a browser); the hashcash
    proof-of-work wall a growing number of forums hide behind, solved in
    milliseconds; and, if you opt in, a headless browser for JavaScript
    challenges. Reddit threads are read through Reddit's JSON API, and rebuilt
-   from public archives when Reddit refuses. YouTube is read through caption
-   transcripts. Some walls defeat everything — those fail with an honest
-   reason in the log.
+   from public archives when Reddit refuses (the archive with the comments
+   wins). YouTube is read through caption transcripts, or through the video's
+   own description when captions are thin or missing — a demonstration video
+   is judged by what it shows, not by how much it narrates. Some walls defeat
+   everything — those fail with an honest reason in the log.
 4. **Notes** — the note-taker sees the whole extracted page, not a snippet,
-   scores it against the question, and writes notes with verbatim evidence.
-   Sources below the relevance threshold are dropped.
+   scores it against the question, and writes notes with evidence quotes.
+   Every quote is checked against the page: one the page does not contain is
+   repaired to the page's own sentence or removed. Sources below the
+   relevance threshold are dropped; every read is remembered, which is how
+   the install learns which domains pay off.
 5. **Gap analysis** decides what to search next, or that the topic is
    saturated.
 6. **Synthesis** writes the overview, with every claim cited and every
