@@ -236,7 +236,9 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
                  per_domain: int = 2, limit: int = 12,
                  group=None,
                  uncapped: frozenset[str] = frozenset(),
-                 cap_for=None) -> list[SearchResult]:
+                 cap_for=None,
+                 per_engine: int | None = None,
+                 engine_skips: Counter | None = None) -> list[SearchResult]:
     """Pick fetch candidates: drop seen/duplicate URLs, cap per-source count.
 
     `group` decides what counts as one source, defaulting to the domain. A
@@ -254,11 +256,19 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
     opposite of that, and a forum holding five good threads on the question
     was yielding two per round. Authority sites already bypass triage for the
     same reason: curated judgment outranks a heuristic.
+
+    `per_engine` caps how many picks one search engine may supply. Sixty
+    junk videos from one degraded engine once took a whole round while two
+    engines returning the answer got nothing in; no engine is that good.
+    Results with no engine attribution are exempt (they are not one
+    source). `engine_skips`, when given, counts what each engine was held
+    back, for the run log.
     """
     key = group or source_key
     out: list[SearchResult] = []
     taken: set[str] = set()
     domain_counts: Counter[str] = Counter()
+    engine_counts: Counter[str] = Counter()
     for r in results:
         cu = canonicalize(r.url)
         if cu in seen or cu in taken:
@@ -268,8 +278,14 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
         # `uncapped` is judged on the URL's host, whatever the group key is.
         if domain_counts[d] >= cap and not _under(domain_of(cu), uncapped):
             continue
+        eng = (r.engine or "").strip().lower()
+        if per_engine is not None and eng and engine_counts[eng] >= per_engine:
+            if engine_skips is not None:
+                engine_skips[eng] += 1
+            continue
         taken.add(cu)
         domain_counts[d] += 1
+        engine_counts[eng] += 1
         out.append(r)
         if len(out) >= limit:
             break

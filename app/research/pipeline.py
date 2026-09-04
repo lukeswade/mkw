@@ -66,6 +66,15 @@ def max_docs_for_depth(depth: int) -> int:
     effort = effort_for_depth(depth)
     return max(8, round(effort * (12 + effort)))
 
+def engine_share(limit: int) -> int:
+    """The most candidates one search engine may supply to a round: a third,
+    rounded up, never under one. Bing Videos returns 60 results a query and
+    served junk for a whole round on 2026-09-04; ranked ahead of two engines
+    holding the answer, it filled all 60 slots. No engine deserves more than
+    a third of a round, however well it has done before."""
+    return max(1, -(-limit // 3))
+
+
 def candidates_per_round(breadth: int) -> int:
     # breadth*3 starved runs whose topics live on hard-to-search sites; the
     # wider net costs only fetches for candidates the ranker put below the
@@ -988,10 +997,24 @@ class Pipeline:
                 return max(_SOURCE_CAP_MAX, earned) if _under_any(key, authority) else earned
             # Web research only: a brief's per-feed share is fixed by design.
             cap_for = None if state.group_by is not None else _cap
+            # Web research only: a brief's feeds are not search engines. And
+            # only when more than one engine is in the pool — the share cap
+            # diversifies across engines; a single-engine pool (the chased
+            # references, all "reference") has nothing to diversify toward,
+            # and the cap would only shrink the round.
+            attributed = {(r.engine or "").strip().lower() for r in pool} - {""}
+            per_engine = (engine_share(limit)
+                          if state.group_by is None and len(attributed) > 1 else None)
+            engine_skips: Counter = Counter()
             chosen = rank_diverse(pool, state.seen_urls,
                                   per_domain=state.per_source,
                                   limit=limit, group=state.group_by,
-                                  uncapped=uncapped, cap_for=cap_for)
+                                  uncapped=uncapped, cap_for=cap_for,
+                                  per_engine=per_engine, engine_skips=engine_skips)
+            if engine_skips:
+                self.bus.publish(run_id, "log", message=(
+                    f"engine share capped at {per_engine} this round: " + ", ".join(
+                        f"{e} held back {n}" for e, n in engine_skips.most_common(3))))
             if cap_for is not None:
                 taken = Counter(source_key(c) for c in chosen)
                 earned = {k: n for k, n in taken.items()
