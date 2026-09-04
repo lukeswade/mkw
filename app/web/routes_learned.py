@@ -35,8 +35,12 @@ async def learned(request: Request):
     for d in recent:
         for engine in (d.get("blocked_engines") or {}):
             refused[engine] += 1
-    engines = [{"engine": e, "runs_refused": n, "share": n / max(1, len(recent))}
-               for e, n in refused.most_common(20)]
+    yields = repo.engine_yields(since_14d, min_reads=1)
+    names = set(refused) | set(yields)
+    engines = sorted(
+        ({"engine": e, "runs_refused": refused.get(e, 0), "share": refused.get(e, 0) / max(1, len(recent)),
+          "yield": yields.get(e)} for e in names),
+        key=lambda x: (-(x["yield"] or 0), -x["runs_refused"]))[:24]
 
     # One Brave request per search on any run whose categories include general
     # (or the default, which does). The braveapi engine sits in general.

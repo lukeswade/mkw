@@ -349,6 +349,16 @@ class Repo:
             "HAVING reads >= ? AND kept > 0 ORDER BY 1.0 * kept / reads DESC, reads DESC LIMIT ?",
             (min_reads, limit)).fetchall()
 
+    def engine_yields(self, since_iso: str, min_reads: int = 15) -> dict[str, float]:
+        """engine -> kept / pages read, over reads since `since_iso`. What an
+        engine's results have actually been worth, as opposed to a tier
+        someone typed in."""
+        rows = self.conn.execute(
+            "SELECT engine, COUNT(*) AS reads, SUM(outcome = 'kept') AS kept "
+            "FROM candidate_outcomes WHERE created_at >= ? AND engine != '' "
+            "GROUP BY engine HAVING reads >= ?", (since_iso, min_reads)).fetchall()
+        return {r["engine"]: r["kept"] / r["reads"] for r in rows}
+
     def yield_for_domains(self, domains: list[str]) -> list[sqlite3.Row]:
         if not domains:
             return []

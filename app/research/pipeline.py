@@ -15,7 +15,7 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 import httpx
@@ -228,6 +228,7 @@ class _RunState:
     # Pages read (fetched and judged) and evidence quotes removed as not verbatim.
     read: int = 0
     quotes_dropped: int = 0
+    quotes_repaired: int = 0
     # The last round fetched fewer candidates than usual because the depth's
     # budget was nearly met — a thin result then says nothing about the topic.
     last_round_trimmed: bool = False
@@ -235,6 +236,8 @@ class _RunState:
     # many reads and several runs (Repo.dead_domains). Ranked last, never
     # dropped: blocking is the reader's call, offered on the run page.
     dead_domains: frozenset = frozenset()
+    # engine -> kept/read over the last fortnight (Repo.engine_yields).
+    engine_yield: dict = field(default_factory=dict)
     # Kept sources per diversity key (channel, repo, subreddit, domain) — what
     # a source has earned toward a larger share of later rounds.
     kept_by_source: Counter = field(default_factory=Counter)
@@ -740,8 +743,10 @@ class Pipeline:
             # 3. research rounds
             try:
                 state.dead_domains = frozenset(d["domain"] for d in self.repo.dead_domains())
+                state.engine_yield = self.repo.engine_yields(
+                    (datetime.now(timezone.utc) - timedelta(days=14)).isoformat())
             except Exception as e:  # never let bookkeeping stop a run
-                log.debug("dead-domain lookup failed: %s", e)
+                log.debug("dead-domain / engine-yield lookup failed: %s", e)
             state.query_scope.update(zip(the_plan.subqueries, the_plan.query_scopes))
             queries = self._apply_site_limit(run_id, state, the_plan.subqueries)
             current_keywords = the_plan.keywords
@@ -956,7 +961,7 @@ class Pipeline:
                 not shares_vocabulary(f"{r.title} {r.snippet} {r.url}", vocab)
                 if state.group_by is None else False,   # surviving filler last of all
                 domain_of(r.url) in state.dead_domains,  # then never-productive domains
-                *engine_order(r.engine, promote),   # tier, then keyed/promoted first
+                *engine_order(r.engine, promote, state.engine_yield),   # tier, first turn, learned yield
                 looks_like_index(r.url),      # roots and indexes last in tier
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
             # A question that selected videos wants the videos: the host cap
@@ -1175,7 +1180,9 @@ class Pipeline:
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
                 return
-            state.quotes_dropped += verify_quotes(notes, doc.text)
+            repaired, dropped = verify_quotes(notes, doc.text)
+            state.quotes_repaired += repaired
+            state.quotes_dropped += dropped
             if notes.relevance < getattr(self.cfg, "relevance_threshold",
                                          RELEVANCE_KEEP):
                 state.skipped += 1
@@ -1390,6 +1397,7 @@ class Pipeline:
             "browser_solved": getattr(fetcher, "solved", 0),
             "pow_solved": getattr(fetcher, "pow_solved", 0),
             "quotes_unverified": state.quotes_dropped,
+            "quotes_repaired": state.quotes_repaired,
             # What a healthy run of this depth would have kept, so the page
             # can tell a thin run from a normal one without re-deriving it.
             "sources_expected": max_docs_for_depth(state.depth),

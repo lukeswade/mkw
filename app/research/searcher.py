@@ -113,14 +113,23 @@ def engine_preferred(engine: str) -> bool:
     return (engine or "").strip().lower() in _PREFERRED_ENGINES
 
 
-def engine_order(engine: str, promote: frozenset[str] = frozenset()) -> tuple[int, int]:
-    """Sort key: (tier, turn). Keyed engines AND the engines the run promoted
-    (video engines on a videos run) take the first turn within their tier.
-    Without the second half, two keyed engines' 39 results filled a 28-slot
-    round before the promoted YouTube engine got a single candidate in."""
+# An engine with no record yet sorts as if half its results were kept: never
+# buried before it has one, never trusted ahead of one that has earned it.
+UNKNOWN_ENGINE_YIELD = 0.5
+
+
+def engine_order(engine: str, promote: frozenset[str] = frozenset(),
+                 yields: dict[str, float] | None = None) -> tuple[int, int, float]:
+    """Sort key: (tier, turn, -yield). Keyed engines AND the engines the run
+    promoted (video engines on a videos run) take the first turn within their
+    tier — without that, two keyed engines' 39 results filled a 28-slot round
+    before the promoted YouTube engine got a single candidate in. Within a
+    turn, engines whose results have turned into kept sources more often (the
+    install's own last fortnight) come first."""
     e = (engine or "").strip().lower()
     first = engine_preferred(e) or e in promote
-    return (engine_tier(e, promote), 0 if first else 1)
+    y = (yields or {}).get(e, UNKNOWN_ENGINE_YIELD)
+    return (engine_tier(e, promote), 0 if first else 1, -round(y, 3))
 
 
 # Video engines. Normally tier 1 (a video is a worse answer than a page for

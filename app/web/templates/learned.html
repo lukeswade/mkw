@@ -51,12 +51,13 @@
 
 <article class="card">
   <h3>Search engines, last 14 days</h3>
-  <p class="hint">How many of the {{ recent_runs }} research runs each engine refused at least once — CAPTCHAs, rate limits, parsing errors. Refusals are tied to your network address, not to this tool.</p>
+  <p class="hint">Yield is how often an engine's results, once read, became kept sources — it decides the order engines are drawn from within a tier. Refusals are how many of the {{ recent_runs }} recent runs the engine refused at least once (CAPTCHAs, rate limits, parsing errors); those are tied to your network address, not to this tool.</p>
   {% if engines %}
   <table class="learned">
-    <thead><tr><th>engine</th><th>runs refused</th><th>share</th></tr></thead>
+    <thead><tr><th>engine</th><th>yield</th><th>runs refused</th><th>share</th></tr></thead>
     <tbody>{% for e in engines %}
-      <tr><td><code>{{ e['engine'] }}</code></td><td>{{ e['runs_refused'] }}</td>
+      <tr><td><code>{{ e['engine'] }}</code></td>
+          <td>{{ ((100 * e['yield']) | round | int ~ '%') if e['yield'] is not none else '—' }}</td><td>{{ e['runs_refused'] }}</td>
           <td><span class="bar" style="width: {{ (100 * e['share']) | round | int }}%"></span> {{ (100 * e['share']) | round | int }}%</td></tr>
     {% endfor %}</tbody>
   </table>

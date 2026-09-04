@@ -213,11 +213,11 @@ def test_promoted_video_engines_share_the_first_turn_with_keyed_engines():
     """On a videos run, braveapi and google cse alone filled a 28-slot round
     before the promoted youtube engine placed one candidate."""
     from app.research.searcher import engine_order, VIDEO_ENGINES
-    assert engine_order("braveapi") == (0, 0)
-    assert engine_order("bing") == (0, 1)
-    assert engine_order("youtube") == (1, 1)                        # plain run: backfill
-    assert engine_order("youtube", VIDEO_ENGINES) == (0, 0)        # videos run: first turn
-    assert engine_order("crossref") == (1, 1)
+    assert engine_order("braveapi")[:2] == (0, 0)
+    assert engine_order("bing")[:2] == (0, 1)
+    assert engine_order("youtube")[:2] == (1, 1)                        # plain run: backfill
+    assert engine_order("youtube", VIDEO_ENGINES)[:2] == (0, 0)        # videos run: first turn
+    assert engine_order("crossref")[:2] == (1, 1)
 
 
 def test_a_scope_narrows_a_query_to_categories_the_run_selected_never_wider():
@@ -256,3 +256,12 @@ def test_planner_and_gap_scopes_are_optional_and_tolerant():
     assert p.query_scopes == ["web+video"]
     g = GapOut(next_queries=["x"], next_query_scopes=["code"])
     assert g.next_query_scopes == ["code"]
+
+
+def test_engines_are_drawn_in_order_of_what_their_results_have_been_worth():
+    from app.research.searcher import engine_order, UNKNOWN_ENGINE_YIELD
+    yields = {"braveapi": 0.61, "bing": 0.12, "google cse": 0.40}
+    order = sorted(["bing", "braveapi", "google cse", "mojeek"], key=lambda e: engine_order(e, yields=yields))
+    assert order[:2] == ["braveapi", "google cse"]               # keyed engines first turn, then by yield
+    assert order[2:] == ["mojeek", "bing"]                       # unknown (0.5) ahead of a measured 12%
+    assert engine_order("newengine", yields=yields)[2] == -UNKNOWN_ENGINE_YIELD
