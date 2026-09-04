@@ -357,15 +357,21 @@ class Searcher:
 
         # The short twin for small-index engines (see SMALL_INDEX_ENGINES).
         # Page 1 only, never for site: queries, and only when shortening
-        # actually changes something.
-        if (pageno == 1 and self.small_index_engines and not site
-                and len(query.split()) >= _SHORT_TRIGGER):
+        # actually changes something. Video search matches short keyword
+        # strings the same way: a balloon question never surfaced "Balloon
+        # Rock Hand Horns" because its queries read like web queries, so
+        # when videos are in this query's scope the YouTube engine gets the
+        # shortened twin too.
+        if pageno == 1 and not site and len(query.split()) >= _SHORT_TRIGGER:
             short = shorten_query(query)
-            if short and short.lower() != query.lower():
+            twin_engines = set(self.small_index_engines)
+            if "videos" in split_categories(categories or self.categories):
+                twin_engines.add("youtube")
+            if short and short.lower() != query.lower() and twin_engines:
                 try:
                     twin = await self._query(
                         short, recency, pageno=1,
-                        engines=",".join(sorted(self.small_index_engines)))
+                        engines=",".join(sorted(twin_engines)))
                 except Exception as e:  # noqa: BLE001 — the main results stand
                     log.debug("short twin %r failed: %s", short, e)
                     twin = []

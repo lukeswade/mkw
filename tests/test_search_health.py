@@ -265,3 +265,24 @@ def test_engines_are_drawn_in_order_of_what_their_results_have_been_worth():
     assert order[:2] == ["braveapi", "google cse"]               # keyed engines first turn, then by yield
     assert order[2:] == ["mojeek", "bing"]                       # unknown (0.5) ahead of a measured 12%
     assert engine_order("newengine", yields=yields)[2] == -UNKNOWN_ENGINE_YIELD
+
+
+async def test_a_long_query_also_reaches_youtube_shortened_when_videos_are_in_scope():
+    """A balloon question never surfaced 'Balloon Rock Hand Horns': video
+    search matches short keyword strings, and the queries read like web
+    queries. With videos in scope, the YouTube engine gets the short twin."""
+    import httpx
+    from app.research.searcher import Searcher
+    seen = []
+    async def handler(req):
+        seen.append(dict(req.url.params)); return httpx.Response(200, json={"results": [], "unresponsive_engines": []})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    s = Searcher("http://sx", client, categories="general,videos", small_index_engines=frozenset())
+    await s.search("how to twist a rock on hand sign from a 260 balloon animal tutorial", "all")
+    twins = [p for p in seen if "engines" in p]
+    assert len(twins) == 1 and twins[0]["engines"] == "youtube"
+    assert len(twins[0]["q"].split()) < 8                                     # shortened
+    seen.clear()
+    s2 = Searcher("http://sx", client, categories="general,science", small_index_engines=frozenset())
+    await s2.search("how to twist a rock on hand sign from a 260 balloon animal tutorial", "all")
+    assert not [p for p in seen if "engines" in p]                             # videos not in scope: no twin
