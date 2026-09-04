@@ -35,7 +35,7 @@ from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (Finding, RELEVANCE_KEEP, finding_markdown, take_notes, verify_quotes)
 from app.research.progress import ProgressBus
-from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult,
+from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult, refill_order,
                                    SearxngError, categories_for_scope, cutoff_for,
                                    engine_order, engine_tier)
 from app.research.storage import RunStore, validate_citations
@@ -243,6 +243,10 @@ class _RunState:
     read: int = 0
     # Cited references fetched so far this run (capped at _REFS_PER_RUN).
     refs_chased: int = 0
+    # Pages read and kept per search engine in THIS run — what orders a
+    # round's refill (see searcher.refill_order).
+    engine_read: Counter = field(default_factory=Counter)
+    engine_kept: Counter = field(default_factory=Counter)
     quotes_dropped: int = 0
     quotes_repaired: int = 0
     # The last round fetched fewer candidates than usual because the depth's
@@ -858,9 +862,14 @@ class Pipeline:
                                  previous_overview=self._parent_overview(row))
 
     def _record_outcome(self, run_id: str, c, outcome: str,
-                        relevance: int | None = None) -> None:
+                        relevance: int | None = None, state: "_RunState | None" = None) -> None:
         """One row per page read: what the install learns about a domain over
         many runs. Bookkeeping must never stop a run."""
+        if state is not None and outcome in ("kept", "rejected"):
+            eng = (c.engine or "").strip().lower()
+            state.engine_read[eng] += 1
+            if outcome == "kept":
+                state.engine_kept[eng] += 1
         try:
             self.repo.record_outcome(run_id=run_id, url=canonicalize(c.url),
                                      domain=domain_of(c.url), engine=c.engine or "",
@@ -979,7 +988,10 @@ class Pipeline:
                 not shares_vocabulary(f"{r.title} {r.snippet} {r.url}", vocab)
                 if state.group_by is None else False,   # surviving filler last of all
                 domain_of(r.url) in state.dead_domains,  # then never-productive domains
-                *engine_order(r.engine, promote, state.engine_yield),   # tier, first turn, learned yield
+                *(engine_order(r.engine, promote, state.engine_yield)   # tier, first turn, learned yield
+                  if share else
+                  refill_order(r.engine, promote, state.engine_read,      # refill: this run's own record
+                               state.engine_kept, state.engine_yield)),
                 looks_like_index(r.url),      # roots and indexes last in tier
                 -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
             # A question that selected videos wants the videos: the host cap
@@ -1272,7 +1284,7 @@ class Pipeline:
                                  reason=f"relevance {notes.relevance}/10",
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
-                self._record_outcome(run_id, c, "rejected", notes.relevance)
+                self._record_outcome(run_id, c, "rejected", notes.relevance, state=state)
                 state.read += 1
                 return
             # idx assignment + append happen with no await in between → atomic
@@ -1288,7 +1300,7 @@ class Pipeline:
             state.findings.append(finding)
             kept.append(finding)
             state.kept_by_source[source_key(c)] += 1
-            self._record_outcome(run_id, c, "kept", notes.relevance)
+            self._record_outcome(run_id, c, "kept", notes.relevance, state=state)
             state.read += 1
             finding.path = store.write_finding(idx, title, finding_markdown(finding))
             self.repo.add_finding(

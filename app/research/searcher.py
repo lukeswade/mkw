@@ -138,6 +138,22 @@ def engine_order(engine: str, promote: frozenset[str] = frozenset(),
             0 if y is not None else 1, -round(y or 0.0, 3))
 
 
+def refill_order(engine: str, promote: frozenset[str],
+                 run_read: dict[str, int], run_kept: dict[str, int],
+                 yields: dict[str, float] | None = None) -> tuple[int, int, int, float]:
+    """Sort key for a round's refill (what the engine share cap held back).
+    The engines the run asked for (promoted) go first; keyed engines get no
+    first turn here — Brave took a video round's whole refill and kept 1 of
+    69. Then by what each engine has kept in THIS run, engines with reads
+    this run ahead of those without, which fall back to the install's
+    record."""
+    e = (engine or "").strip().lower()
+    read = int(run_read.get(e, 0))
+    y = (run_kept.get(e, 0) / read) if read else (yields or {}).get(e)
+    return (engine_tier(e, promote), 0 if e in promote else 1,
+            0 if read else 1, -round(y or 0.0, 3))
+
+
 # Video engines. Normally tier 1 (a video is a worse answer than a page for
 # most questions), but when a run explicitly selects the videos category the
 # user asked for video — relegating it below every web result then makes the

@@ -344,3 +344,75 @@ def test_a_read_source_line_ends_with_its_score_kept_or_not():
     assert line.endswith('"The right way to tie a fishing hook" · 0/10') and "(relevance" not in line
     unread = dict(read, reason="no caption transcript")
     assert format_event(unread).endswith('(no caption transcript)  "The right way to tie a fishing hook"')
+
+
+def test_a_refill_is_ordered_by_what_this_run_has_kept_not_by_keyed_first():
+    """Brave took a video round's whole refill (69 candidates, 1 kept) because
+    keyed engines take the first turn everywhere. In a refill the promoted
+    engines go first, then this run's own kept-per-read, then the install's."""
+    from app.research.searcher import refill_order, VIDEO_ENGINES
+    read = {"braveapi": 20, "youtube": 10, "duckduckgo videos": 4}
+    kept = {"braveapi": 1, "youtube": 6, "duckduckgo videos": 1}
+    inst = {"braveapi": 0.49, "duckduckgo videos": 0.45, "youtube": 0.2, "bing": 0.3}
+    key = lambda e: refill_order(e, VIDEO_ENGINES, read, kept, inst)
+    order = sorted(["braveapi", "youtube", "duckduckgo videos", "bing"], key=key)
+    assert order == ["youtube", "duckduckgo videos", "braveapi", "bing"]   # promoted first; then run yield
+    # nothing read yet this run: promoted engines still first, then the install's record
+    fresh = sorted(["braveapi", "duckduckgo videos", "bing"], key=lambda e: refill_order(e, VIDEO_ENGINES, {}, {}, inst))
+    assert fresh == ["duckduckgo videos", "braveapi", "bing"]
+
+
+async def test_a_benched_engine_is_left_out_by_naming_the_others():
+    import httpx
+    from app.research.searcher import Searcher
+    seen = []
+    async def handler(req):
+        if req.url.path.endswith("/config"):
+            return httpx.Response(200, json={"engines": [
+                {"name": "braveapi", "categories": ["general", "web"], "enabled": True},
+                {"name": "google cse", "categories": ["general", "web"], "enabled": True},
+                {"name": "mwmbl", "categories": ["general"], "enabled": True},
+                {"name": "arxiv", "categories": ["science"], "enabled": True},
+                {"name": "qwant", "categories": ["general"], "enabled": False}]})
+        seen.append(dict(req.url.params))
+        return httpx.Response(200, json={"results": [], "unresponsive_engines": []})
+    class Bench:
+        def __init__(self, ex): self.ex = frozenset(ex)
+        def excluded(self): return self.ex
+        def observe(self, refused, answered): return []
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    s = Searcher("http://sx", client, categories="general,science", small_index_engines=frozenset(), bench=Bench({"google cse"}))
+    await s.search("fly rod grip", "all")
+    assert "categories" not in seen[0] and seen[0]["engines"] == "arxiv,braveapi,mwmbl"
+    s = Searcher("http://sx", client, categories="general,science", small_index_engines=frozenset(), bench=Bench(set()))
+    await s.search("fly rod grip", "all")
+    assert seen[1]["categories"] == "general,science" and "engines" not in seen[1]
+    s = Searcher("http://sx", client, categories="science", small_index_engines=frozenset(), bench=Bench({"google cse"}))
+    await s.search("fly rod grip", "all")
+    assert seen[2]["categories"] == "science"          # benched engine not in the asked categories: unchanged
+
+
+def test_a_persistently_blocked_engine_is_benched_then_probed_with_backoff(data_dir):
+    from datetime import datetime, timedelta, timezone
+    from app.db import Repo, connect
+    from app.research.bench import EngineBench, BENCH_AFTER_REFUSALS
+    from tests.test_pipeline_e2e import make_cfg
+    cfg = make_cfg(data_dir); repo = Repo(connect(cfg.db_path))
+    t = [datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)]
+    bench = EngineBench(repo, now=lambda: t[0])
+    refused = {"google cse": "Suspended: too many requests", "crossref": "timeout"}
+    for _ in range(BENCH_AFTER_REFUSALS):           # ten refusals over 27 minutes
+        bench.observe(refused, {"braveapi"}); t[0] += timedelta(minutes=3)
+    assert bench.excluded() == frozenset()          # not yet half an hour: SearXNG's own retry still applies
+    events = bench.observe(refused, {"braveapi"})   # 30 min in
+    assert bench.excluded() == frozenset({"google cse"})   # crossref timed out; that never benches
+    assert any("benched 6h" in e for e in events)
+    t[0] += timedelta(hours=6, minutes=1)
+    assert bench.excluded() == frozenset()          # the probe is allowed
+    events = bench.observe({"google cse": "too many requests"}, set())
+    assert bench.excluded() == frozenset({"google cse"}) and any("12h more" in e for e in events)
+    t[0] += timedelta(hours=12, minutes=1)
+    events = bench.observe({}, {"google cse", "braveapi"})
+    assert bench.excluded() == frozenset() and any("leaves the bench" in e for e in events)
+    row = {r["engine"]: dict(r) for r in repo.engine_bench_all()}["google cse"]
+    assert row["strikes"] == 0 and row["refusals"] == 0
