@@ -62,6 +62,12 @@ outgoing:
 # reaches engines that do not gate aggressively and are better sources for
 # research anyway: Crossref, OpenAlex, Semantic Scholar, arXiv, Stack Overflow,
 # GitHub, Hacker News.
+# Scholarly results point at doi.org landing pages, which are often paywalled;
+# this rewrites them to the open-access copy (oadoi.org) when one exists.
+plugins:
+  searx.plugins.oa_doi_rewrite.SXNGPlugin:
+    active: true
+
 engines:
   # --- video + community (the app reads YouTube via caption transcripts and
   # reddit threads via the JSON API — these engines let runs search them
@@ -158,7 +164,7 @@ engines:
   # sub-query is more outbound volume against the IP the majors are already
   # rate-limiting.
   - name: boardreader        # forum search, also feeds `social media`
-    disabled: false
+    disabled: true
   - name: searchmysite       # independent personal sites, also feeds `blogs`
     disabled: false
   - name: wiby               # small hand-made pages the majors rank last
@@ -168,16 +174,18 @@ engines:
   #   mwmbl      unresponsive on every query
   - name: crowdview
     disabled: true
+  # mwmbl: an open index that does not gate residential addresses. Empty a
+  # week ago, 8 results on the same query today — re-enabled and measured.
   - name: mwmbl
-    disabled: true
+    disabled: false
 
   # --- resilient general-web engines ---
   - name: mojeek
-    disabled: false
+    disabled: true
   - name: bing
     disabled: false
   - name: qwant
-    disabled: false
+    disabled: true
   - name: wikipedia
     disabled: false
   # Fails init on EVERY container start, reproducibly, and so never registers
@@ -244,14 +252,32 @@ engines:
   - name: google
     timeout: 5.0
   - name: duckduckgo
+    disabled: true
     timeout: 5.0
   - name: brave
     timeout: 5.0
   - name: startpage
+    disabled: true
     timeout: 5.0
 
   # Engines whose api_key comes from the environment are inserted here at
   # container start by render-settings.sh — never committed. Keep this marker
   # as the LAST line of the engines list; keep any new top-level section above
   # `engines:`, not below this.
+  # --- pruned on 2026-09-04 against 38 runs of this install's own data ---
+  # Every one of these refused most or all runs for two weeks and never
+  # contributed a page that was read (duckduckgo, qwant, startpage: 38 of 38
+  # refused, CAPTCHA; mojeek: 28 of 38 and empty when it answers; boardreader:
+  # parsing error on every search since 2026-09-02; startpage news 19/38,
+  # wikinews 19/38, wikicommons.videos 20/38 — all with zero reads). Each
+  # refused engine still cost a slice of every search and a strike against
+  # the shared address. Left declared, off, so they can return; the Learned
+  # page's engine table is where to look before turning one back on.
+  - name: startpage news
+    disabled: true
+  - name: wikinews
+    disabled: true
+  - name: wikicommons.videos
+    disabled: true
+
   # @@ API_ENGINES @@

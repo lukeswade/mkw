@@ -96,7 +96,7 @@ def category_options(configured: str) -> list[str]:
 _GENERAL_WEB_ENGINES = frozenset({
     "bing", "google", "google cse", "duckduckgo", "brave", "startpage",
     "mojeek", "qwant", "yahoo", "wikipedia", "wikidata", "presearch",
-    "marginalia", "mullvad leta",
+    "marginalia", "mullvad leta", "mwmbl",
     # The API engine that a BRAVE_API_KEY turns on. It was missing here, so
     # its 20 organic results per query sorted behind bing's first-word junk
     # as "backfill": zero candidates from it in any run since engine logging
@@ -205,7 +205,7 @@ class SearxngError(Exception):
 # A long query is therefore also sent to them alone, shortened to its first
 # few content words. None of them rate-limits, so the extra request costs
 # nothing against the address the majors are already judging.
-SMALL_INDEX_ENGINES = frozenset({"boardreader", "searchmysite", "wiby"})
+SMALL_INDEX_ENGINES = frozenset({"searchmysite", "wiby"})   # boardreader retired 2026-09-04: parsing error on every search
 _SHORT_WORDS = 3
 _SHORT_TRIGGER = 5          # queries this long or longer get a short twin
 _QUERY_STOPWORDS = frozenset(

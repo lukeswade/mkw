@@ -160,7 +160,7 @@ async def test_a_long_query_is_also_sent_short_to_the_small_indexes():
 
     assert len(seen) == 2
     twin = [p for p in seen if "engines" in p][0]
-    assert twin["engines"] == "boardreader,searchmysite,wiby"
+    assert twin["engines"] == "searchmysite,wiby"          # boardreader retired: parsing error on every search
     assert len(twin["q"].split()) <= 3
     assert "categories" not in twin, "engines= replaces the category selection"
     assert {r.url for r in out} == {"https://big.test/a", "https://forum.test/t/1"}
