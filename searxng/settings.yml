@@ -19,6 +19,20 @@ search:
   # One retry gives a transiently rate-limited engine a second chance before
   # the whole query comes back empty.
   max_page: 2
+  # How long an engine sits out after an error. The defaults protect a public
+  # instance's shared address: one Cloudflare challenge benches an engine for
+  # 15 days, one reCAPTCHA for 7, silently. With five general engines left,
+  # a single such event would hollow out every search for two weeks. Runs here
+  # last 10-40 minutes, so anything longer than a day is indistinguishable
+  # from "gone". The short ones already recover within a run and are kept.
+  # `docker compose restart searxng` clears every suspension at once.
+  suspended_times:
+    SearxEngineAccessDenied: 180
+    SearxEngineCaptcha: 1800
+    SearxEngineTooManyRequests: 180
+    cf_SearxEngineCaptcha: 86400
+    cf_SearxEngineAccessDenied: 43200
+    recaptcha_SearxEngineCaptcha: 86400
 
 outgoing:
   # Appended to the outgoing User-Agent. Wikimedia's endpoints enforce their
@@ -284,10 +298,19 @@ engines:
     disabled: true
 
   # Tor-only engines: 'can't register engine (loading engine failed)' on every
-  # start, since there is no Tor here. Off so the log says something useful.
+  # start, since there is no Tor here. `inactive` skips the import entirely;
+  # `disabled` still loads the module and logs the failure.
   - name: ahmia
-    disabled: true
+    inactive: true
   - name: torch
-    disabled: true
+    inactive: true
+
+  # Two `it` engines for what this install actually researches: keyboard and
+  # device firmware lives on GitLab as much as GitHub, and local-model
+  # questions end at a Hugging Face model card. Both answer the `code` scope.
+  - name: gitlab
+    disabled: false
+  - name: huggingface
+    disabled: false
 
   # @@ API_ENGINES @@

@@ -352,7 +352,12 @@ want to be read. What happens between a query and a source:
    balloon question never asks PubMed. Small independent indexes
    (searchmysite, wiby) and video engines match short keyword strings, so long
    queries also go to them shortened to their key terms. Engines are drawn in
-   the order their results have actually turned into kept sources for you.
+   the order their results have actually turned into kept sources for you,
+   and the engine list itself is pruned from this install's own record: an
+   engine that refuses every run and never contributes a page that is read
+   is switched off (declared, so it can come back). Paper results that point
+   at a paywalled DOI page are redirected to the open-access copy when one
+   exists.
 2. **Selection and triage** — results that share no word with the question
    are never fetched; storefronts and unreadable hosts are filtered; each
    source starts with two slots a round and earns more by keeping what it is
@@ -412,17 +417,28 @@ What helps, in order of effort:
    enough for the lease to lapse (15+ minutes, sometimes overnight).
 3. **Add a keyed engine.** A [Brave Search API](https://brave.com/search/api/)
    key in `.env` as `BRAVE_API_KEY` turns on the API engine and turns off
-   the scraper it replaces (2,000 queries a month free). A Marginalia key
+   the scraper it replaces (1,000 requests a month free; the Learned page
+   counts them against your billing cycle). A Marginalia key
    (`MARGINALIA_API_KEY`) adds a small independent index that specialises in
    the non-commercial web. The app enables each engine when its key is
    present and never writes a key into a committed file.
 4. **Lean on what never blocks.** The `science` category (on by default)
-   reaches Crossref, OpenAlex, Semantic Scholar and arXiv. The three small
-   independent indexes above answer when the majors will not.
+   reaches Crossref, OpenAlex, Semantic Scholar and arXiv. The small
+   independent indexes (mwmbl, searchmysite, wiby) answer when the majors
+   will not.
+5. **Clear the bench.** After an error SearXNG sits an engine out — half an
+   hour for a CAPTCHA, a day for a Cloudflare or reCAPTCHA challenge — and
+   says nothing. The bench lives in memory, so
+   `docker compose restart searxng` clears it at once; do this before
+   assuming an engine is gone for good.
 
-The stock engine list has also been pruned of things that cannot answer a
-research question (torrent trackers, translators, currency converters), each
-of which used to cost a slice of every search.
+The `general` set here is not the stock one. DuckDuckGo, Startpage, Qwant
+and Mojeek refused every one of the last 38 runs from a home address and
+were costing a slice of each search for nothing, so they are off, along with
+engines that cannot answer a research question at all (torrent trackers,
+translators, currency converters). What remains answers: Brave (keyed),
+Bing, mwmbl, searchmysite, wiby and Google CSE. The Learned page's engine
+table is where to look before turning anything back on.
 
 ---
 
@@ -449,6 +465,18 @@ shows who researched what.
 ---
 
 ## Operations
+
+**Changing the engine list.** Engines live in `searxng/settings.yml`; the
+keyed ones are appended from `.env` at container start, so never write a key
+into the file. Validate before restarting, then restart only SearXNG (the
+app keeps running):
+
+```bash
+docker compose exec -T searxng /usr/local/searxng/.venv/bin/python -c "import sys,yaml; yaml.safe_load(sys.stdin)" < searxng/settings.yml && docker compose restart searxng
+```
+
+Then `./scripts/check_engines.sh` shows who is answering.
+
 
 - **Backup**: `tar czf backup.tgz data/` — that is the entire state.
 - **Rebuild indexes**: `docker compose exec app python -m app.cli reindex`
