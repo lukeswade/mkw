@@ -449,7 +449,11 @@ class Pipeline:
         Asked as a drop-list on purpose: an under-delivering model (lazy,
         truncated) then keeps extra junk — which relevance scoring catches —
         instead of silently discarding good candidates. An OVER-delivering
-        model is the real hazard, so its verdict is capped at half a round."""
+        model is the real hazard, so its verdict always leaves a floor of the
+        round in place (triage_floor) — including when it condemns every
+        candidate. That verdict used to be thrown away as "broken", which on
+        2026-09-04 fetched all 60 of a round Bing Videos had filled with junk;
+        the model was right and the rule overrode it."""
         lines = []
         for i, c in enumerate(candidates):
             snippet = " ".join((c.snippet or "").split())[:200]
@@ -484,10 +488,6 @@ class Pipeline:
             log.info("triage spared %d candidate(s) on domains that already "
                      "produced kept sources", len(productive))
             drop -= productive
-        if len(drop) == len(candidates):
-            # condemning everything is a broken verdict, not a judgment —
-            # there is no signal in it to salvage, so ignore it wholesale
-            return candidates
         # A floor, not a half-round cap: see triage_floor. The reprieve goes
         # to the best-ranked of the condemned — pick() sorted candidates
         # best-first — so a round can never be emptied by one bad verdict,

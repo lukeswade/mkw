@@ -72,7 +72,11 @@ async def test_triage_failure_degrades_to_keeping_everything(data_dir):
 
 
 @respx.mock
-async def test_condemning_everything_is_ignored(data_dir):
+async def test_condemning_everything_keeps_the_floor(data_dir):
+    """A round Bing Videos filled with 60 junk videos was condemned whole by
+    triage — and the verdict was discarded as 'broken', so all 60 were
+    fetched. Condemning everything is handled like any over-cull: the
+    best-ranked floor stays, the rest go."""
     cfg = make_cfg(data_dir)
     respx.get(f"{SX}/search").mock(return_value=httpx.Response(
         200, json=sx_payload(_five_candidates())))
@@ -81,10 +85,12 @@ async def test_condemning_everything_is_ignored(data_dir):
             return_value=httpx.Response(200, html=article(f"Article {c.upper()}")))
 
     s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
-    s["triage"] = [{"drop": [0, 1, 2, 3, 4]}]   # drop-all = broken verdict
+    s["triage"] = [{"drop": [0, 1, 2, 3, 4]}]   # drop-all
     repo, llm, orch, run_id = _run(cfg, s)
     await orch.execute_now(run_id)
-    assert len(repo.findings_for_run(run_id)) == 5
+    findings = repo.findings_for_run(run_id)
+    assert len(findings) == 3                   # triage_floor(5): the best-ranked three
+    assert {f["domain"] for f in findings} == {"example-a.com", "example-b.com", "example-c.com"}
 
 
 # ---- notes input: whole page when it fits ---------------------------------------
