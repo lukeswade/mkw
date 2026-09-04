@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.llm import prompts
+from app.research.dedupe import _content_tokens, stem_token
 from app.llm.client import LLM, LLMError
 from app.llm.json_utils import LLMJsonError
 from app.models import NotesOut
@@ -278,19 +279,58 @@ def quote_is_verbatim(quote: str, text_norm: str) -> bool:
     return hits / len(grams) >= 0.6
 
 
-def verify_quotes(notes: NotesOut, text: str) -> int:
-    """Remove evidence quotes the source does not contain; return how many.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _sentences(text: str) -> list[str]:
+    return [x.strip() for x in _SENTENCE_SPLIT.split(text or "") if 20 <= len(x.strip()) <= 320]
+
+
+def repair_quote(quote: str, sentences: list[str]) -> str | None:
+    """The source's own sentence that a paraphrased quote was reaching for,
+    or None when nothing in the source resembles it. Most removed quotes were
+    near misses — a dropped word, two sentences merged — where the real
+    sentence is right there."""
+    q = {stem_token(t) for t in _content_tokens(quote)}
+    if len(q) < 4:
+        return None
+    best, best_score = None, 0.0
+    for sent in sentences:
+        toks = {stem_token(t) for t in _content_tokens(sent)}
+        if not toks:
+            continue
+        score = len(q & toks) / len(q | toks)          # Jaccard on stemmed content words
+        if score > best_score:
+            best, best_score = sent, score
+    return best[:200] if best is not None and best_score >= 0.5 else None
+
+
+def verify_quotes(notes: NotesOut, text: str) -> tuple[int, int]:
+    """Make every evidence quote verbatim: keep it if the source contains it,
+    replace it with the source's own sentence when one clearly matches, remove
+    it otherwise. Returns (repaired, removed).
 
     The note-taker was asked for verbatim quotes and its output was rendered
-    as such, unchecked. A paraphrase or an invented sentence then sat inside
-    quotation marks under a real URL. The claim stays; the quote goes.
+    as such, unchecked — a paraphrase or an invented sentence sat inside
+    quotation marks under a real URL. Removing them cost 16-17 quotes a run on
+    one topic; most were near misses whose real sentence was in the page.
     """
     text_norm = _norm(text)
-    dropped = 0
+    sentences: list[str] | None = None
+    repaired = dropped = 0
     for fact in notes.key_facts:
-        if fact.evidence_quote and not quote_is_verbatim(fact.evidence_quote, text_norm):
+        if not fact.evidence_quote or quote_is_verbatim(fact.evidence_quote, text_norm):
+            continue
+        if sentences is None:
+            sentences = _sentences(text)
+        fixed = repair_quote(fact.evidence_quote, sentences)
+        if fixed is not None:
+            fact.evidence_quote = fixed
+            repaired += 1
+        else:
             fact.evidence_quote = None
             dropped += 1
-    if dropped:
-        log.info("%d evidence quote(s) removed as not verbatim", dropped)
-    return dropped
+    if repaired or dropped:
+        log.info("evidence quotes: %d repaired to the source's wording, %d removed",
+                 repaired, dropped)
+    return repaired, dropped

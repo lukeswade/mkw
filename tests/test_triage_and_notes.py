@@ -537,8 +537,22 @@ def test_quotes_the_source_does_not_contain_are_removed_and_counted():
         {"claim": "e", "evidence_quote": "epoxy"},                                                    # too short to judge
     ])
     assert len(notes.key_facts) == 5
-    assert verify_quotes(notes, text) == 1
+    assert verify_quotes(notes, text) == (0, 1)
     assert [f.evidence_quote is not None for f in notes.key_facts] == [True, True, True, False, True]
+
+
+def test_a_paraphrased_quote_is_repaired_to_the_sources_own_sentence():
+    from app.models import NotesOut
+    from app.research.notes import verify_quotes
+    text = ("Most builders inject a slow-cure rod bond epoxy through a small hole drilled in the reel seat. "
+            "Rotating the seat while the epoxy is wet spreads it around the arbor. Let it cure overnight before use.")
+    notes = NotesOut(relevance=7, summary="s", notes_md="n", key_facts=[
+        {"claim": "a", "evidence_quote": "builders inject slow-cure rod bond epoxy through a hole drilled in the reel seat"},  # near miss
+        {"claim": "b", "evidence_quote": "The seat should be heated with a torch and pulled off with pliers"},               # not in the source
+    ])
+    assert verify_quotes(notes, text) == (1, 1)
+    assert notes.key_facts[0].evidence_quote.startswith("Most builders inject a slow-cure rod bond epoxy")
+    assert notes.key_facts[1].evidence_quote is None
 
 
 def test_authority_sites_start_at_the_ceiling_not_uncapped():
