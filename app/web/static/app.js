@@ -38,7 +38,12 @@ function fmtEvent(e) {
     case "plan": return `[${t}] plan: ${e.title}\n` + list(e.subqueries);
     case "round_start": return `[${t}] ROUND ${e.round}/${e.depth}\n` + (e.queries || []).map((q, i) => `          · ${q}${(e.scopes || [])[i] ? `  [${e.scopes[i]}]` : ""}`).join("\n");
     case "searched": return `[${t}]   ${e.results} results → ${e.candidates} new candidates`;
-    case "source_skipped": return `[${t}]   ✗ ${e.url}  (${e.reason})${e.title ? `  "${String(e.title).slice(0, 70)}"` : ""}`;
+    case "source_skipped": {
+      // a page that was read and scored ends like a kept one: URL, title, score last
+      const quoted = e.title ? `  "${String(e.title).slice(0, 70)}"` : "";
+      const m = /^relevance (\d+)\/10$/.exec(e.reason || "");
+      return m ? `[${t}]   ✗ ${e.url}${quoted} · ${m[1]}/10` : `[${t}]   ✗ ${e.url}  (${e.reason})${quoted}`;
+    }
     case "finding": return `[${t}]   ✓ [${e.idx}] ${e.title} (${e.domain}) · ${e.relevance}/10`;
     case "gap": return `[${t}]   gap: saturated=${e.saturated}, next queries=${(e.next_queries || []).length}`;
     case "log": return `[${t}]   · ${e.message}`;

@@ -325,3 +325,16 @@ async def test_only_requests_that_carry_general_count_as_brave_requests():
     await s.search("longhorn balloon tutorial", "all", categories="videos")                             # scoped: not Brave
     await s.search("reel seat", "all", categories="general")                                            # general only
     assert s.searches == 4 and s.brave_requests == 2
+
+
+def test_a_read_source_line_ends_with_its_score_kept_or_not():
+    """Asked for on 2026-09-03: the score at the end of every completed
+    source record, after the title. Kept lines had it; rejected reads still
+    led with it."""
+    from app.research.progress import format_event
+    read = {"type": "source_skipped", "ts": 0, "url": "https://x.com/v",
+            "reason": "relevance 0/10", "title": "The right way to tie a fishing hook"}
+    line = format_event(read)
+    assert line.endswith('"The right way to tie a fishing hook" · 0/10') and "(relevance" not in line
+    unread = dict(read, reason="no caption transcript")
+    assert format_event(unread).endswith('(no caption transcript)  "The right way to tie a fishing hook"')

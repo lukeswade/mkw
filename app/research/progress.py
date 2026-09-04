@@ -7,6 +7,8 @@ never miss or duplicate an event within the single event loop.
 """
 from __future__ import annotations
 
+import re
+
 import asyncio
 import time
 
@@ -49,8 +51,14 @@ def format_event(e: dict, tz: str | None = None) -> str | None:
                 f"{e.get('candidates')} new candidates")
     if typ == "source_skipped":
         title = (e.get("title") or "").strip()
-        tail = f'  "{title[:70]}"' if title else ""
-        return f"[{t}]   ✗ {e.get('url')}  ({e.get('reason')}){tail}"
+        reason = str(e.get("reason") or "")
+        quoted = f'  "{title[:70]}"' if title else ""
+        # A page that was read and scored ends like a kept one: URL, title,
+        # score last. Pages never read keep their reason in brackets.
+        m = re.fullmatch(r"relevance (\d+)/10", reason)
+        if m:
+            return f"[{t}]   ✗ {e.get('url')}{quoted} · {m.group(1)}/10"
+        return f"[{t}]   ✗ {e.get('url')}  ({reason}){quoted}"
     if typ == "finding":
         return (f"[{t}]   ✓ [{e.get('idx')}] {e.get('title')} "
                 f"({e.get('domain')}) · {e.get('relevance')}/10")
