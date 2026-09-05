@@ -35,7 +35,7 @@ from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (Finding, RELEVANCE_KEEP, finding_markdown, take_notes, verify_quotes)
 from app.research.progress import ProgressBus
-from app.research import facets as facet_plan
+from app.research import facet_queries, facets as facet_plan
 from app.research.bench import EngineBench
 from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult, refill_order, query_terms,
                                    SearxngError, categories_for_scope, cutoff_for,
@@ -812,13 +812,23 @@ class Pipeline:
                     queries, state.query_facet, state.facet_kept,
                     state.facets, breadth)
                 if starved:
+                    want = starved[:max(0, breadth - len(queries))]
+                    # A facet name is not a search query: ask the model for
+                    # one, and keep the mechanical form as the fallback.
+                    written = await facet_queries.write(
+                        llm, query=query, brief=the_plan.brief, facets=want,
+                        searched=state.searched + queries)
                     added = []
-                    for f in starved[:max(0, breadth - len(queries))]:
-                        for q in facet_plan.top_up_queries(
-                                f, state.facet_subject, f in state.asked_facets):
+                    for f in want:
+                        proposed = written.get(f)
+                        options = ([proposed[0]] if proposed else []) + \
+                            facet_plan.top_up_queries(
+                                f, state.facet_subject, f in state.asked_facets)
+                        for q in options:
                             if q and q not in queries and q not in state.searched:
                                 state.query_facet[q] = f
-                                state.query_scope.setdefault(q, "web")
+                                state.query_scope.setdefault(
+                                    q, proposed[1] if proposed and q == proposed[0] else "web")
                                 added.append(q)
                                 break
                     if added:

@@ -52,13 +52,20 @@ _MAX_ITEM_CHARS = 300
 _NAME_WORDS = 12
 
 
+# Longest first. Enough that "comparison", "compares" and "comparing" meet:
+# the question asked about "competing platforms" and the planner called the
+# same thing "competitor landscape comparison", the two shared one stemmed
+# word, so both survived the merge and one was reported as an unanswered ask
+# while the other held ten sources.
+_SUFFIXES = ("ations", "ation", "ments", "ment", "ities", "ity", "ison",
+             "ings", "ing", "ies", "ers", "es", "ed", "er", "s")
+
+
 def _stem(token: str) -> str:
-    """Crude enough that "checks" meets "check" and "briefs" meets "brief"."""
-    for suffix in ("ing", "ed"):
-        if len(token) > 5 and token.endswith(suffix):
-            return token[: -len(suffix)]
-    if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
-        return token[:-1]
+    """Crude morphology: enough for two names of one ask to meet."""
+    for suffix in _SUFFIXES:
+        if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+            return token[: len(token) - len(suffix)]
     return token
 
 

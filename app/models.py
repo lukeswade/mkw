@@ -119,6 +119,18 @@ class PlannerOut(BaseModel):
         return [str(x).strip().lower() for x in (v or []) if x is not None][:12]
 
 
+class FacetQueriesOut(BaseModel):
+    """One search query per unanswered part of the question."""
+    facets: list[str] = Field(default_factory=list, max_length=14)
+    queries: list[str] = Field(default_factory=list, max_length=14)
+    scopes: list[str] = Field(default_factory=list, max_length=14)
+
+    @field_validator("facets", "queries", "scopes", mode="before")
+    @classmethod
+    def _clean(cls, v):
+        return [str(x).strip() for x in (v or []) if x is not None and str(x).strip()][:14]
+
+
 class Fact(BaseModel):
     claim: str = Field(min_length=1, max_length=500)
     evidence_quote: str | None = None

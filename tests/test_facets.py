@@ -175,6 +175,43 @@ def test_an_ask_the_question_listed_is_searched_plainly_before_the_vendor():
     assert f.top_up_queries("call prep", "", from_question=True) == ["call prep"]
 
 
+# ---- the model writes the query for an unanswered ask -----------------------------
+
+def test_two_names_for_one_ask_merge():
+    """The question asked about "competing platforms"; the planner called the
+    same thing "competitor landscape comparison". Both survived, and one was
+    reported unanswered while the other held ten sources."""
+    asked = ["workato airo compares competing platforms tools amazon agentcore competitors"]
+    assert f.merge(["competitor landscape comparison"], asked) == asked
+    # genuinely different asks still stand apart
+    assert len(f.merge(["oem pricing model"], ["insightly ui embedding"])) == 2
+
+
+async def test_the_model_writes_the_query_and_the_mechanical_form_is_the_fallback():
+    from app.research import facet_queries
+    llm = FakeLLM({"facet_queries": [{
+        "facets": ["Call Prep", "unknown facet"],
+        "queries": ["AI agent call prep CRM sales", "ignored"],
+        "scopes": ["web+video"]}]})
+    got = await facet_queries.write(llm, query="q", brief="b",
+                                    facets=["call prep", "completed call briefs"],
+                                    searched=["something else"])
+    assert got == {"call prep": ("AI agent call prep CRM sales", "web+video")}
+
+    # a query already searched is not offered again
+    llm2 = FakeLLM({"facet_queries": [{"facets": ["call prep"],
+                                       "queries": ["AI agent call prep CRM sales"]}]})
+    assert await facet_queries.write(llm2, query="q", brief="b", facets=["call prep"],
+                                     searched=["ai agent call prep crm sales"]) == {}
+
+    # the stage never stops a round: an unscripted model degrades to nothing,
+    # and the caller falls back to the mechanical form
+    assert await facet_queries.write(FakeLLM({}), query="q", brief="b",
+                                     facets=["call prep"], searched=[]) == {}
+    assert await facet_queries.write(FakeLLM({}), query="q", brief="b",
+                                     facets=[], searched=[]) == {}
+
+
 # ---- the zero-result retry ------------------------------------------------------
 
 def test_a_query_that_matched_nothing_is_thinned_of_its_invented_names():

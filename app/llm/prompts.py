@@ -239,6 +239,41 @@ Produce a JSON object with exactly these keys:
 
 Respond with only the JSON object."""
 
+FACET_QUERIES = """You are the search-query stage of an automated deep-research \
+pipeline. These parts of the research question have produced NO sources at all. \
+Write one search query for each.
+
+Research question: {query}
+Research brief: {brief}
+
+Parts with no sources yet:
+{facets}
+
+Queries already searched (do not repeat or trivially rephrase):
+{searched}
+
+Produce a JSON object with exactly these keys:
+- "facets": array of the part names you are writing for, copied EXACTLY from the list above
+- "queries": array aligned with "facets" — one search query each, 3-8 words, the words a person who wanted that part answered would actually type
+- "scopes": array aligned with "facets" — where to search it: "web" (default), "video", "code" (ONLY software/firmware/programming), "academic" (ONLY scientific/medical research), "qa" (ONLY software/sysadmin), "news", "social" (reddit/forums), "files"; combine with "+"
+
+The part's own name is almost never a usable query. "call prep" returns a \
+Russian-English dictionary and a company called Prep for Prep; it needs the \
+domain around it ("AI agent call prep CRM sales"). Give every query enough \
+context to name the subject area, not just the phrase.
+
+Do not assume the answer lives on one vendor's site. If the part asks what \
+something should DO — a use case, a workflow, a technique, a comparison — the \
+pages that answer it usually never mention the product the rest of the \
+question is about, and prefixing the vendor's name returns its marketing \
+instead. Name the vendor only when the part is genuinely about that product.
+
+Do not encode the answer you hope to find; a narrow gap still needs a broad \
+query.
+
+Respond with only the JSON object."""
+
+
 # What each facet of the question has produced so far, shown to gap analysis
 # so it attacks unanswered asks before it deepens answered ones.
 COVERAGE_BLOCK = """
