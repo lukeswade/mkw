@@ -481,14 +481,20 @@ class Pipeline:
         2026-09-04 fetched all 60 of a round Bing Videos had filled with junk;
         the model was right and the rule overrode it."""
         lines = []
+        any_facet = False
         for i, c in enumerate(candidates):
             snippet = " ".join((c.snippet or "").split())[:200]
+            facet = state.query_facet.get(c.via_query or "", "")
+            any_facet = any_facet or bool(facet)
             lines.append(f"{i}. {c.title[:120]} — {c.url[:150]} — {snippet}"
-                         f" — via: {c.via_query[:80]}")
+                         f" — via: {c.via_query[:80]}"
+                         + (f" — for the part: {facet}" if facet else ""))
         prompt = prompts.TRIAGE.format(
             query=query, brief=brief,
             queries="\n".join(f"- {q}" for q in queries) or "- (none)",
             candidates="\n".join(lines))
+        if any_facet:
+            prompt += prompts.FACET_TRIAGE_RULES
         try:
             out = await llm.chat_json(
                 "triage", [{"role": "user", "content": prompt}],
@@ -1314,6 +1320,7 @@ class Pipeline:
                 url=final_url, title=title,
                 detected_date=detected_date, text=doc.text, keywords=keywords,
                 template=state.notes_template, source_kind=source_kind,
+                facet=state.query_facet.get(c.via_query or "", ""),
                 order=str(getattr(self.cfg, "notes_order", "default")),
                 recheck=str(getattr(self.cfg, "notes_recheck", "off")).lower() in ("on", "1", "true", "yes"))
             if notes is None:

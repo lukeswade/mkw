@@ -278,9 +278,16 @@ async def test_a_long_question_spends_its_slots_on_the_parts_with_no_sources(dat
     respx.get("https://offtopic.example.com/p").mock(
         return_value=httpx.Response(200, html=article("Battery cost analysis extra")))
 
+    seen_prompts: dict[str, list[str]] = {}
+
+    class Capture(FakeLLM):
+        async def chat_json(self, kind, messages, schema, **kw):
+            seen_prompts.setdefault(kind, []).append(messages[0]["content"])
+            return await super().chat_json(kind, messages, schema, **kw)
+
     repo = Repo(connect(cfg.db_path))
     orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
-                        llm_factory=lambda: FakeLLM(_script([
+                        llm_factory=lambda: Capture(_script([
                             {"state_md": "s", "saturated": False,
                              "next_queries": ["battery cost warranty"],
                              "next_query_facets": ["cost"]},
@@ -303,3 +310,13 @@ async def test_a_long_question_spends_its_slots_on_the_parts_with_no_sources(dat
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
     assert "no sources yet for" in events
     assert "about something else" in events
+
+    # Both judging stages are told which part of the question a page was
+    # fetched for, so a page about the general practice is not thrown away
+    # for failing to mention the product the brief centres on.
+    triage_prompts = "\n".join(seen_prompts.get("triage", []))
+    assert "— for the part: cost" in triage_prompts
+    assert "Do NOT drop such a candidate" in triage_prompts
+    notes_prompts = "\n".join(seen_prompts.get("notes", []))
+    assert "PART OF THE QUESTION THIS SOURCE WAS FETCHED FOR: cost" in notes_prompts
+    assert "FETCHED FOR: safety certification" in notes_prompts   # the off-topic page still carried its part

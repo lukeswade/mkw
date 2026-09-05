@@ -498,6 +498,31 @@ the first two words ("Cinque trackball", "Ploopy Nano trackball").
 GAP_ANCHORED = GAP.replace('- "next_query_scopes":', GAP_ANCHOR_RULES + '- "next_query_scopes":', 1)
 
 
+# Framing for a source fetched to answer one named part of the question.
+# Triage and the note-taker judged every page against the brief, and the
+# brief centres on the product the question is about — so the twenty-five
+# pages the use-case queries surfaced (a sales-call-prep checklist, customer
+# health scoring guides) were dropped at triage or scored 1-2 for not being
+# about the vendor. They were exactly what those parts of the question asked
+# for. A page carries the part it was fetched for, and is judged against it.
+FACET_SOURCE_NOTE = """PART OF THE QUESTION THIS SOURCE WAS FETCHED FOR: {facet}
+Score its relevance to THAT part. A page about the general practice — how sales \
+teams prepare for a call, how customer health is scored, how a category of tool \
+compares — is real material (4-7) for a use-case, workflow, technique or \
+comparison part even when it never mentions the product the rest of the brief \
+centres on; the brief's other angles do not count against it.
+"""
+
+FACET_TRIAGE_RULES = """
+Some candidates end with "— for the part: X". Each was fetched to answer that \
+part of the question and is judged against it, not against the product the \
+question centres on: a sales-call-prep checklist fetched for "call prep" stays \
+even though it never names the vendor. Do NOT drop such a candidate for being \
+about the general practice rather than the product when its part is a use case, \
+a workflow, a technique or a comparison.
+"""
+
+
 # Framing for a video source. The note-taker scores text; a demonstration
 # video's value is what it shows, and its narration is often thin or absent.
 # "LONG HORN COW Balloon Animal Tutorial" scored 2/10 on its transcript for a

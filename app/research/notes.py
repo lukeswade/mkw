@@ -174,7 +174,8 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      template: str | None = None,
                      source_kind: str = "",
                      order: str = "default",
-                     recheck: bool = False) -> NotesOut | None:
+                     recheck: bool = False,
+                     facet: str = "") -> NotesOut | None:
     """Returns None when the model output is unusable (doc gets skipped).
 
     `order` picks the prompt layout (see prompts.NOTES_INSTRUCTIONS_FIRST);
@@ -192,6 +193,8 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
 
 
     source_note = prompts.VIDEO_SOURCE_NOTE if source_kind == "video" else ""
+    if facet:
+        source_note += prompts.FACET_SOURCE_NOTE.format(facet=facet)
     base = template or (prompts.NOTES_INSTRUCTIONS_FIRST if order == "instructions_first"
                         else prompts.NOTES)
     prompt = base.format(
