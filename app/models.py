@@ -159,6 +159,20 @@ class NotesOut(BaseModel):
     notes_md: str = ""
     key_facts: list[Fact] = Field(default_factory=list, max_length=10)
     published_date: str | None = None
+    # How much the source contributes to the ONE part of the question it was
+    # fetched for (research/facets.credits). Asked only when a part is named;
+    # None otherwise, and the lexical rule decides.
+    part_relevance: int | None = None
+
+    @field_validator("part_relevance", mode="before")
+    @classmethod
+    def _clamp_part(cls, v):
+        if v is None or v == "":
+            return None
+        try:
+            return max(0, min(10, int(float(v))))
+        except (TypeError, ValueError):
+            return None
 
     @field_validator("key_facts", mode="before")
     @classmethod

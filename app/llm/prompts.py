@@ -511,6 +511,11 @@ teams prepare for a call, how customer health is scored, how a category of tool 
 compares — is real material (4-7) for a use-case, workflow, technique or \
 comparison part even when it never mentions the product the rest of the brief \
 centres on; the brief's other angles do not count against it.
+Also output "part_relevance": integer 0-10 — how much this source contributes \
+to THAT part alone. This decides whether the part counts as researched. A \
+vendor's news or overview page scores 0-2 here however relevant it is to the \
+product; a page on the practice the part names scores 4 or more even if it \
+uses different words for it ("health scoring" for "health checks").
 """
 
 FACET_TRIAGE_RULES = """

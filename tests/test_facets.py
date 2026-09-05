@@ -175,6 +175,34 @@ def test_an_ask_the_question_listed_is_searched_plainly_before_the_vendor():
     assert f.top_up_queries("call prep", "", from_question=True) == ["call prep"]
 
 
+# ---- credit by the note-taker's answer, vetoed on zero shared words -------------
+
+def test_a_part_is_credited_by_the_note_takers_answer_with_a_one_word_floor():
+    """"health checks" was reported unanswered while three customer-health-
+    SCORING guides sat in the findings: the reader's word and the field's word
+    differ, and the two-word rule could not bridge it. The note-taker, asked
+    how much the page contributes to that part, can."""
+    facet = "organization/contact health checks summaries overviews"
+    scoring = "Customer health scores in the age of AI. Modern customer health scoring methodologies."
+    assert f.credits(facet, scoring, part_relevance=5, threshold=4)
+    assert not f.credits(facet, scoring, part_relevance=2, threshold=4)
+    # the same note-taker scored a vendor launch press release 6 under the
+    # risk part; zero shared words is the veto that keeps that out
+    launch = "Workato Launches AIRO for Enterprise Multi-Agent Automation. Announces global availability."
+    assert not f.credits("customer dispute/conflict/risk identification mitigation", launch, part_relevance=6, threshold=4)
+    # no answer from the note-taker: the two-word rule stands
+    assert not f.credits(facet, scoring, part_relevance=None, threshold=4)
+    assert f.credits("call prep", "AI call prep for sales teams", part_relevance=None, threshold=4)
+
+
+def test_a_short_facet_sharing_one_distinctive_word_merges_but_not_on_the_questions_furniture():
+    asked = ["recommended agents team build as essentially template then distributed per-customer basis"]
+    assert f.merge(["template specialization"], asked) == asked          # one distinctive word: same ask
+    # "insightly" is in three facets here, so sharing it proves nothing
+    asked2 = ["insightly ui embedding", "insightly api access", "insightly data model"]
+    assert len(f.merge(["insightly pricing"], asked2)) == 4
+
+
 # ---- the model writes the query for an unanswered ask -----------------------------
 
 def test_two_names_for_one_ask_merge():
@@ -242,7 +270,7 @@ def _script(gap_rounds):
             "keywords": ["battery"],
         }],
         "notes": [{"relevance": 8, "summary": "Useful.", "notes_md": "Notes.",
-                   "key_facts": [], "published_date": None}],
+                   "key_facts": [], "published_date": None, "part_relevance": 8}],
         "gap": gap_rounds,
         "synth": ["# Home Battery Buying Guide\n\n## TL;DR\n\n- Cost is falling [1].\n"],
         "followups": [{"items": []}],

@@ -95,6 +95,26 @@ def about(facet: str, text: str) -> bool:
     return len(wanted & content_words(text)) >= (2 if len(wanted) >= 2 else 1)
 
 
+def credits(facet: str, text: str, part_relevance: int | None, threshold: int) -> bool:
+    """Does a kept source count as answering the part it was fetched for?
+
+    The lexical rule alone (two of the facet's words in the source) reported
+    "health checks" unanswered while three customer-health-SCORING guides sat
+    in the findings: the reader's word and the field's word differ. So when
+    the note-taker was asked how much the page contributes to that part, its
+    answer decides — gated by ONE shared word, because the same note-taker
+    scored a vendor launch press release 6 under the risk part, and that page
+    shares no word with "customer dispute/conflict/risk identification": the
+    floor is what vetoes it. Without an answer, the two-word rule stands.
+    """
+    if part_relevance is None:
+        return about(facet, text)
+    wanted = content_words(facet)
+    if not wanted:
+        return part_relevance >= threshold
+    return part_relevance >= threshold and bool(wanted & content_words(text))
+
+
 def _facet_name(item: str) -> str:
     """A list item, reduced to the words that carry its meaning. Empty for a
     catch-all ("anything and everything else"): every word of it is filler,
@@ -142,22 +162,36 @@ def enumerated(question: str) -> list[str]:
     return out[:MAX_FACETS]
 
 
-def _same_facet(a: str, b: str) -> bool:
+def _same_facet(a: str, b: str, common: frozenset[str] = frozenset()) -> bool:
     """Two names for one ask. Two shared content words is the test: 'call
     prep' and 'call prep agent' are the same facet, 'workato vs competitors'
-    and 'workato oem pricing' are not."""
+    and 'workato oem pricing' are not. A short name that shares one word is
+    the same ask too, when that word is distinctive for this question — the
+    planner's "template specialization" against the reader's "recommended
+    agents ... as a template ... distributed per customer" — but never on a
+    word the whole facet list uses, like the product's own name."""
     aw, bw = content_words(a), content_words(b)
-    if len(aw) < 2 or len(bw) < 2:
+    if not aw or not bw:
         return a == b
-    return len(aw & bw) >= 2
+    shared = aw & bw
+    if len(shared) >= 2:
+        return True
+    return bool(shared - common) and min(len(aw), len(bw)) <= 2
 
 
 def merge(model_facets: list[str], asked: list[str]) -> list[str]:
     """The question's own list first — it is literally what was asked — then
     whatever else the planner named that is not the same thing again."""
-    out = clean_facets(asked)
-    for m in clean_facets(model_facets):
-        if not any(_same_facet(m, existing) for existing in out):
+    asked_c, model_c = clean_facets(asked), clean_facets(model_facets)
+    freq: Counter = Counter()
+    for name in asked_c + model_c:
+        freq.update(content_words(name))
+    # A word in three or more facets is this question's furniture, not a
+    # signal that two facets are one.
+    common = frozenset(w for w, n in freq.items() if n >= 3)
+    out = list(asked_c)
+    for m in model_c:
+        if not any(_same_facet(m, existing, common) for existing in out):
             out.append(m)
     return out[:MAX_FACETS]
 

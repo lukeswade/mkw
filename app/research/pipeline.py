@@ -934,7 +934,7 @@ class Pipeline:
 
     def _record_outcome(self, run_id: str, c, outcome: str,
                         relevance: int | None = None, state: "_RunState | None" = None,
-                        about_text: str = "") -> None:
+                        about_text: str = "", part_relevance: int | None = None) -> None:
         """One row per page read: what the install learns about a domain over
         many runs. Bookkeeping must never stop a run."""
         if state is not None and outcome in ("kept", "rejected"):
@@ -944,9 +944,10 @@ class Pipeline:
                 state.engine_kept[eng] += 1
                 facet = state.query_facet.get(getattr(c, "via_query", "") or "")
                 if facet:
-                    # Credit the facet only for a source about it — see
-                    # facets.about.
-                    if facet_plan.about(facet, about_text):
+                    # Credit the facet only for a source that answers it —
+                    # see facets.credits.
+                    threshold = int(getattr(self.cfg, "relevance_threshold", 4) or 4)
+                    if facet_plan.credits(facet, about_text, part_relevance, threshold):
                         state.facet_kept[facet] += 1
                     else:
                         state.facet_offtopic[facet] += 1
@@ -1386,7 +1387,8 @@ class Pipeline:
             kept.append(finding)
             state.kept_by_source[source_key(c)] += 1
             self._record_outcome(run_id, c, "kept", notes.relevance, state=state,
-                                 about_text=f"{finding.title} {finding.summary or ''}")
+                                 about_text=f"{finding.title} {finding.summary or ''}",
+                                 part_relevance=getattr(notes, "part_relevance", None))
             state.read += 1
             finding.path = store.write_finding(idx, title, finding_markdown(finding))
             self.repo.add_finding(
