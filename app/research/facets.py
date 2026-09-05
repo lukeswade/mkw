@@ -18,9 +18,13 @@ count what each has produced and spend its slots on what is thin.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 
-MAX_FACETS = 12
+# A brief that lists eleven asks gets eleven facets plus room for what the
+# planner adds. Thin per facet at depth 10 (35 slots) and thinner below it —
+# which is the honest signal: the run then says what it could not reach.
+MAX_FACETS = 14
 # Words that carry no search signal in a facet name.
 _FILLER = frozenset(
     "the a an of for to in on at by and or with vs versus how what which any "
@@ -31,7 +35,89 @@ _FILLER = frozenset(
 
 def normalize(name: str) -> str:
     """A facet's key: what the planner and gap stages must agree on."""
-    return " ".join(str(name or "").strip().lower().replace("_", " ").split())[:60]
+    text = " ".join(str(name or "").strip().lower().replace("_", " ").split())
+    if len(text) <= 110:
+        return text
+    return text[:110].rsplit(" ", 1)[0] or text[:110]
+
+
+# A question that numbers or lists its asks has already done the
+# decomposition; reading it off the text is not a judgement call. The planner
+# folded four numbered use cases into one facet called "agent template
+# strategy" (2026-09-04), and nothing downstream could recover them — the
+# machinery allocated perfectly across the facets it was given. So the list
+# in the question is taken from the question, not from the model.
+_MARKED_LINE = re.compile(r"(?m)^[ \t]*(?:[-*\u2022\u2013]|\d{1,2}[.)])[ \t]+(.{3,300}?)[ \t]*$")
+_MAX_ITEM_CHARS = 300
+_NAME_WORDS = 12
+
+
+def _facet_name(item: str) -> str:
+    """A list item, reduced to the words that carry its meaning. Empty for a
+    catch-all ("anything and everything else"): every word of it is filler,
+    it names no research, and it would sit unanswered in every report."""
+    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9/&.'+-]*", str(item or ""))
+    content = [w for w in words if w.lower() not in _FILLER]
+    return normalize(" ".join(content[:_NAME_WORDS])) if content else ""
+
+
+def enumerated(question: str) -> list[str]:
+    """The asks the question itself lists.
+
+    Two shapes, both of which a person writing a brief actually uses: lines
+    marked with a bullet or a number, and the plain lines that follow a line
+    ending in a colon. A colon block needs three lines before it counts, so
+    ordinary prose after a colon is not mistaken for a list.
+    """
+    text = str(question or "").replace("\r\n", "\n").replace("\r", "\n")
+    items = [m.group(1).strip() for m in _MARKED_LINE.finditer(text)]
+    if len(items) < 2:
+        items = []
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if not line.rstrip().endswith(":"):
+            continue
+        block: list[str] = []
+        for nxt in lines[i + 1:]:
+            stripped = nxt.strip()
+            if not stripped:
+                if block:
+                    break
+                continue
+            if len(stripped) > _MAX_ITEM_CHARS or _MARKED_LINE.match(nxt):
+                break
+            block.append(stripped)
+            if len(block) >= MAX_FACETS:
+                break
+        if len(block) >= 3:
+            items += block
+    out: list[str] = []
+    for item in items:
+        name = _facet_name(item)
+        if name and name not in out:
+            out.append(name)
+    return out[:MAX_FACETS]
+
+
+def _same_facet(a: str, b: str) -> bool:
+    """Two names for one ask. Two shared content words is the test: 'call
+    prep' and 'call prep agent' are the same facet, 'workato vs competitors'
+    and 'workato oem pricing' are not."""
+    aw = set(a.split()) - _FILLER
+    bw = set(b.split()) - _FILLER
+    if len(aw) < 2 or len(bw) < 2:
+        return a == b
+    return len(aw & bw) >= 2
+
+
+def merge(model_facets: list[str], asked: list[str]) -> list[str]:
+    """The question's own list first — it is literally what was asked — then
+    whatever else the planner named that is not the same thing again."""
+    out = clean_facets(asked)
+    for m in clean_facets(model_facets):
+        if not any(_same_facet(m, existing) for existing in out):
+            out.append(m)
+    return out[:MAX_FACETS]
 
 
 def clean_facets(names: list[str]) -> list[str]:

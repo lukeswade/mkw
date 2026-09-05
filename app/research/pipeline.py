@@ -768,7 +768,8 @@ class Pipeline:
                 variant=getattr(self.cfg, "planner_variant", "default"))
             self.repo.update_run(run_id, title=the_plan.title)
             store.update_meta(title=the_plan.title, brief=the_plan.brief)
-            state.facets = facet_plan.clean_facets(the_plan.facets)
+            asked = facet_plan.enumerated(query)
+            state.facets = facet_plan.merge(the_plan.facets, asked)
             state.query_facet.update(facet_plan.align(
                 state.facets, the_plan.subqueries, the_plan.query_facets))
             state.facet_subject = facet_plan.subject_terms(
@@ -777,8 +778,9 @@ class Pipeline:
                              brief=the_plan.brief, subqueries=the_plan.subqueries)
             if state.facets:
                 self.bus.publish(run_id, "log", message=(
-                    f"{len(state.facets)} part(s) of the question to answer: "
-                    + "; ".join(state.facets)))
+                    f"{len(state.facets)} part(s) of the question to answer"
+                    + (f" ({len(asked)} listed in the question itself)" if asked else "")
+                    + ": " + "; ".join(state.facets)))
 
             # 3. research rounds
             try:

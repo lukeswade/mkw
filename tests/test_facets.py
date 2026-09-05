@@ -85,6 +85,61 @@ def test_uncovered_names_what_produced_nothing():
     assert "safety: 0" in f.coverage_lines(["cost", "safety"], Counter({"cost": 3}))
 
 
+# ---- the question's own list ---------------------------------------------------
+
+# The shape a person actually writes a brief in: a numbered block and a
+# colon-led block of plain lines, CRLF from a browser textarea.
+_BRIEF = (
+    "I'm evaluating a platform for my team.\r\n\r\n"
+    "Primary use cases:\r\n"
+    "1. Call Prep\r\n"
+    "2. Completed Call Briefs\r\n"
+    "3. Organization health checks\r\n\r\n"
+    "Your report should include, but is not limited to:\r\n\r\n"
+    "recommendations, tips and tricks\r\n"
+    "caveats and known functionality gaps\r\n"
+    "how it compares with competing platforms\r\n"
+    "anything and everything else\r\n"
+)
+
+
+def test_the_questions_own_list_is_read_from_the_question():
+    """The planner folded four numbered use cases into one facet and nothing
+    downstream could recover them. A list the question already wrote is not a
+    judgement call, so it is taken from the text."""
+    assert f.enumerated(_BRIEF) == [
+        "call prep",
+        "completed call briefs",
+        "organization health checks",
+        "recommendations tips tricks",
+        "caveats known functionality gaps",
+        "compares competing platforms",
+    ]                                    # "anything and everything else" names no research
+
+
+def test_prose_after_a_colon_is_not_a_list():
+    assert f.enumerated("One question: does it support custom objects?") == []
+    # two lines is a sentence that wrapped; three is a list
+    assert f.enumerated("Cover this:\nthe cost\nthe risk") == []
+    assert f.enumerated("Cover this:\nthe cost\nthe risk\nthe timeline") == [
+        "cost", "risk", "timeline"]
+    assert f.enumerated("") == [] and f.enumerated("no lists here at all") == []
+
+
+def test_a_very_long_list_item_is_cut_on_a_word_boundary():
+    item = "- the feasibility of creating a standard base agent that " \
+           "evolves and adapts and specializes based on customer tech stack " \
+           "and data structure and operational processes\n- second item here"
+    name = f.enumerated(item)[0]
+    assert len(name) <= 110 and not name.endswith(" ") and name.split()[-1].isalpha()
+
+
+def test_merge_puts_the_questions_own_asks_first_and_drops_the_planners_repeats():
+    got = f.merge(["call prep agent", "pricing"], ["call prep", "completed call briefs"])
+    assert got == ["call prep", "completed call briefs", "pricing"]
+    assert f.merge(["only what the model named"], []) == ["only what the model named"]
+
+
 # ---- the zero-result retry ------------------------------------------------------
 
 def test_a_query_that_matched_nothing_is_thinned_of_its_invented_names():
