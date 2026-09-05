@@ -140,6 +140,41 @@ def test_merge_puts_the_questions_own_asks_first_and_drops_the_planners_repeats(
     assert f.merge(["only what the model named"], []) == ["only what the model named"]
 
 
+# ---- credit only for a source about the facet ------------------------------------
+
+# Verbatim from the run that exposed this: the query was "Workato AIRO call
+# prep" and this is the page it kept, whose own summary says it lacks the
+# use cases. It credited the call-prep facet, so nothing was reported missing.
+_OVERVIEW = ("AIRO — This document provides a high-level overview of Workato AIRO's "
+             "capabilities, including its multi-agent architecture, blueprint planning "
+             "and MCP server integration. It lacks specific technical details on "
+             "multi-tenant agent customization, Insightly-specific use cases, or "
+             "competitor comparisons.")
+
+
+def test_a_facet_is_credited_only_for_a_source_about_it():
+    assert not f.about("call prep", _OVERVIEW)
+    assert f.about("call prep", "How to run AI call prep before a sales call")
+    # plurals and punctuation must not decide it
+    assert f.about("organization/contact health checks summaries overviews",
+                   "Account health check scoring for every contact organization")
+    # one-word facets need only that word; an unnamed facet credits anything
+    assert f.about("pricing", "Workato pricing tiers explained") and not f.about("pricing", _OVERVIEW)
+    assert f.about("", _OVERVIEW)
+
+
+def test_an_ask_the_question_listed_is_searched_plainly_before_the_vendor():
+    """Five vendor-anchored use-case queries kept five vendor overview pages
+    and nothing about the use cases."""
+    assert f.top_up_queries("call prep", "Workato AIRO", from_question=True) \
+        == ["call prep", "Workato AIRO call prep"]
+    # a facet the planner invented describes the subject, so it keeps the anchor
+    assert f.top_up_queries("dynamic agent personalization", "Workato AIRO", from_question=False) \
+        == ["Workato AIRO dynamic agent personalization", "dynamic agent personalization"]
+    # no subject to anchor to: one query, not a duplicate pair
+    assert f.top_up_queries("call prep", "", from_question=True) == ["call prep"]
+
+
 # ---- the zero-result retry ------------------------------------------------------
 
 def test_a_query_that_matched_nothing_is_thinned_of_its_invented_names():
@@ -192,12 +227,19 @@ async def test_a_long_question_spends_its_slots_on_the_parts_with_no_sources(dat
             return httpx.Response(200, json=sx_payload(
                 [sx_result(f"https://cost{len(seen)}.example.com/p",
                            f"Battery cost analysis {len(seen)}")]))
+        if "safety" in q:
+            # the failure this guards: a facet's own query turns up a page
+            # about something else, which used to credit the facet
+            return httpx.Response(200, json=sx_payload(
+                [sx_result("https://offtopic.example.com/p", "Battery cost analysis extra")]))
         return httpx.Response(200, json=sx_payload([]))
 
     respx.get(f"{SX}/search").mock(side_effect=handler)
     respx.get(url__regex=r"https://cost\d+\.example\.com/p").mock(
         side_effect=lambda req: httpx.Response(
             200, html=article(f"Battery cost analysis from {req.url.host}")))
+    respx.get("https://offtopic.example.com/p").mock(
+        return_value=httpx.Response(200, html=article("Battery cost analysis extra")))
 
     repo = Repo(connect(cfg.db_path))
     orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
@@ -218,6 +260,9 @@ async def test_a_long_question_spends_its_slots_on_the_parts_with_no_sources(dat
 
     overview = (cfg.research_dir / run_id / "overview.md").read_text()
     assert "## Not researched" in overview
+    # the safety query DID keep a source; it was about cost, so the facet is
+    # still reported unanswered rather than quietly counted as covered
     assert "safety certification" in overview and "installation" in overview
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
     assert "no sources yet for" in events
+    assert "about something else" in events

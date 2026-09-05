@@ -253,8 +253,12 @@ class _RunState:
     # attacks, and how many sources each facet has produced. Rounds are
     # allocated against this table (see research/facets.py).
     facets: list = field(default_factory=list)
+    asked_facets: set = field(default_factory=set)
     query_facet: dict = field(default_factory=dict)
     facet_kept: Counter = field(default_factory=Counter)
+    # Sources a facet's query turned up that were about something else. Not
+    # coverage, but worth telling the reader: the search ran and missed.
+    facet_offtopic: Counter = field(default_factory=Counter)
     facet_subject: str = ""
     quotes_dropped: int = 0
     quotes_repaired: int = 0
@@ -770,6 +774,7 @@ class Pipeline:
             store.update_meta(title=the_plan.title, brief=the_plan.brief)
             asked = facet_plan.enumerated(query)
             state.facets = facet_plan.merge(the_plan.facets, asked)
+            state.asked_facets = set(facet_plan.clean_facets(asked))
             state.query_facet.update(facet_plan.align(
                 state.facets, the_plan.subqueries, the_plan.query_facets))
             state.facet_subject = facet_plan.subject_terms(
@@ -809,8 +814,8 @@ class Pipeline:
                 if starved:
                     added = []
                     for f in starved[:max(0, breadth - len(queries))]:
-                        for q in (facet_plan.facet_query(f, state.facet_subject),
-                                  facet_plan.facet_query(f, "")):
+                        for q in facet_plan.top_up_queries(
+                                f, state.facet_subject, f in state.asked_facets):
                             if q and q not in queries and q not in state.searched:
                                 state.query_facet[q] = f
                                 state.query_scope.setdefault(q, "web")
@@ -912,7 +917,8 @@ class Pipeline:
                                  previous_overview=self._parent_overview(row))
 
     def _record_outcome(self, run_id: str, c, outcome: str,
-                        relevance: int | None = None, state: "_RunState | None" = None) -> None:
+                        relevance: int | None = None, state: "_RunState | None" = None,
+                        about_text: str = "") -> None:
         """One row per page read: what the install learns about a domain over
         many runs. Bookkeeping must never stop a run."""
         if state is not None and outcome in ("kept", "rejected"):
@@ -922,7 +928,12 @@ class Pipeline:
                 state.engine_kept[eng] += 1
                 facet = state.query_facet.get(getattr(c, "via_query", "") or "")
                 if facet:
-                    state.facet_kept[facet] += 1
+                    # Credit the facet only for a source about it — see
+                    # facets.about.
+                    if facet_plan.about(facet, about_text):
+                        state.facet_kept[facet] += 1
+                    else:
+                        state.facet_offtopic[facet] += 1
         try:
             self.repo.record_outcome(run_id=run_id, url=canonicalize(c.url),
                                      domain=domain_of(c.url), engine=c.engine or "",
@@ -1357,7 +1368,8 @@ class Pipeline:
             state.findings.append(finding)
             kept.append(finding)
             state.kept_by_source[source_key(c)] += 1
-            self._record_outcome(run_id, c, "kept", notes.relevance, state=state)
+            self._record_outcome(run_id, c, "kept", notes.relevance, state=state,
+                                 about_text=f"{finding.title} {finding.summary or ''}")
             state.read += 1
             finding.path = store.write_finding(idx, title, finding_markdown(finding))
             self.repo.add_finding(
@@ -1477,9 +1489,12 @@ class Pipeline:
                             + "The run found no sources for these parts of the "
                             + "question, and nothing above answers them:\n\n"
                             + "\n".join(f"- {f}" for f in unanswered) + "\n")
+                missed = sum(state.facet_offtopic[f] for f in unanswered)
                 self.bus.publish(run_id, "log", message=(
                     f"{len(unanswered)} part(s) of the question found no "
-                    f"sources: " + "; ".join(unanswered)))
+                    f"sources: " + "; ".join(unanswered)
+                    + (f" ({missed} source(s) their searches returned were "
+                       f"about something else)" if missed else "")))
             fu = await synthesizer.follow_ups(llm, query=query, overview=overview)
         elif searcher is not None and searcher.degraded:
             # Every search came back empty *and* engines were reporting blocks.

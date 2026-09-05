@@ -52,6 +52,42 @@ _MAX_ITEM_CHARS = 300
 _NAME_WORDS = 12
 
 
+def _stem(token: str) -> str:
+    """Crude enough that "checks" meets "check" and "briefs" meets "brief"."""
+    for suffix in ("ing", "ed"):
+        if len(token) > 5 and token.endswith(suffix):
+            return token[: -len(suffix)]
+    if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
+def content_words(text: str) -> frozenset[str]:
+    """The words that carry a facet's meaning, split on punctuation so
+    "organization/contact" counts as two, and stemmed so plurals meet."""
+    tokens = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    return frozenset(_stem(t) for t in tokens if len(t) >= 2 and t not in _FILLER)
+
+
+def about(facet: str, text: str) -> bool:
+    """Is this source about the facet, or did the facet's query merely turn
+    it up?
+
+    Credit used to follow attribution alone, and five vendor-anchored
+    use-case queries ("Workato AIRO call prep") each kept a generic vendor
+    page — an overview, a keynote, a think-piece — none of them about the use
+    case. Every facet then looked answered and the report said nothing about
+    what it had missed. Two of the facet's own words must appear in the
+    source, and the error is deliberately one-sided: an on-topic source that
+    words it differently is reported as a gap, which is the safe way to be
+    wrong.
+    """
+    wanted = content_words(facet)
+    if not wanted:
+        return True
+    return len(wanted & content_words(text)) >= (2 if len(wanted) >= 2 else 1)
+
+
 def _facet_name(item: str) -> str:
     """A list item, reduced to the words that carry its meaning. Empty for a
     catch-all ("anything and everything else"): every word of it is filler,
@@ -103,8 +139,7 @@ def _same_facet(a: str, b: str) -> bool:
     """Two names for one ask. Two shared content words is the test: 'call
     prep' and 'call prep agent' are the same facet, 'workato vs competitors'
     and 'workato oem pricing' are not."""
-    aw = set(a.split()) - _FILLER
-    bw = set(b.split()) - _FILLER
+    aw, bw = content_words(a), content_words(b)
     if len(aw) < 2 or len(bw) < 2:
         return a == b
     return len(aw & bw) >= 2
@@ -226,10 +261,30 @@ def facet_query(facet: str, subject: str = "") -> str:
     sources. The subject is prepended because an unanchored query about a
     sub-topic returns pages about the sub-topic in general.
     """
-    words = [w for w in normalize(facet).split() if w not in _FILLER]
+    words = [w for w in re.findall(r"[A-Za-z0-9]+", normalize(facet))
+             if w.lower() not in _FILLER]
     subj = " ".join(w for w in str(subject or "").split()[:3])
     parts = [w for w in ([subj] if subj else []) + words if w]
     return " ".join(parts)[:120].strip()
+
+
+def top_up_queries(facet: str, subject: str, from_question: bool) -> list[str]:
+    """Queries to try for a facet with no sources, best first.
+
+    A facet the question itself listed is a thing the reader wants
+    understood, not a property of the product, and anchoring it to the
+    vendor asks the wrong question: "Workato AIRO call prep" returned the
+    vendor's overview page and nothing about preparing for a call. Those go
+    out plain first and anchored only as the second attempt. A facet the
+    planner invented describes the subject, so it keeps the anchor.
+    """
+    plain, anchored = facet_query(facet, ""), facet_query(facet, subject)
+    order = [plain, anchored] if from_question else [anchored, plain]
+    out: list[str] = []
+    for q in order:
+        if q and q not in out:
+            out.append(q)
+    return out
 
 
 def subject_terms(title: str, keywords: list[str]) -> str:
