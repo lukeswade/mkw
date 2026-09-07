@@ -340,6 +340,10 @@ class Searcher:
         # over-read the Brave dashboard by two thirds.
         self.brave_requests = 0
         self.blocked_engines: dict[str, str] = {}
+        # The search (1-based count) at which each engine last refused.
+        # blocked_engines lives for the whole run; a round reports only
+        # the refusals that happened during its own searches.
+        self.blocked_at: dict[str, int] = {}
 
     @property
     def degraded(self) -> bool:
@@ -400,6 +404,7 @@ class Searcher:
         for entry in unresponsive:
             if isinstance(entry, (list, tuple)) and entry:
                 self.blocked_engines[str(entry[0])] = str(entry[-1])
+                self.blocked_at[str(entry[0])] = self.searches
         if unresponsive:
             log.info("searxng unresponsive engines for %r: %s", query, unresponsive)
         if self.bench is not None:

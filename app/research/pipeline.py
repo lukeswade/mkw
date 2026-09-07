@@ -54,6 +54,21 @@ log = logging.getLogger(__name__)
 def effort_for_depth(depth: int) -> float:
     return depth / 2
 
+def round_refusals(searcher, searches_before: int) -> dict[str, str]:
+    """The engines that refused during this round's searches.
+
+    `blocked_engines` accumulates for the run, so reporting it verbatim
+    re-announced a round-1 GitHub 503 as "refused this round" in rounds two
+    and three of a run that never saw it again (2026-09-05). A searcher that
+    does not record when an engine refused (the feed reader) is reported as
+    before."""
+    blocked = getattr(searcher, "blocked_engines", {}) or {}
+    at = getattr(searcher, "blocked_at", None)
+    if at is None:
+        return dict(blocked)
+    return {k: v for k, v in blocked.items() if at.get(k, 0) > searches_before}
+
+
 def rounds_for_depth(depth: int) -> int:
     return max(1, math.ceil(effort_for_depth(depth)))
 
@@ -995,6 +1010,7 @@ class Pipeline:
                      query, brief, recency_desc, today, recency, queries,
                      breadth, keywords, pageno: int = 1) -> list[Finding]:
         run_categories = getattr(searcher, "categories", None)
+        searches_before = getattr(searcher, "searches", 0)
 
         def cats(q: str) -> str | None:
             # A query's scope narrows which categories it hits; the run's own
@@ -1219,13 +1235,13 @@ class Pipeline:
         # got worse. Report whatever refused, whether or not anything landed.
         if searcher.blocked_engines:
             state.blocked_engines.update(searcher.blocked_engines)
-            blocked = ", ".join(f"{k} ({v})" for k, v in
-                                sorted(searcher.blocked_engines.items()))
+        if refused := round_refusals(searcher, searches_before):
+            blocked = ", ".join(f"{k} ({v})" for k, v in sorted(refused.items()))
             self.bus.publish(
                 run_id, "log",
                 message=(f"no results — every engine refused: {blocked}"
                          if total_results == 0
-                         else f"{len(searcher.blocked_engines)} search engine(s) "
+                         else f"{len(refused)} search engine(s) "
                               f"refused this round: {blocked}"))
         for msg in (searcher.drain_bench_events() if hasattr(searcher, "drain_bench_events") else []):
             self.bus.publish(run_id, "log", message=msg)

@@ -5,6 +5,7 @@ import httpx
 import pytest
 import respx
 
+from app.research.pipeline import round_refusals
 from app.research.searcher import DEFAULT_CATEGORIES, Searcher, categories_for
 
 BASE = "http://sx.test"
@@ -416,3 +417,30 @@ def test_a_persistently_blocked_engine_is_benched_then_probed_with_backoff(data_
     assert bench.excluded() == frozenset() and any("leaves the bench" in e for e in events)
     row = {r["engine"]: dict(r) for r in repo.engine_bench_all()}["google cse"]
     assert row["strikes"] == 0 and row["refusals"] == 0
+
+
+@respx.mock
+async def test_a_refusal_is_reported_in_its_own_round_only():
+    """A GitHub 503 in round one was re-announced as "refused this round" in
+    rounds two and three (2026-09-05): blocked_engines lives for the run."""
+    route = respx.get(f"{BASE}/search")
+    route.side_effect = [
+        httpx.Response(200, json=_payload([], [["github code", "HTTP error"]])),
+        httpx.Response(200, json=_payload([{"url": "https://a.example/x", "title": "x",
+                                            "content": "c", "engines": ["brave"]}])),
+    ]
+    async with httpx.AsyncClient() as client:
+        s = Searcher(BASE, client)
+        before_round_1 = s.searches
+        await s.search("q1", "all")
+        assert round_refusals(s, before_round_1) == {"github code": "HTTP error"}
+        before_round_2 = s.searches
+        await s.search("q2", "all")
+    assert s.blocked_engines == {"github code": "HTTP error"}   # run-wide memory kept
+    assert round_refusals(s, before_round_2) == {}               # but not re-announced
+
+
+def test_a_searcher_without_timing_reports_everything():
+    class Feeds:
+        blocked_engines = {"https://dead.example/feed": "ConnectError"}
+    assert round_refusals(Feeds(), 5) == Feeds.blocked_engines
