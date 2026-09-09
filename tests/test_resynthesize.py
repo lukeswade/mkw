@@ -277,3 +277,56 @@ def test_an_untagged_finding_never_counts_as_a_dropped_part():
     from app.research.synthesizer import funnel_losses
     dropped, _strong = funnel_losses("No citations here.", [_f(1, "q")], None)
     assert dropped == []
+
+
+@respx.mock
+async def test_a_part_whose_sources_never_reached_the_page_is_named(data_dir):
+    """The end-to-end shape of the U8 failure: both parts of the question are
+    searched, both keep a source, and the synthesis cites only one of them.
+    The finished document has to admit that, because the coverage check that
+    runs before synthesis sees both parts as covered and stays silent."""
+    cfg = make_cfg(data_dir)
+
+    def handler(req):
+        q = req.url.params.get("q", "")
+        host = "cost" if "cost" in q else "safety"
+        return httpx.Response(200, json=sx_payload(
+            [sx_result(f"https://{host}.example.com/p", f"{host} page")]))
+
+    respx.get(f"{SX}/search").mock(side_effect=handler)
+    for host in ("cost", "safety"):
+        respx.get(f"https://{host}.example.com/p").mock(
+            return_value=httpx.Response(200, html=article(f"All about {host}")))
+
+    sc = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    sc["planner"] = [{
+        "title": "Home Batteries", "brief": "Cost and safety.",
+        "facets": ["cost", "safety"],
+        "subqueries": ["battery cost", "battery safety"],
+        "query_facets": ["cost", "safety"],
+        "keywords": ["battery"],
+    }]
+    # the synthesis ignores everything the safety searches turned up
+    sc["synth"] = ["# Home Batteries\n\n## Cost\n\nCosts are falling [1].\n"]
+
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(sc))
+    run_id = orch.enqueue(RunParams(query="home battery cost and safety",
+                                    depth=2, recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    overview = (cfg.research_dir / run_id / "overview.md").read_text()
+    assert "## Researched but not used" in overview
+    section = overview.split("## Researched but not used")[1]
+    # The two searches finish in either order, so which part owns [1] and
+    # which owns [2] is not fixed. What must hold is that exactly the part the
+    # synthesis ignored is named, by the id a reader can follow.
+    named = [p for p in ("cost", "safety") if p in section]
+    assert len(named) == 1, section
+    assert "[2]" in section
+    # and it is not confused with the parts that found nothing at all
+    assert "## Not researched" not in overview
+
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert "overview never cited" in events
