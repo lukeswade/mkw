@@ -498,3 +498,34 @@ def test_the_premise_cap_is_a_no_op_below_the_cap_and_without_premises():
     assert cap_premise_results(rs, ["pq"], cap=4) == rs
     assert cap_premise_results(rs, []) == rs
     assert cap_premise_results([], ["pq"]) == []
+
+
+def test_an_untagged_gap_query_is_credited_by_what_it_is_about():
+    """The gap stage often returns next_queries with no next_query_facets, and
+    an untagged query used to count toward nothing: six sources answering
+    'small field tactics' were credited nowhere, the run called that facet
+    unresearched under a section built from them, and round two re-attacked a
+    facet that was already covered (run 20260909_063444)."""
+    facets = ["small field tactics", "skill development drills",
+              "team organization strategies", "age appropriate coaching"]
+    got = f.align(facets, ["u8 soccer practice plan 60 minutes small field"], [])
+    assert got == {"u8 soccer practice plan 60 minutes small field":
+                   "small field tactics"}
+
+
+def test_the_fallback_stays_quiet_when_a_query_matches_nothing():
+    """An untagged query still counts toward nothing rather than being forced
+    onto the nearest facet — over-crediting hides a real gap."""
+    facets = ["small field tactics", "skill development drills"]
+    for q in ("preventing swarming 4v4 u8 soccer",
+              "how to coach mixed skill u8 soccer team",
+              "managing talented player u8 soccer team"):
+        assert f.align(facets, [q], []) == {}, q
+
+
+def test_an_explicit_tag_still_beats_the_fallback():
+    """The model's own tag is evidence; the fallback is only for its absence."""
+    facets = ["small field tactics", "age appropriate coaching"]
+    q = "u8 soccer practice plan 60 minutes small field"
+    assert f.align(facets, [q], ["age appropriate coaching"]) == {q: "age appropriate coaching"}
+    assert f.align(facets, ["anything"], ["tactics"]) == {"anything": "small field tactics"}

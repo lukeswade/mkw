@@ -220,18 +220,30 @@ def _closest(tag: str, known: list[str]) -> str:
 
 
 def align(facets: list[str], queries: list[str], tags: list[str]) -> dict[str, str]:
-    """query text → facet key. An untagged or unmatchable query is not an
-    error; it simply counts toward no facet."""
+    """query text → facet key.
+
+    An untagged query used to count toward NO facet, which silently
+    under-credited every round after the first: the gap stage often returns
+    next_queries with no next_query_facets at all, and then nothing its
+    sources answer is ever credited. 2026-09-09: six sources answering "small
+    field tactics" were credited to nothing, the run reported that facet
+    unresearched directly under a section built from them, and round two spent
+    its slots re-attacking a facet that was already covered.
+
+    So when the tag is missing or unmatchable, fall back to what the QUERY is
+    about. That needs two shared stems (facet_for_query), which keeps it quiet
+    when a query genuinely matches no facet — an untagged query still counts
+    toward nothing rather than being forced somewhere."""
     known = clean_facets(facets)
     tags = list(tags or [])
     out: dict[str, str] = {}
     for i, q in enumerate(queries or []):
         tag = normalize(tags[i]) if i < len(tags) else ""
-        if not tag:
-            continue
-        out[q] = tag if tag in known else _closest(tag, known)
-        if not out[q]:
-            del out[q]
+        hit = (tag if tag in known else _closest(tag, known)) if tag else ""
+        if not hit:
+            hit = facet_for_query(q, known)
+        if hit:
+            out[q] = hit
     return out
 
 
