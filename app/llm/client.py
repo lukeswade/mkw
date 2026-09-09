@@ -307,8 +307,18 @@ class LLM:
                             kind, budget)
 
         try:
-            return schema.model_validate(extract_json(text))
+            return schema.model_validate(
+                extract_json(text, allow_truncated=(finish == "length")))
         except (LLMJsonError, ValidationError) as first_err:
+            if finish == "length":
+                # Both attempts hit the ceiling and extract_json could not
+                # salvage even a truncated value. Repair re-sends the prompt
+                # plus the truncated text at the same budget, so it truncates
+                # again — this docstring says so, and the code used to pay for
+                # the third call anyway.
+                raise LLMJsonError(
+                    f"{kind}: response truncated at {budget} tokens and could "
+                    f"not be salvaged") from first_err
             log.warning("%s: JSON parse failed (%s), attempting repair", kind,
                         str(first_err)[:200])
             repair_messages = [
