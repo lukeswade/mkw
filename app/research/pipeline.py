@@ -1624,6 +1624,30 @@ class Pipeline:
                     f"{len(strong_uncited)} source(s) at relevance 7+ were "
                     f"read but not cited: "
                     + ", ".join(f"[{f.idx}]" for f in strong_uncited[:10])))
+            # `unanswered` comes from facet_kept, which credits ONE part per
+            # source and vetoes any source whose title and summary share no
+            # word with the part's NAME. Conservative is right for steering
+            # rounds — a thin part keeps getting searched — but it is not a
+            # safe basis for telling a reader that a part went unresearched.
+            # 2026-09-09, measured A/B: eight sources answered "competition
+            # strategy", every one was vetoed because no title contains the
+            # word "competition", and the document carried a section headed
+            # "Competition Strategy: Managing Uneven Skill Levels" while
+            # claiming the part had no sources at all. So the CLAIM is
+            # re-checked against the finished document, downstream of every
+            # step that could have lost the part. Headings only: a part merely
+            # mentioned in passing is not a part that was answered.
+            if unanswered:
+                headings = "\n".join(l for l in overview.splitlines()
+                                     if l.lstrip().startswith("#"))
+                answered = [f for f in unanswered
+                            if facet_plan.about(f, headings)]
+                if answered:
+                    unanswered = [f for f in unanswered if f not in answered]
+                    self.bus.publish(run_id, "log", message=(
+                        f"{len(answered)} part(s) the coverage count called "
+                        f"unresearched have a section of their own, so they "
+                        f"are not reported as gaps: " + "; ".join(answered)))
             if unanswered:
                 # Named in the document itself, not just the log: a reader
                 # cannot otherwise tell a researched section from one the

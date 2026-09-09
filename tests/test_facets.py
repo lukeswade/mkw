@@ -599,3 +599,58 @@ def test_gap_breadth_truncation_also_keeps_the_pairing():
     assert g.next_queries == ["a", "b"]
     assert g.next_query_facets == ["fa", "fb"]
     assert g.next_query_scopes == ["web", "video"]
+
+
+@respx.mock
+async def test_a_part_with_its_own_section_is_not_reported_as_a_gap(data_dir):
+    """Measured A/B, 2026-09-09: eight sources answered "competition
+    strategy" and every one was vetoed, because credits() compares a source's
+    title and summary against the part's NAME and no page about uneven teams
+    says "competition". The document then carried a section headed
+    "Competition Strategy: Managing Uneven Skill Levels" and, below it, the
+    claim that the part had found no sources."""
+    cfg = make_cfg(data_dir)
+
+    def handler(req):
+        return httpx.Response(200, json=sx_payload(
+            [sx_result("https://uneven.example.com/p", "Formations for uneven teams")]))
+
+    respx.get(f"{SX}/search").mock(side_effect=handler)
+    respx.get("https://uneven.example.com/p").mock(
+        return_value=httpx.Response(200, html=article("Arranging four players when one is stronger")))
+
+    sc = _script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    sc["planner"] = [{
+        "title": "Coaching U8", "brief": "Tactics and competition strategy.",
+        "facets": ["competition strategy"],
+        "subqueries": ["how to coach 4v4 with one good player"],
+        "query_facets": ["competition strategy"],
+        "keywords": ["u8"],
+    }]
+    # the synthesis writes the part up under a heading of its own
+    sc["synth"] = ["# Coaching U8\n\n## Competition Strategy: Managing Uneven "
+                   "Skill Levels\n\nPut the strong player wide [1].\n"]
+
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(sc))
+    run_id = orch.enqueue(RunParams(query="how do I coach my u8 team",
+                                    depth=2, recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    overview = (cfg.research_dir / run_id / "overview.md").read_text()
+    assert "## Competition Strategy" in overview
+    assert "## Not researched" not in overview
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert "have a section of their own" in events
+
+
+def test_a_part_only_mentioned_in_passing_is_still_a_gap():
+    """The rescue reads headings, not the whole document: a part named in one
+    sentence of prose was not answered, and must still be reported."""
+    from app.research.facets import about
+    body = ("## Tactical Adjustments\n\nSpacing matters. We did not look at "
+            "parent communication at all.\n")
+    headings = "\n".join(l for l in body.splitlines() if l.lstrip().startswith("#"))
+    assert not about("parent communication", headings)
+    assert about("parent communication", body)      # prose would have rescued it
