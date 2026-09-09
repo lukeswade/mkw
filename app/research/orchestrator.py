@@ -183,13 +183,32 @@ class Orchestrator:
     async def _loop(self) -> None:
         while True:
             run_id = await self.queue.get()
-            row = self.repo.get_run(run_id)
-            if row is None or row["status"] != "queued":
-                continue  # cancelled while queued, or gone
-            pipeline = Pipeline(self.cfg_loader(), self.repo, self.bus,
-                                rag=self.rag, llm_factory=self.llm_factory)
-            task = asyncio.create_task(pipeline.execute(run_id))
-            self.active[run_id] = (task, pipeline)
+            try:
+                row = self.repo.get_run(run_id)
+                if row is None or row["status"] != "queued":
+                    continue  # cancelled while queued, or gone
+                pipeline = Pipeline(self.cfg_loader(), self.repo, self.bus,
+                                    rag=self.rag, llm_factory=self.llm_factory)
+                task = asyncio.create_task(pipeline.execute(run_id))
+                self.active[run_id] = (task, pipeline)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # This is the ONLY worker. Anything raised while starting a run
+                # used to escape the loop and kill it silently, after which
+                # every run ever queued sat in 'queued' for ever with nothing
+                # to notice — an unreadable /data/settings.json reaching
+                # cfg_loader() is enough to do it. Fail this run, keep serving.
+                log.exception("could not start run %s", run_id)
+                try:
+                    self.repo.update_run(run_id, status="failed",
+                                         error="the run could not be started",
+                                         stop_reason="failed to start",
+                                         finished_at=utcnow())
+                    self.bus.publish(run_id, "done", status="failed")
+                except Exception:
+                    log.exception("could not even mark %s failed", run_id)
+                continue
             try:
                 await asyncio.shield(task)
             except asyncio.CancelledError:
@@ -219,16 +238,26 @@ class Orchestrator:
             task.cancel()
             return True
         row = self.repo.get_run(run_id)
-        if row and row["status"] == "queued":
-            self.repo.update_run(run_id, status="cancelled",
-                                 stop_reason="cancelled while queued",
-                                 finished_at=utcnow())
+        # A 'running' row with nothing in self.active is a run whose owner is
+        # gone: a CLI run killed from outside, or a crash between the status
+        # write and the task starting. Only a process restart used to
+        # reconcile it, so the row stayed 'running' for ever and every guard
+        # that asks "is a run active?" answered yes (hit for real 2026-09-09).
+        stale = bool(row) and row["status"] == "running" and run_id not in self.active
+        if row and (row["status"] == "queued" or stale):
+            self.repo.update_run(
+                run_id,
+                status="interrupted" if stale else "cancelled",
+                stop_reason=("its worker is gone" if stale
+                             else "cancelled while queued"),
+                finished_at=utcnow())
+            final = "interrupted" if stale else "cancelled"
             store = self._store_for(row)
             if store:
-                store.update_meta(status="cancelled")
-                self.bus.publish(run_id, "status", status="cancelled")
-                self.bus.publish(run_id, "done", status="cancelled")
-                self.bus.detach(run_id)
+                store.update_meta(status=final)
+            self.bus.publish(run_id, "status", status=final)
+            self.bus.publish(run_id, "done", status=final)
+            self.bus.detach(run_id)
             return True
         return False
 

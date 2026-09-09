@@ -459,3 +459,18 @@ async def test_the_run_log_reports_what_the_topic_filter_removed(data_dir):
     await orch.execute_now(rid)
     events = (cfg.research_dir / rid / "events.jsonl").read_text()
     assert "topic filter set aside 1 off-topic item(s)" in events
+
+
+def test_quiet_feeds_are_not_a_search_outage():
+    """A brief whose feeds parsed fine but had nothing new was declared
+    "search engines unavailable" and the reader told to fix settings.yml."""
+    from app.research.feeds import NO_ENTRIES, FeedSearcher
+    s = FeedSearcher.__new__(FeedSearcher)
+    s.feed_urls = ["https://a.example/feed", "https://b.example/feed"]
+    s.blocked_engines = {u: NO_ENTRIES for u in s.feed_urls}
+    assert not s.degraded                       # quiet week, not an outage
+    assert all(u in s.blocked_engines for u in s.feed_urls)   # still reported
+    s.blocked_engines["https://a.example/feed"] = "ConnectError"
+    assert not s.degraded                       # one dead, one merely quiet
+    s.blocked_engines["https://b.example/feed"] = "ReadTimeout"
+    assert s.degraded                           # both genuinely failed

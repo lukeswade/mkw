@@ -253,11 +253,23 @@ async def test_the_searcher_sends_the_narrowed_categories_for_that_query_only():
 
 
 def test_planner_and_gap_scopes_are_optional_and_tolerant():
+    """Tolerance must not be bought with a shift.
+
+    This test used to assert that a null scope was DROPPED, which is exactly
+    the defect: the scopes are aligned to subqueries by index, so dropping one
+    moves every later scope onto the wrong query. A null now becomes "", which
+    downstream reads the same as unspecified, and the pairing survives.
+    """
     from app.models import PlannerOut, GapOut
     p = PlannerOut(title="t", brief="b", subqueries=["a", "b"])                      # omitted
     assert p.query_scopes == []
     p = PlannerOut(title="t", brief="b", subqueries=["a", "b"], query_scopes=["Web+Video", None])
-    assert p.query_scopes == ["web+video"]
+    assert p.query_scopes == ["web+video", ""]
+    assert dict(zip(p.subqueries, p.query_scopes)) == {"a": "web+video", "b": ""}
+    # the case the old assertion was blind to: the null comes FIRST, and
+    # dropping it would have handed query "a" the scope meant for "b"
+    p = PlannerOut(title="t", brief="b", subqueries=["a", "b"], query_scopes=[None, "Web+Video"])
+    assert dict(zip(p.subqueries, p.query_scopes)) == {"a": "", "b": "web+video"}
     g = GapOut(next_queries=["x"], next_query_scopes=["code"])
     assert g.next_query_scopes == ["code"]
 

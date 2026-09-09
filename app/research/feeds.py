@@ -34,6 +34,8 @@ MAX_ENTRIES_PER_FEED = 25
 # two items total, because they share a domain.
 PER_FEED_PER_ROUND = 6
 _FEED_TIMEOUT = 20.0
+# A feed that parsed fine and simply had nothing new. Reported, never a failure.
+NO_ENTRIES = "no entries"
 _MAX_FEED_BYTES = 8 * 1024 * 1024
 
 # Entry text is a teaser, not the article: it exists to help triage decide
@@ -199,8 +201,19 @@ class FeedSearcher:
 
     @property
     def degraded(self) -> bool:
-        """Every feed failed — distinct from 'the feeds had nothing new'."""
-        return bool(self.feed_urls) and len(self.blocked_engines) == len(self.feed_urls)
+        """Every feed FAILED — distinct from 'the feeds had nothing new'.
+
+        NO_ENTRIES went into the same dict as a fetch error, so a brief whose
+        feeds were merely quiet came out as "This run found nothing because
+        the search engines were unavailable", telling the reader to go and fix
+        searxng/settings.yml over a week with no news in it (2026-09-09). The
+        reason strings are still reported; they just no longer count as
+        failures here.
+        """
+        if not self.feed_urls:
+            return False
+        failed = [u for u, why in self.blocked_engines.items() if why != NO_ENTRIES]
+        return len(failed) == len(self.feed_urls)
 
     async def _one(self, url: str) -> list[FeedEntry]:
         async with self._sem:
@@ -215,7 +228,7 @@ class FeedSearcher:
                 return []
         _title, entries = parse_feed(body, url)
         if not entries:
-            self.blocked_engines.setdefault(url, "no entries")
+            self.blocked_engines.setdefault(url, NO_ENTRIES)
         return entries
 
     async def _by_topic(self, entries: list[FeedEntry]) -> list[FeedEntry]:

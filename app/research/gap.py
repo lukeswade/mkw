@@ -35,6 +35,28 @@ def _fresh(queries: list[str], searched: list[str], breadth: int) -> list[str]:
     return [q for q in queries if q.lower().strip() not in seen][:breadth]
 
 
+def _keep_fresh(out: GapOut, searched: list[str], breadth: int) -> None:
+    """Drop already-searched queries AND their aligned tags, in place.
+
+    Filtering next_queries alone shifted next_query_facets and
+    next_query_scopes a slot left for every query dropped — and dropping is
+    the normal case here, since the prompt forbids repeats and this filter
+    exists precisely to catch the ones it proposes anyway. The result was a
+    round crediting its sources to the wrong part of the question and
+    searching them in the wrong scope (2026-09-09).
+    """
+    seen = {s.lower().strip() for s in searched}
+    keep = [i for i, q in enumerate(out.next_queries)
+            if q.lower().strip() not in seen][:breadth]
+
+    def picked(xs: list[str]) -> list[str]:
+        return [xs[i] if i < len(xs) else "" for i in keep]
+
+    out.next_query_facets = picked(out.next_query_facets)
+    out.next_query_scopes = picked(out.next_query_scopes)
+    out.next_queries = [out.next_queries[i] for i in keep]
+
+
 async def _retry_for_queries(llm: LLM, prompt: str, searched: list[str],
                              breadth: int, previous: GapOut) -> GapOut:
     """One stern re-ask when gap analysis proposes nothing while not saturated.
@@ -61,7 +83,7 @@ async def _retry_for_queries(llm: LLM, prompt: str, searched: list[str],
         log.warning("gap retry for queries failed: %s", e)
         return previous
     out.state_md = _truncate_state(out.state_md) or previous.state_md
-    out.next_queries = _fresh(out.next_queries, searched, breadth)
+    _keep_fresh(out, searched, breadth)
     if out.next_queries:
         log.info("gap retry recovered %d queries", len(out.next_queries))
     return out
@@ -93,7 +115,7 @@ async def analyze(llm: LLM, *, query: str, brief: str, recency_desc: str,
             GapOut, max_tokens=3000, temperature=0.3,
         )
         out.state_md = _truncate_state(out.state_md) or state_md
-        out.next_queries = _fresh(out.next_queries, searched, breadth)
+        _keep_fresh(out, searched, breadth)
         if not out.next_queries and not out.saturated:
             # The model reports gaps remain but named no way to attack them --
             # usually because everything it proposed was a repeat and the

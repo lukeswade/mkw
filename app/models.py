@@ -84,6 +84,42 @@ class RunParams(BaseModel):
 
 # ---- structured LLM outputs --------------------------------------------------
 
+def pair_parallel(data, fields: tuple[str, ...], require: tuple[str, ...]):
+    """Filter index-aligned lists as tuples, before per-field validation.
+
+    Three models emit a list of queries plus lists of facet tags and scopes
+    aligned to it BY INDEX, and every field was cleaned on its own criteria:
+    the query cleaner dropped blanks, the tag cleaner kept them. One blank
+    query therefore shifted every later tag a slot left, so a round credited
+    its sources to the wrong part of the question and searched them in the
+    wrong scope. Two independent reviewers found this in the same place
+    (2026-09-09).
+
+    Dropping a whole tuple keeps the pairing; padding a short list with "" is
+    safe because facets.align() falls back to matching the query text. The
+    drift is simply not representable after this runs.
+    """
+    if not isinstance(data, dict):
+        return data
+    cols = {f: data[f] for f in fields
+            if isinstance(data.get(f), list)}
+    if not cols:
+        return data
+    n = max(len(v) for v in cols.values())
+
+    def at(field, i):
+        v = cols.get(field) or []
+        return v[i] if i < len(v) else None
+
+    keep = [i for i in range(n)
+            if all(at(r, i) is not None and str(at(r, i)).strip()
+                   for r in require)]
+    out = dict(data)
+    for f in cols:
+        out[f] = [at(f, i) if at(f, i) is not None else "" for i in keep]
+    return out
+
+
 class PlannerOut(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     # The distinct things the question asks for. Data, not prose: the round
@@ -118,6 +154,13 @@ class PlannerOut(BaseModel):
         self.premise_queries = [q.strip() for _, q in pairs]
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def _align_queries(cls, data):
+        return pair_parallel(
+            data, ("subqueries", "query_facets", "query_scopes"),
+            ("subqueries",))
+
     @field_validator("subqueries")
     @classmethod
     def _clean_queries(cls, v: list[str]) -> list[str]:
@@ -150,10 +193,18 @@ class FacetQueriesOut(BaseModel):
     queries: list[str] = Field(default_factory=list, max_length=14)
     scopes: list[str] = Field(default_factory=list, max_length=14)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _align_queries(cls, data):
+        return pair_parallel(data, ("facets", "queries", "scopes"),
+                             ("facets", "queries"))
+
     @field_validator("facets", "queries", "scopes", mode="before")
     @classmethod
     def _clean(cls, v):
-        return [str(x).strip() for x in (v or []) if x is not None and str(x).strip()][:14]
+        # pair_parallel has already dropped the unusable tuples; this only
+        # tidies what survived, so it must NOT change the list's length.
+        return [str(x).strip() for x in (v or []) if x is not None][:14]
 
 
 class Fact(BaseModel):
@@ -333,6 +384,13 @@ class GapOut(BaseModel):
     next_query_scopes: list[str] = Field(default_factory=list, max_length=12)
     # Which facet of the question each next query attacks (research/facets.py).
     next_query_facets: list[str] = Field(default_factory=list, max_length=12)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _align_queries(cls, data):
+        return pair_parallel(
+            data, ("next_queries", "next_query_facets", "next_query_scopes"),
+            ("next_queries",))
 
     @field_validator("next_query_facets", "next_query_scopes", mode="before")
     @classmethod

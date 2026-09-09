@@ -529,3 +529,73 @@ def test_an_explicit_tag_still_beats_the_fallback():
     q = "u8 soccer practice plan 60 minutes small field"
     assert f.align(facets, [q], ["age appropriate coaching"]) == {q: "age appropriate coaching"}
     assert f.align(facets, ["anything"], ["tactics"]) == {"anything": "small field tactics"}
+
+
+# ---- index-aligned model arrays cannot drift --------------------------------
+# Two independent reviewers found the same defect: every model that emits a
+# query list plus tag lists aligned BY INDEX cleaned each field on its own
+# criteria, so one blank query shifted every later tag a slot left. A round
+# then credited its sources to the wrong part of the question and searched
+# them in the wrong scope.
+
+def test_a_blank_query_takes_its_tags_with_it():
+    from app.models import GapOut
+    g = GapOut(next_queries=["", "field dimensions u8", "coaching drills u8"],
+               next_query_facets=["dropped", "field dimension standards",
+                                  "skill development drills"],
+               next_query_scopes=["web", "web", "video"])
+    assert g.next_queries == ["field dimensions u8", "coaching drills u8"]
+    assert g.next_query_facets == ["field dimension standards",
+                                   "skill development drills"]
+    assert g.next_query_scopes == ["web", "video"]
+
+
+def test_a_short_tag_list_is_padded_not_shifted():
+    from app.models import PlannerOut
+    p = PlannerOut(title="t", subqueries=["a q", "b q", "c q"],
+                   query_facets=["alpha"], query_scopes=["web"])
+    assert p.subqueries == ["a q", "b q", "c q"]
+    assert p.query_facets == ["alpha", "", ""]
+    assert p.query_scopes == ["web", "", ""]
+
+
+def test_an_omitted_tag_list_stays_omitted():
+    from app.models import PlannerOut
+    p = PlannerOut(title="t", subqueries=["a q"])
+    assert p.query_facets == [] and p.query_scopes == []
+
+
+def test_a_part_with_no_query_written_for_it_is_dropped_whole():
+    """facet_queries.write() iterates facets and indexes queries, so a facet
+    with no query would silently take the NEXT facet's query."""
+    from app.models import FacetQueriesOut
+    o = FacetQueriesOut(facets=["cost", "safety", "install"],
+                        queries=["cost q", "", "install q"],
+                        scopes=["web", "web", "video"])
+    assert o.facets == ["cost", "install"]
+    assert o.queries == ["cost q", "install q"]
+    assert o.scopes == ["web", "video"]
+
+
+def test_gap_drops_an_already_searched_query_with_its_tags():
+    from app.models import GapOut
+    from app.research.gap import _keep_fresh
+    g = GapOut(next_queries=["old q", "new q", "other q"],
+               next_query_facets=["stale", "field dimension standards", "drills"],
+               next_query_scopes=["web", "video", "web"])
+    _keep_fresh(g, ["OLD Q"], breadth=8)          # case-insensitive match
+    assert g.next_queries == ["new q", "other q"]
+    assert g.next_query_facets == ["field dimension standards", "drills"]
+    assert g.next_query_scopes == ["video", "web"]
+
+
+def test_gap_breadth_truncation_also_keeps_the_pairing():
+    from app.models import GapOut
+    from app.research.gap import _keep_fresh
+    g = GapOut(next_queries=["a", "b", "c"],
+               next_query_facets=["fa", "fb", "fc"],
+               next_query_scopes=["web", "video", "news"])
+    _keep_fresh(g, [], breadth=2)
+    assert g.next_queries == ["a", "b"]
+    assert g.next_query_facets == ["fa", "fb"]
+    assert g.next_query_scopes == ["web", "video"]
