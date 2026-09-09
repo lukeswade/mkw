@@ -65,6 +65,8 @@ def _note_block(f: Finding) -> str:
     # listicle used to reach synthesis as peers, so a run could quote a drill
     # blog over the official manual sitting beside it at 8/10.
     kind = f" [{f.source_type}]" if f.source_type else ""
+    if f.source_type == "standard" and f.publisher:
+        kind = f" [{f.source_type}: {f.publisher}]"
     block = f"{f.citation_line()}{kind}\n    {f.url}\n{f.notes_md}\n"
     # Verbatim evidence is the point of extracting quotes — synthesis has to
     # see them or the claims it writes can't be grounded in the source wording.

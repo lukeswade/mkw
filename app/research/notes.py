@@ -43,6 +43,7 @@ class Finding:
     path: str = ""
     query: str = ""
     source_type: str = ""
+    publisher: str = ""
 
     def citation_line(self) -> str:
         date = self.published or "undated"
@@ -241,7 +242,7 @@ def finding_markdown(f: Finding) -> str:
 - **Domain:** {f.domain}
 - **Published:** {f.published or "unknown"}
 - **Relevance:** {f.relevance}/10
-- **Source type:** {f.source_type or "unclassified"}
+- **Source type:** {f.source_type or "unclassified"}{" — " + f.publisher if f.publisher else ""}
 - **Found via:** {f.query}
 
 **Summary:** {f.summary}

@@ -54,6 +54,40 @@ log = logging.getLogger(__name__)
 def effort_for_depth(depth: int) -> float:
     return depth / 2
 
+_PREMISE_SOURCE_CAP = 4
+
+
+def cap_premise_results(results: list, premise_queries: list[str],
+                        cap: int = _PREMISE_SOURCE_CAP) -> list:
+    """Trim a premise query's results, rule-makers first.
+
+    A settled number needs one or two sources, not ten. Checking "the fields
+    we play on are way too small" returned ten pages restating the same
+    dimensions, eight of which were fetched, read by the note-taker, and never
+    cited (2026-09-09).
+
+    Capping alone would have made it worse: US Soccer's own document ranked
+    TENTH of those ten, behind equipment retailers, so a flat top-N would have
+    thrown away the only source that settles the question. A governing body's
+    rules live on a non-commercial domain far more often than not, so those
+    are kept first and the retailers are what the cap drops. Ordering is
+    stable, so search order still decides within each group.
+    """
+    if not premise_queries or not results:
+        return results
+    pq = set(premise_queries)
+    idx = [i for i, r in enumerate(results) if (r.via_query or "") in pq]
+    if len(idx) <= cap:
+        return results
+
+    def rule_maker_first(i: int) -> int:
+        d = domain_of(results[i].url)
+        return 0 if d.endswith((".org", ".gov", ".edu", ".int")) or ".gov." in d else 1
+
+    drop = set(sorted(idx, key=rule_maker_first)[cap:])
+    return [r for i, r in enumerate(results) if i not in drop]
+
+
 def round_refusals(searcher, searches_before: int) -> dict[str, str]:
     """The engines that refused during this round's searches.
 
@@ -815,7 +849,12 @@ class Pipeline:
             state.premises = list(the_plan.premises)
             state.premise_queries = list(the_plan.premise_queries)
             for prem, pq in zip(state.premises, state.premise_queries):
-                state.query_facet[pq] = prem
+                # When the premise covers ground the planner also named as a
+                # part of the question, its sources must credit that part —
+                # otherwise the part reads as unresearched in the very run
+                # that researched it hardest.
+                state.query_facet[pq] = (
+                    facet_plan.facet_for_query(pq, state.facets) or prem)
                 state.query_scope.setdefault(pq, "web")
             if state.premises:
                 self.bus.publish(run_id, "log", message=(
@@ -1179,6 +1218,13 @@ class Pipeline:
         vocab = vocabulary(query, brief, *queries)
         filler_dropped: list = []
         merged = interleave(merged_lists)
+        if state.premise_queries:
+            before = len(merged)
+            merged = cap_premise_results(merged, state.premise_queries)
+            if len(merged) < before:
+                self.bus.publish(run_id, "log", message=(
+                    f"{before - len(merged)} extra source(s) restating the "
+                    f"same premise dropped before fetching"))
         limit_here = round_limit(breadth, max_docs_for_depth(state.depth) - len(state.findings),
                                  state.read, len(state.findings)) if state.group_by is None \
             else candidates_per_round(breadth)
@@ -1426,6 +1472,7 @@ class Pipeline:
                 notes_md=notes.notes_md, key_facts=[f.model_dump() for f in notes.key_facts],
                 query=c.via_query,
                 source_type=getattr(notes, "source_type", ""),
+                publisher=getattr(notes, "publisher", ""),
             )
             state.findings.append(finding)
             kept.append(finding)

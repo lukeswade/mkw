@@ -235,6 +235,31 @@ def align(facets: list[str], queries: list[str], tags: list[str]) -> dict[str, s
     return out
 
 
+def facet_for_query(query: str, facets: list[str]) -> str:
+    """The facet a free-text query is really about, by shared stems.
+
+    A premise query and a facet name the same ground in different words: "US
+    Youth Soccer U8 4v4 field dimensions guidelines" against the facet "field
+    dimension standards". Without this the premise query's ten sources were
+    credited to the premise label, the facet ended on zero, and the document
+    closed by claiming it had not researched field dimensions — under a
+    section that cited six sources about them (2026-09-09).
+
+    Two shared stems, the same bar merge() uses between two facet names, and
+    deliberately stricter than one: claiming a facet was covered when it was
+    never really searched is a worse failure than reporting it uncovered.
+    """
+    words = content_words(query)
+    if not words:
+        return ""
+    best, score = "", 1              # anything kept must beat 1, so >= 2
+    for f in clean_facets(facets):
+        overlap = len(words & content_words(f))
+        if overlap > score:
+            best, score = f, overlap
+    return best
+
+
 def per_facet_cap(breadth: int) -> int:
     """The most slots one facet may take while another facet has nothing:
     a third of the round, rounded up. Same rule as the per-engine share —

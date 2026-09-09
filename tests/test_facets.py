@@ -430,3 +430,71 @@ async def test_the_premise_is_searched_and_answered_before_the_question(data_dir
     assert "the fields we play on are way too small" in synth
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
     assert "the question assumes" in events
+
+
+# ---- the three regressions the first premise run exposed --------------------
+
+def test_a_premise_query_credits_the_part_of_the_question_it_answers():
+    """The run that shipped premise checking closed by claiming it had not
+    researched field dimensions, under a section citing six sources about
+    them: the premise query's sources were credited to the premise label, so
+    the planner's own facet finished on zero."""
+    fs = ["field dimension standards", "age-appropriate coaching methods"]
+    assert f.facet_for_query(
+        "US Youth Soccer U8 4v4 field dimensions guidelines", fs
+    ) == "field dimension standards"
+
+
+def test_one_shared_word_is_not_enough_to_claim_a_part_was_covered():
+    """Crediting a part that was never really searched is worse than
+    reporting it uncovered, so the bar is two shared stems."""
+    fs = ["skill development drills", "field dimension standards"]
+    assert f.facet_for_query("soccer drills for kids", fs) == ""
+    assert f.facet_for_query("how to boil an egg", fs) == ""
+
+
+def test_a_premise_with_no_matching_part_keeps_its_own_label():
+    assert f.facet_for_query("us soccer field dimensions", []) == ""
+
+
+def test_a_standard_must_name_the_body_that_published_it():
+    from app.models import NotesOut
+    real = NotesOut(relevance=9, source_type="standard", publisher="US Youth Soccer")
+    assert real.source_type == "standard"
+    # a retailer restating a governing body's table reports a rule, it does
+    # not publish one — ten such pages were ranked as standards in one run
+    reported = NotesOut(relevance=8, source_type="standard")
+    assert reported.source_type == "aggregator"
+    assert NotesOut(relevance=8, source_type="standard", publisher="   ").source_type == "aggregator"
+
+
+def test_the_premise_cap_drops_retailers_and_keeps_the_rule_maker():
+    """A flat top-N would have lost the answer: US Soccer's own document
+    ranked tenth of ten, behind the equipment shops."""
+    from app.research.pipeline import cap_premise_results
+    from app.research.searcher import SearchResult
+
+    def r(url, via="premise q"):
+        return SearchResult(url=url, title="t", snippet="s", engine="e",
+                            published=None, score=1.0, via_query=via)
+
+    results = ([r(f"https://shop{i}.com/dimensions") for i in range(9)]
+               + [r("https://usyouthsoccer.org/pdi")]
+               + [r("https://other.com/p", via="a facet query")])
+    out = cap_premise_results(results, ["premise q"], cap=2)
+    urls = [x.url for x in out]
+    assert "https://usyouthsoccer.org/pdi" in urls      # the rule-maker survives
+    assert "https://other.com/p" in urls                # other queries untouched
+    assert len([u for u in urls if "shop" in u]) == 1    # cap 2 = org + one shop
+    assert len(urls) == 3
+
+
+def test_the_premise_cap_is_a_no_op_below_the_cap_and_without_premises():
+    from app.research.pipeline import cap_premise_results
+    from app.research.searcher import SearchResult
+    rs = [SearchResult(url=f"https://a{i}.com/p", title="t", snippet="s",
+                       engine="e", published=None, score=1.0, via_query="pq")
+          for i in range(3)]
+    assert cap_premise_results(rs, ["pq"], cap=4) == rs
+    assert cap_premise_results(rs, []) == rs
+    assert cap_premise_results([], ["pq"]) == []

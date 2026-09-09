@@ -210,6 +210,24 @@ class NotesOut(BaseModel):
     # clamped to the four ranks in SOURCE_TIERS; anything else becomes "",
     # which sorts neutrally rather than promoting an unparseable answer.
     source_type: str = ""
+    # The organization whose OWN rules this page publishes. A retailer or a
+    # "field dimensions guide" site restating a governing body's numbers is
+    # reporting a standard, not publishing one, and the note-taker called ten
+    # such pages "standard" in one run while the real US Soccer document
+    # ranked among them and went uncited (2026-09-09). No publisher, no
+    # standard: _demote_unsourced_standard enforces that in code.
+    publisher: str = ""
+
+    @field_validator("publisher", mode="before")
+    @classmethod
+    def _clean_publisher(cls, v):
+        return str(v or "").strip()[:120]
+
+    @model_validator(mode="after")
+    def _demote_unsourced_standard(self):
+        if self.source_type == "standard" and not self.publisher:
+            self.source_type = "aggregator"
+        return self
 
     @field_validator("source_type", mode="before")
     @classmethod

@@ -379,5 +379,9 @@ def test_the_note_block_states_the_kind_for_the_model():
 def test_a_junk_source_type_is_discarded_not_ranked():
     from app.models import NotesOut, source_rank
     assert NotesOut(relevance=5, source_type="VERY OFFICIAL!!").source_type == ""
-    assert NotesOut(relevance=5, source_type=" Standard ").source_type == "standard"
+    # case and padding are cleaned, but a standard still has to name its
+    # publisher to stay one — see the demotion test in test_facets.py
+    assert NotesOut(relevance=5, source_type=" Standard ",
+                    publisher="US Youth Soccer").source_type == "standard"
+    assert NotesOut(relevance=5, source_type=" Standard ").source_type == "aggregator"
     assert source_rank("standard") < source_rank("") < source_rank("aggregator")
