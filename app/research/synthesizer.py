@@ -165,6 +165,7 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                      previous_overview: str = "",
                      uncovered_facets: list[str] | None = None,
                      facet_of: dict[str, str] | None = None,
+                     premises: list[str] | None = None,
                      placeholder_on_failure: bool = True) -> str:
     groups = [(facet, [_note_block(f) for f in fs])
               for facet, fs in group_by_facet(findings, facet_of)]
@@ -178,6 +179,11 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         today=today, state_md=state_md or "(none)",
         notes_block="\n".join(blocks),
     )
+    if premises:
+        # The question asserted something checkable. Saying whether it holds
+        # comes before answering, because a wrong premise changes the answer.
+        prompt += prompts.SYNTH_PREMISE_BLOCK.format(
+            premises="\n".join(f"- {p}" for p in premises))
     if uncovered_facets:
         # Synthesis is given the original question, so left alone it writes a
         # confident section for every ask, researched or not.

@@ -348,3 +348,85 @@ async def test_a_long_question_spends_its_slots_on_the_parts_with_no_sources(dat
     notes_prompts = "\n".join(seen_prompts.get("notes", []))
     assert "PART OF THE QUESTION THIS SOURCE WAS FETCHED FOR: cost" in notes_prompts
     assert "FETCHED FOR: safety certification" in notes_prompts   # the off-topic page still carried its part
+
+
+# ---- checking what the question assumes ------------------------------------
+# The U8 run built five sections on "the fields we play on are way too small"
+# without ever checking it against US Soccer's published 4v4 dimensions. If the
+# fields are standard, the advice changes completely.
+
+def test_a_premise_without_a_query_cannot_be_checked_so_it_is_dropped():
+    from app.models import PlannerOut
+    p = PlannerOut(title="t", subqueries=["a"],
+                   premises=["fields are too small", "cleats are wrong"],
+                   premise_queries=["us soccer 4v4 field dimensions"])
+    assert p.premises == ["fields are too small"]
+    assert p.premise_queries == ["us soccer 4v4 field dimensions"]
+
+
+def test_premises_are_capped_at_two():
+    from app.models import PlannerOut
+    p = PlannerOut(title="t", subqueries=["a"],
+                   premises=["a", "b", "c", "d"],
+                   premise_queries=["qa", "qb", "qc", "qd"])
+    assert len(p.premises) == 2 and len(p.premise_queries) == 2
+
+
+def test_a_question_with_no_checkable_premise_spends_nothing():
+    from app.models import PlannerOut
+    p = PlannerOut(title="t", subqueries=["a"])
+    assert p.premises == [] and p.premise_queries == []
+
+
+@respx.mock
+async def test_the_premise_is_searched_and_answered_before_the_question(data_dir):
+    """The premise query runs in round one on top of the facet allocation, its
+    source is credited to the premise for grouping, and synthesis is told to
+    open with the verdict."""
+    cfg = make_cfg(data_dir)
+    seen: list[str] = []
+
+    def handler(req):
+        q = req.url.params.get("q", "")
+        seen.append(q)
+        host = "standard" if "dimensions" in q else "drills"
+        return httpx.Response(200, json=sx_payload(
+            [sx_result(f"https://{host}.example.com/p", f"{host} page")]))
+
+    respx.get(f"{SX}/search").mock(side_effect=handler)
+    for host in ("standard", "drills"):
+        respx.get(f"https://{host}.example.com/p").mock(
+            return_value=httpx.Response(200, html=article(f"All about {host}")))
+
+    sc = _script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    sc["planner"] = [{
+        "title": "Coaching U8", "brief": "How to coach a U8 team.",
+        "facets": ["coaching drills"],
+        "subqueries": ["u8 coaching drills"],
+        "query_facets": ["coaching drills"],
+        "keywords": ["u8"],
+        "premises": ["the fields we play on are way too small"],
+        "premise_queries": ["us youth soccer 4v4 u8 field dimensions"],
+    }]
+    seen_prompts: list[str] = []
+
+    class Capture(FakeLLM):
+        async def chat(self, kind, messages, **kw):
+            if kind == "synth":
+                seen_prompts.append(messages[0]["content"])
+            return await super().chat(kind, messages, **kw)
+
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: Capture(sc))
+    run_id = orch.enqueue(RunParams(query="how do I coach my u8 team, the "
+                                          "fields are way too small",
+                                    depth=2, recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    assert any("dimensions" in q for q in seen), seen
+    synth = "\n".join(seen_prompts)
+    assert "Checking what the question assumes" in synth
+    assert "the fields we play on are way too small" in synth
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert "the question assumes" in events

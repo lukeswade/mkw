@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Recency = Literal["week", "month", "3months", "6months", "1year", "3years", "all"]
 
@@ -99,6 +99,24 @@ class PlannerOut(BaseModel):
     # One scope per subquery ("web", "web+video", "code", ...), aligned by
     # index. Optional: a model that omits it gets the run's full categories.
     query_scopes: list[str] = Field(default_factory=list, max_length=12)
+    # Assertions the question takes for granted that a PUBLISHED standard,
+    # benchmark or consensus figure could settle. A U8 coach writing "the
+    # fields we play on are way too small" states a fact that US Soccer has
+    # numbers for; a run that never checks it builds five sections on an
+    # assumption. Most questions carry none, and two is the ceiling — a run
+    # that spends its breadth interrogating the premise stops answering the
+    # question.
+    premises: list[str] = Field(default_factory=list, max_length=2)
+    premise_queries: list[str] = Field(default_factory=list, max_length=2)
+
+    @model_validator(mode="after")
+    def _pair_premises(self):
+        """A premise without a query cannot be checked, so it is not kept."""
+        pairs = [(p, q) for p, q in zip(self.premises, self.premise_queries)
+                 if p.strip() and q.strip()][:2]
+        self.premises = [p.strip() for p, _ in pairs]
+        self.premise_queries = [q.strip() for _, q in pairs]
+        return self
 
     @field_validator("subqueries")
     @classmethod
@@ -112,6 +130,13 @@ class PlannerOut(BaseModel):
     @classmethod
     def _clean_scopes(cls, v):
         return [str(x).strip().lower() for x in (v or []) if x is not None]
+
+    @field_validator("premises", "premise_queries", mode="before")
+    @classmethod
+    def _clean_premises(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [str(x).strip() for x in v if str(x or "").strip()][:2]
 
     @field_validator("facets", "query_facets", mode="before")
     @classmethod

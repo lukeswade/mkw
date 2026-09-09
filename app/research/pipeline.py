@@ -305,6 +305,10 @@ class _RunState:
     # Kept sources the finished overview never cited — the funnel's own loss,
     # invisible to the coverage check that runs before synthesis.
     sources_uncited: int = 0
+    # What the question assumed, and the queries that go looking for the
+    # published standard behind each. Empty for most runs.
+    premises: list[str] = field(default_factory=list)
+    premise_queries: list[str] = field(default_factory=list)
     # _finalize reports how thin the run was, and needs the depth to know
     # what "thin" means at this setting.
     depth: int = 0
@@ -803,6 +807,20 @@ class Pipeline:
                 state.facets, the_plan.subqueries, the_plan.query_facets))
             state.facet_subject = facet_plan.subject_terms(
                 the_plan.title, the_plan.keywords)
+            # A premise is not a part of the question — it is the ground the
+            # question stands on — so it stays out of state.facets and its
+            # coverage accounting. It is tagged like one only so the digest
+            # groups it, ranks its sources, and notices if the overview drops
+            # it (research/synthesizer.funnel_losses).
+            state.premises = list(the_plan.premises)
+            state.premise_queries = list(the_plan.premise_queries)
+            for prem, pq in zip(state.premises, state.premise_queries):
+                state.query_facet[pq] = prem
+                state.query_scope.setdefault(pq, "web")
+            if state.premises:
+                self.bus.publish(run_id, "log", message=(
+                    f"checking {len(state.premises)} thing(s) the question "
+                    f"assumes: " + "; ".join(state.premises)))
             self.bus.publish(run_id, "plan", title=the_plan.title,
                              brief=the_plan.brief, subqueries=the_plan.subqueries)
             if state.facets:
@@ -863,6 +881,12 @@ class Pipeline:
                             + f" — searching {len(added)} of them directly"))
                 if len(queries) < breadth and spare:
                     queries = queries + spare[:breadth - len(queries)]
+                if round_no == 1 and state.premise_queries:
+                    # Added after allocate(), so checking the premise costs a
+                    # facet nothing. Two queries at most, round one only.
+                    queries = queries + [
+                        q for q in state.premise_queries
+                        if q not in queries and q not in state.searched]
                 self.bus.publish(run_id, "round_start", round=round_no,
                                  depth=rounds, queries=queries,
                                  scopes=[state.query_scope.get(q, "") for q in queries])
@@ -1507,7 +1531,8 @@ class Pipeline:
                 bus=self.bus, run_id=run_id,
                 previous_overview=previous_overview,
                 uncovered_facets=unanswered,
-                facet_of=state.query_facet)
+                facet_of=state.query_facet,
+                premises=state.premises)
             if thin:
                 overview = (
                     "> **Thin result.** No source strongly matched this "

@@ -30,6 +30,8 @@ Produce a JSON object with exactly these keys:
 - "subqueries": array of exactly {breadth} distinct web search queries (plain strings), SPREAD ACROSS THE DIFFERENT FACETS of the brief you just wrote. Never spend two queries on one facet while another facet has none — a query set that all asks for the same kind of thing returns one kind of source. Specifications, part numbers and measurements are ONE facet: at most one query, however many numbers the brief mentions. If the brief asks how to do something, at least one query must search the way a person doing the job would ("how to X", "X step by step", "X DIY", "X guide") — that is what surfaces walkthroughs, forum threads and videos, which specification queries never return. Use terminology a domain expert would search for, avoid near-duplicates, and where the recency focus makes it useful include a year in the query text.
 - "query_facets": array aligned with "subqueries" — the facet each query attacks, copied EXACTLY from your "facets" list. Cover as many different facets as there are query slots; when there are more facets than slots, take the most important ones now (later rounds are allocated to whatever is still uncovered). Never give two queries to one facet while another facet has none.
 - "query_scopes": array aligned with "subqueries" — where each query should be searched. One of: "web" (general search engines; the default), "video" (YouTube and video engines — for how-to and demonstration content), "code" (GitHub, package indexes, developer Q&A — ONLY for software, firmware or programming), "academic" (papers — ONLY for scientific, medical or engineering-research questions), "qa" (Stack Exchange sites — ONLY for software and sysadmin questions), "news" (current events), "social" (reddit and forum discussion), "files" (documents). Combine with "+" ("web+video", "web+social"). Irrelevant engines slow the search, add junk, and get the shared address rate-limited: name only scopes that can plausibly hold the answer. Most queries are "web", "web+video" or "web+social".
+- "premises": array of 0-2 assertions the question TAKES FOR GRANTED that a published standard, official specification, benchmark or consensus figure could settle. Quote the asker's own framing. Include one ONLY when being wrong would change the advice: "the fields we play on are way too small" is checkable, because governing bodies publish field dimensions, and if the fields turn out to be standard the answer changes completely. Most questions have NONE — return an empty array rather than inventing one. A private fact nobody has published ("we are getting destroyed", "my son is the only skilled player") is NOT checkable and must not be listed; a private number is checkable only as the benchmark around it ("is a 2% conversion rate low for this industry").
+- "premise_queries": array aligned with "premises" — the search query that finds the published standard or benchmark for each, naming the governing body or field where you can ("US Youth Soccer 4v4 U8 field dimensions"). Empty array when "premises" is empty.
 - "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) that are strongly associated with the target information across these subqueries. These will be used for fast text extraction from large documents.
 
 A query naming three or four rare proper nouns at once ("Acme AIRO Genie structured output") matches no page and returns nothing: a quarter of one run's searches came back empty that way. Name the subject and ONE other distinctive term, and put the rest of the meaning in ordinary words. Not every query should name the subject vendor either — a facet like "how competitors compare" or "what this class of product typically costs" is answered by pages that never mention it.
@@ -403,6 +405,22 @@ Because of this, structure the document differently:
   and which earlier conclusions still hold. Be specific about what changed.
 - The remaining sections should still stand alone, but do not re-explain at
   length what the previous overview already covered well — reference and build.
+"""
+
+SYNTH_PREMISE_BLOCK = """
+
+The question takes these things for granted, and the run searched for the \
+published standard or benchmark behind each:
+{premises}
+
+Open the document with a short "## Checking what the question assumes" \
+section, BEFORE the TL;DR, that states for EACH one what the sources actually \
+say and whether the assumption holds. Cite it. If the sources settle it, say \
+so plainly and carry that verdict through the rest of the document — an \
+assumption that turns out to be wrong changes the advice, and the reader \
+needs that before anything else. If the run found nothing that settles it, \
+say that instead of guessing; never treat an unchecked assumption as \
+confirmed.
 """
 
 SYNTH_PARTIAL = """You are compressing a subset of research notes for a later \
