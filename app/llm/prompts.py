@@ -408,12 +408,15 @@ SYNTH_PARTIAL = """You are compressing a subset of research notes for a later \
 synthesis stage.
 
 Research question: {query}
-
+{part_block}
 Source notes (each has a citation id [n] — PRESERVE these ids verbatim):
 {notes_block}
 
 Write a dense thematic digest (max 1200 words) of everything material in \
-these notes, keeping every [n] citation attached to its claims. Markdown, \
+these notes, keeping every [n] citation attached to its claims. A source that \
+is the only one making its point has to survive this step: keep its specific, \
+named detail — the method, the number, the phrasing — rather than folding it \
+into a generality that reads the same with or without it. Markdown, \
 no preamble."""
 
 MATRIX = """You are the comparison stage of a research pipeline. Turn the \

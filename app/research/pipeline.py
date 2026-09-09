@@ -302,6 +302,9 @@ class _RunState:
     # a thin run can say why it was thin.
     pre_dropped: int = 0
     blocked_engines: dict = field(default_factory=dict)
+    # Kept sources the finished overview never cited — the funnel's own loss,
+    # invisible to the coverage check that runs before synthesis.
+    sources_uncited: int = 0
     # _finalize reports how thin the run was, and needs the depth to know
     # what "thin" means at this setting.
     depth: int = 0
@@ -1502,7 +1505,8 @@ class Pipeline:
                 state_md=state.state_md, findings=findings,
                 bus=self.bus, run_id=run_id,
                 previous_overview=previous_overview,
-                uncovered_facets=unanswered)
+                uncovered_facets=unanswered,
+                facet_of=state.query_facet)
             if thin:
                 overview = (
                     "> **Thin result.** No source strongly matched this "
@@ -1516,6 +1520,37 @@ class Pipeline:
             if removed:
                 self.bus.publish(run_id, "log",
                                  message=f"stripped invalid citations: {sorted(removed)}")
+            # `unanswered` above is computed from what was SEARCHED. It cannot
+            # see a part that was searched, kept, noted — and then lost in the
+            # map-reduce before it reached the page. That happened silently
+            # until 2026-09-09, so the check now also runs on the finished
+            # document, where the loss is actually visible.
+            dropped, strong_uncited = synthesizer.funnel_losses(
+                overview, findings, state.query_facet)
+            used = synthesizer.cited_ids(overview)
+            state.sources_uncited = sum(1 for f in findings
+                                        if f.idx not in used)
+            if dropped:
+                ids = {f: [g.idx for g in findings
+                           if state.query_facet.get(g.query, "") == f]
+                       for f in dropped}
+                overview = (
+                    overview.rstrip() + "\n\n## Researched but not used\n\n"
+                    + "The run kept sources for these parts of the question, "
+                    + "but nothing above cites them. They are worth reading "
+                    + "directly:\n\n"
+                    + "\n".join(
+                        f"- {f} — "
+                        + " ".join(f"[{i}]" for i in ids[f][:8])
+                        for f in dropped) + "\n")
+                self.bus.publish(run_id, "log", message=(
+                    f"{len(dropped)} part(s) had kept sources that the "
+                    f"overview never cited: " + "; ".join(dropped)))
+            if strong_uncited:
+                self.bus.publish(run_id, "log", message=(
+                    f"{len(strong_uncited)} source(s) at relevance 7+ were "
+                    f"read but not cited: "
+                    + ", ".join(f"[{f.idx}]" for f in strong_uncited[:10])))
             if unanswered:
                 # Named in the document itself, not just the log: a reader
                 # cannot otherwise tell a researched section from one the
@@ -1581,6 +1616,7 @@ class Pipeline:
             "searches": getattr(searcher, "searches", 0),
             "brave_requests": getattr(searcher, "brave_requests", None),
             "empty_searches": getattr(searcher, "empty_searches", 0),
+            "sources_uncited": state.sources_uncited,
             "blocked_engines": dict(getattr(searcher, "blocked_engines", {})),
             "urls_considered": len(state.seen_urls),
             "sources_kept": len(findings),

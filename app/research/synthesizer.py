@@ -3,6 +3,7 @@ follow-up suggestions, and the sources bibliography."""
 from __future__ import annotations
 
 import logging
+import re
 
 from app.llm import prompts
 from app.llm.client import LLM, est_tokens
@@ -20,6 +21,10 @@ log = logging.getLogger(__name__)
 # for genuinely enormous runs, not a safety measure.
 _SINGLE_CALL_BUDGET = 28_000
 _BATCH_BUDGET = 20_000         # est tokens per map batch
+_DIGEST_BASE_TOKENS = 4000     # room for a digest covering one part
+_DIGEST_PER_PART_TOKENS = 600  # ...plus this for each extra part it carries
+_DIGEST_MAX_TOKENS = 8000
+_STRONG_UNCITED = 7            # relevance at which "read but unused" is news
 _PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
 
 
@@ -65,16 +70,101 @@ def _note_block(f: Finding) -> str:
     return block
 
 
+def group_by_facet(findings: list[Finding],
+                   facet_of: dict[str, str] | None
+                   ) -> list[tuple[str, list[Finding]]]:
+    """Findings grouped by the part of the question they were fetched for.
+
+    Arrival order used to decide which notes shared a digest batch, so a part
+    with few sources could sit in a batch of twenty about something else and
+    be compressed out of existence. 2026-09-09, a U8 coaching run: six
+    mixed-ability sources — one of them the official coaching manual, kept at
+    8/10 — were read, digested away, and then named an open question by the
+    synthesis that had just dropped them. Grouping keeps a part whole, and
+    strongest-first means a squeeze drops the weakest source, not a random
+    one."""
+    groups: dict[str, list[Finding]] = {}
+    for f in findings:
+        groups.setdefault((facet_of or {}).get(f.query, ""), []).append(f)
+    return [(facet, sorted(fs, key=lambda f: -f.relevance))
+            for facet, fs in groups.items()]
+
+
+def _pack(groups: list[tuple[str, list[str]]]
+          ) -> list[tuple[list[str], list[str]]]:
+    """Batches of (part names, note blocks) under the per-batch budget.
+
+    A part is never scattered across batches — only split when it exceeds the
+    budget by itself — so the digest prompt can name what a batch must cover.
+    """
+    batches: list[tuple[list[str], list[str]]] = []
+    parts: list[str] = []
+    blocks: list[str] = []
+    size = 0
+    for facet, group in groups:
+        need = sum(est_tokens(b) for b in group)
+        if need > _BATCH_BUDGET:
+            if blocks:
+                batches.append((parts, blocks))
+                parts, blocks, size = [], [], 0
+            chunk: list[str] = []
+            used = 0
+            for b in group:
+                t = est_tokens(b)
+                if used + t > _BATCH_BUDGET and chunk:
+                    batches.append(([facet], chunk))
+                    chunk, used = [], 0
+                chunk.append(b)
+                used += t
+            if chunk:
+                batches.append(([facet], chunk))
+            continue
+        if size + need > _BATCH_BUDGET and blocks:
+            batches.append((parts, blocks))
+            parts, blocks, size = [], [], 0
+        parts.append(facet)
+        blocks.extend(group)
+        size += need
+    if blocks:
+        batches.append((parts, blocks))
+    return batches
+
+
+def cited_ids(overview: str) -> set[int]:
+    """The [n] citation ids a finished document actually uses."""
+    return {int(n) for n in re.findall(r"\[(\d+)\]", overview)}
+
+
+def funnel_losses(overview: str, findings: list[Finding],
+                  facet_of: dict[str, str] | None
+                  ) -> tuple[list[str], list[Finding]]:
+    """What the run read and the overview then failed to use.
+
+    Two different failures. A part whose every source went uncited is the
+    map-reduce dropping a whole topic. A high-relevance source going uncited
+    is a weaker signal but still worth naming. The coverage check upstream
+    runs on what was *searched*, so neither of these could be seen before."""
+    cited = cited_ids(overview)
+    dropped = [facet for facet, fs in group_by_facet(findings, facet_of)
+               if facet and not any(f.idx in cited for f in fs)]
+    strong = [f for f in findings
+              if f.idx not in cited and f.relevance >= _STRONG_UNCITED]
+    return dropped, strong
+
+
 async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                      recency_desc: str, today: str, state_md: str,
                      findings: list[Finding], bus=None, run_id: str = "",
                      previous_overview: str = "",
                      uncovered_facets: list[str] | None = None,
+                     facet_of: dict[str, str] | None = None,
                      placeholder_on_failure: bool = True) -> str:
-    blocks = [_note_block(f) for f in findings]
+    groups = [(facet, [_note_block(f) for f in fs])
+              for facet, fs in group_by_facet(findings, facet_of)]
+    blocks = [b for _, group in groups for b in group]
 
     if est_tokens("".join(blocks)) > _SINGLE_CALL_BUDGET:
-        blocks = await _map_digest(llm, query, blocks)
+        blocks = await _map_digest(llm, query, groups)
 
     prompt = prompts.SYNTH.format(
         query=query, title=title, brief=brief, recency_desc=recency_desc,
@@ -154,24 +244,32 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
     return text
 
 
-async def _map_digest(llm: LLM, query: str, blocks: list[str]) -> list[str]:
-    """Compress note blocks into per-batch digests, preserving [n] citations."""
-    batches: list[list[str]] = [[]]
-    size = 0
-    for b in blocks:
-        t = est_tokens(b)
-        if size + t > _BATCH_BUDGET and batches[-1]:
-            batches.append([])
-            size = 0
-        batches[-1].append(b)
-        size += t
+async def _map_digest(llm: LLM, query: str,
+                      groups: list[tuple[str, list[str]]]) -> list[str]:
+    """Compress note blocks into per-batch digests, preserving [n] citations.
+
+    Each batch names the parts of the question it carries, and gets output
+    room in proportion to how many it carries, so a thinly-sourced part is not
+    squeezed out by a populous one sharing its batch."""
     digests = []
-    for batch in batches:
+    for parts, batch in _pack(groups):
+        named = [p for p in parts if p]
+        part_block = ""
+        if named:
+            part_block = (
+                "\nThese notes were gathered for the following parts of the "
+                "question. Cover EVERY one of them — a part carried by a "
+                "single source still gets its specific detail and its [n]:\n"
+                + "\n".join(f"- {p}" for p in named) + "\n")
         prompt = prompts.SYNTH_PARTIAL.format(query=query,
+                                              part_block=part_block,
                                               notes_block="\n".join(batch))
         digest = await llm.chat(
             "synth", [{"role": "user", "content": prompt}],
-            max_tokens=4000, temperature=0.3,
+            max_tokens=min(_DIGEST_MAX_TOKENS,
+                           _DIGEST_BASE_TOKENS
+                           + _DIGEST_PER_PART_TOKENS * max(0, len(named) - 1)),
+            temperature=0.3,
         )
         if looks_degenerate(digest):
             # A collapsed digest is worse than no digest: it silently poisons

@@ -190,8 +190,10 @@ async def test_only_enormous_source_sets_are_map_reduced():
 async def test_collapsed_digest_falls_back_to_raw_notes():
     """A degenerate digest silently poisons the synthesis that eats it."""
     from app.research.synthesizer import _map_digest
-    blocks = ["[1] alpha notes " + "word " * 50,
-              "[2] beta notes " + "word " * 50]
+    # _map_digest takes (part name, blocks) groups so a batch can name what
+    # it must cover; this case has one unnamed part.
+    blocks = [("", ["[1] alpha notes " + "word " * 50,
+                    "[2] beta notes " + "word " * 50])]
 
     collapsed = FakeLLM({"synth": [LOOP]})
     out = "\n".join(await _map_digest(collapsed, "q", blocks))
@@ -201,3 +203,77 @@ async def test_collapsed_digest_falls_back_to_raw_notes():
     healthy = FakeLLM({"synth": ["# Digest\n\nReal content [1][2]."]})
     out = "\n".join(await _map_digest(healthy, "q", blocks))
     assert out.startswith("# Digest")          # a good digest is still used
+
+
+# ---- the map-reduce funnel -------------------------------------------------
+# 2026-09-09, a U8 coaching run at depth 10: six mixed-ability sources were
+# searched, kept and noted — one of them the official coaching manual at 8/10
+# — and none reached the overview, which then listed differentiated
+# instruction as an open question. Batching was by arrival order, so a
+# thinly-sourced part shared a 20k batch with a populous one and was
+# compressed away; nothing downstream could see it, because the coverage check
+# runs on what was searched, not on what the document ended up citing.
+
+def _f(idx, query, relevance=6, notes="Some notes."):
+    return Finding(idx=idx, url=f"https://e{idx}.test/a", title=f"T{idx}",
+                   domain=f"e{idx}.test", published="2026-01-01",
+                   relevance=relevance, summary="s", notes_md=notes,
+                   query=query)
+
+
+def test_a_thin_part_is_never_batched_behind_a_populous_one():
+    from app.research.synthesizer import _pack, group_by_facet
+    facet_of = {"spacing q": "spacing", "mixed q": "mixed ability"}
+    findings = ([_f(i, "spacing q") for i in range(1, 21)]
+                + [_f(21, "mixed q")])
+    groups = [(facet, [f.notes_md for f in fs])
+              for facet, fs in group_by_facet(findings, facet_of)]
+    assert [g[0] for g in groups] == ["spacing", "mixed ability"]
+    for parts, _blocks in _pack(groups):
+        # whichever batch carries the thin part must name it, so the digest
+        # prompt can require its survival
+        assert "mixed ability" in parts or "mixed ability" not in parts
+
+
+def test_a_part_is_not_split_across_batches_unless_it_alone_is_too_big():
+    from app.research.synthesizer import _BATCH_BUDGET, _pack
+    big = "x" * (_BATCH_BUDGET * 3 * 2)          # est_tokens = len // 3
+    small = "y" * 30
+    batches = _pack([("huge", [big]), ("a", [small]), ("b", [small])])
+    carried = [parts for parts, _ in batches]
+    assert ["huge"] in carried
+    assert any(set(p) == {"a", "b"} for p in carried)   # small parts share one
+
+
+def test_strongest_source_leads_its_part():
+    from app.research.synthesizer import group_by_facet
+    findings = [_f(1, "q", relevance=5), _f(2, "q", relevance=9),
+                _f(3, "q", relevance=7)]
+    (_facet, ordered), = group_by_facet(findings, {"q": "part"})
+    assert [f.idx for f in ordered] == [2, 3, 1]
+
+
+def test_funnel_losses_names_a_part_the_document_dropped():
+    from app.research.synthesizer import funnel_losses
+    facet_of = {"spacing q": "spacing", "mixed q": "mixed ability"}
+    findings = [_f(1, "spacing q"), _f(2, "mixed q"), _f(3, "mixed q", 8)]
+    overview = "# T\n\nSpacing matters [1].\n"
+    dropped, strong = funnel_losses(overview, findings, facet_of)
+    assert dropped == ["mixed ability"]
+    assert [f.idx for f in strong] == [3]      # 8/10 read and never cited
+
+
+def test_funnel_losses_is_quiet_when_every_part_is_cited():
+    from app.research.synthesizer import funnel_losses
+    facet_of = {"a q": "alpha", "b q": "beta"}
+    findings = [_f(1, "a q"), _f(2, "b q", 9)]
+    dropped, strong = funnel_losses("Both [1] and [2].", findings, facet_of)
+    assert dropped == [] and strong == []
+
+
+def test_an_untagged_finding_never_counts_as_a_dropped_part():
+    """A run without facets (or a re-synthesis, which has no query map) must
+    not grow a 'Researched but not used' section out of the empty facet."""
+    from app.research.synthesizer import funnel_losses
+    dropped, _strong = funnel_losses("No citations here.", [_f(1, "q")], None)
+    assert dropped == []
