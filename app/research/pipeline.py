@@ -1401,6 +1401,7 @@ class Pipeline:
                 relevance=notes.relevance, summary=notes.summary,
                 notes_md=notes.notes_md, key_facts=[f.model_dump() for f in notes.key_facts],
                 query=c.via_query,
+                source_type=getattr(notes, "source_type", ""),
             )
             state.findings.append(finding)
             kept.append(finding)

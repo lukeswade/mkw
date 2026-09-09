@@ -330,3 +330,54 @@ async def test_a_part_whose_sources_never_reached_the_page_is_named(data_dir):
 
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
     assert "overview never cited" in events
+
+
+# ---- source rank -----------------------------------------------------------
+# The U8 run scored the official US Youth Soccer coaching manual 8/10 and then
+# wrote the overview off drill blogs: relevance measures how much a page says,
+# not whether to believe it, and nothing else reached synthesis.
+
+def test_rank_leads_the_order_and_relevance_only_breaks_ties():
+    from app.research.synthesizer import group_by_facet
+    blog = Finding(idx=1, url="https://b.test/a", title="20 best drills",
+                   domain="b.test", published=None, relevance=9, summary="s",
+                   notes_md="n", query="q", source_type="aggregator")
+    manual = Finding(idx=2, url="https://gov.test/m", title="Official manual",
+                     domain="gov.test", published=None, relevance=7, summary="s",
+                     notes_md="n", query="q", source_type="standard")
+    pro = Finding(idx=3, url="https://p.test/x", title="A coach writes",
+                  domain="p.test", published=None, relevance=7, summary="s",
+                  notes_md="n", query="q", source_type="practitioner")
+    (_facet, ordered), = group_by_facet([blog, manual, pro], {"q": "part"})
+    assert [f.idx for f in ordered] == [2, 3, 1]
+
+
+def test_an_unclassified_source_is_neither_promoted_nor_demoted():
+    """Old runs and a model that skips the field must sort exactly as before."""
+    from app.research.synthesizer import group_by_facet
+    a = Finding(idx=1, url="https://a.test/a", title="A", domain="a.test",
+                published=None, relevance=5, summary="s", notes_md="n", query="q")
+    b = Finding(idx=2, url="https://b.test/b", title="B", domain="b.test",
+                published=None, relevance=9, summary="s", notes_md="n", query="q")
+    pro = Finding(idx=3, url="https://c.test/c", title="C", domain="c.test",
+                  published=None, relevance=1, summary="s", notes_md="n",
+                  query="q", source_type="practitioner")
+    (_facet, ordered), = group_by_facet([a, b, pro], {"q": "part"})
+    assert [f.idx for f in ordered] == [2, 1, 3]   # pure relevance order
+
+
+def test_the_note_block_states_the_kind_for_the_model():
+    from app.research.synthesizer import _note_block
+    f = Finding(idx=4, url="https://g.test/s", title="The spec", domain="g.test",
+                published=None, relevance=7, summary="s", notes_md="body",
+                query="q", source_type="standard")
+    assert "[standard]" in _note_block(f)
+    f.source_type = ""
+    assert "[standard]" not in _note_block(f)
+
+
+def test_a_junk_source_type_is_discarded_not_ranked():
+    from app.models import NotesOut, source_rank
+    assert NotesOut(relevance=5, source_type="VERY OFFICIAL!!").source_type == ""
+    assert NotesOut(relevance=5, source_type=" Standard ").source_type == "standard"
+    assert source_rank("standard") < source_rank("") < source_rank("aggregator")

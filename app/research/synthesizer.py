@@ -8,7 +8,7 @@ import re
 from app.llm import prompts
 from app.llm.client import LLM, est_tokens
 from app.llm.json_utils import LLMJsonError
-from app.models import FollowUpsOut, RECENCY_LABELS
+from app.models import FollowUpsOut, RECENCY_LABELS, source_rank
 from app.research.notes import Finding, render_facts
 
 log = logging.getLogger(__name__)
@@ -61,7 +61,11 @@ def looks_like_document(text: str) -> bool:
 
 
 def _note_block(f: Finding) -> str:
-    block = f"{f.citation_line()}\n    {f.url}\n{f.notes_md}\n"
+    # The kind of source is stated inline: a governing body's spec and a
+    # listicle used to reach synthesis as peers, so a run could quote a drill
+    # blog over the official manual sitting beside it at 8/10.
+    kind = f" [{f.source_type}]" if f.source_type else ""
+    block = f"{f.citation_line()}{kind}\n    {f.url}\n{f.notes_md}\n"
     # Verbatim evidence is the point of extracting quotes — synthesis has to
     # see them or the claims it writes can't be grounded in the source wording.
     evidence = render_facts(f.key_facts, indent="  ", quotes=True, limit=6)
@@ -82,11 +86,14 @@ def group_by_facet(findings: list[Finding],
     8/10 — were read, digested away, and then named an open question by the
     synthesis that had just dropped them. Grouping keeps a part whole, and
     strongest-first means a squeeze drops the weakest source, not a random
-    one."""
+    one. Rank leads that ordering and relevance breaks its ties: an official
+    standard at 7/10 outranks a roundup at 9/10, because relevance measures
+    how much a page says, not whether to believe it."""
     groups: dict[str, list[Finding]] = {}
     for f in findings:
         groups.setdefault((facet_of or {}).get(f.query, ""), []).append(f)
-    return [(facet, sorted(fs, key=lambda f: -f.relevance))
+    return [(facet, sorted(fs, key=lambda f: (source_rank(f.source_type),
+                                              -f.relevance)))
             for facet, fs in groups.items()]
 
 

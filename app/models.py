@@ -153,6 +153,23 @@ class Fact(BaseModel):
         return v[:500] or None
 
 
+# Source ranks, best first. Synthesis follows the better rank when sources
+# disagree, and a part's strongest source leads its digest. An unrecognised or
+# missing value sorts with "practitioner" so an old run, or a model that skips
+# the field, is neither promoted nor demoted.
+SOURCE_TIERS: dict[str, int] = {
+    "standard": 0,      # governing body, spec, law, manufacturer documentation
+    "research": 1,      # peer-reviewed or formal study
+    "practitioner": 2,  # a professional writing from direct experience
+    "aggregator": 3,    # listicle, roundup, SEO content, forum thread
+}
+UNRANKED_TIER = SOURCE_TIERS["practitioner"]
+
+
+def source_rank(source_type: str) -> int:
+    return SOURCE_TIERS.get((source_type or "").strip().lower(), UNRANKED_TIER)
+
+
 class NotesOut(BaseModel):
     relevance: int = Field(ge=0, le=10)
     summary: str = ""
@@ -163,6 +180,17 @@ class NotesOut(BaseModel):
     # fetched for (research/facets.credits). Asked only when a part is named;
     # None otherwise, and the lexical rule decides.
     part_relevance: int | None = None
+    # What KIND of source this is, so synthesis can tell a governing body from
+    # a drill blog. Free text from a model is useless for ordering, so it is
+    # clamped to the four ranks in SOURCE_TIERS; anything else becomes "",
+    # which sorts neutrally rather than promoting an unparseable answer.
+    source_type: str = ""
+
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def _clean_source_type(cls, v):
+        t = str(v or "").strip().lower()
+        return t if t in SOURCE_TIERS else ""
 
     @field_validator("part_relevance", mode="before")
     @classmethod

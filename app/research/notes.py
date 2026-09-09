@@ -42,6 +42,7 @@ class Finding:
     key_facts: list[dict] = field(default_factory=list)
     path: str = ""
     query: str = ""
+    source_type: str = ""
 
     def citation_line(self) -> str:
         date = self.published or "undated"
@@ -240,6 +241,7 @@ def finding_markdown(f: Finding) -> str:
 - **Domain:** {f.domain}
 - **Published:** {f.published or "unknown"}
 - **Relevance:** {f.relevance}/10
+- **Source type:** {f.source_type or "unclassified"}
 - **Found via:** {f.query}
 
 **Summary:** {f.summary}

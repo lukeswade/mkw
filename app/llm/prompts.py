@@ -135,6 +135,7 @@ Detected publish date: {detected_date}
 Produce a JSON object with exactly these keys:
 - "relevance": integer 0-10 — how much useful material this source contributes to ANY part of the research brief. Score contribution, not completeness: a source that solidly covers one sub-topic deserves 5-7 even if it ignores everything else in the brief. 0-1 = nothing usable (ads, boilerplate, wrong topic); 2-3 = tangential background only; 4-6 = real material on part of the brief; 7-10 = substantial material on core questions. Penalize content clearly outside the recency focus.
 - "published_date": "YYYY-MM-DD" if the document states its publication date, else null
+- "source_type": exactly one of "standard" (a governing body, official specification, law, or the maker's own documentation), "research" (a peer-reviewed or formal study), "practitioner" (a professional writing from direct experience), "aggregator" (a listicle, roundup, SEO page, or forum thread). Judge what the PAGE is, not how good it is — an excellent blog post is still "practitioner", and a thin official page is still "standard".
 - "summary": 1-2 sentences on what this source contributes
 - "notes_md": markdown notes (max 350 words) capturing the relevant facts, numbers, direct quotes (in quotation marks), names, and claims. Information-dense, concrete, no preamble.
 - "key_facts": array of up to 8 objects, each representing a single-sentence fact. Each object must have:
@@ -357,7 +358,7 @@ Write a thorough markdown research overview:
 - Start with "# {title}", then a "## TL;DR" section of 3-6 bullet points.
 - Then thematic sections with descriptive headings covering everything material in the sources — synthesize across sources rather than summarizing them one by one.
 - Cite claims inline with [n] markers. Every load-bearing claim needs at least one citation.
-- Where sources disagree or evidence is thin, say so explicitly.
+- Where sources disagree or evidence is thin, say so explicitly. Some sources carry a kind in brackets after the title: [standard] is a governing body, specification, law, or the maker's own documentation; [research] a formal study; [practitioner] a professional writing from experience; [aggregator] a roundup or forum thread. When two sources give different figures or advice for the same thing, follow the better-ranked one, name the number the others gave, and say which you followed. Never let a roundup silently overrule a standard.
 - Prefer dated, in-window sources; note when a claim rests on undated material.
 - End with a "## Open questions" section — what the sources could not answer.
 
@@ -413,7 +414,10 @@ Source notes (each has a citation id [n] — PRESERVE these ids verbatim):
 {notes_block}
 
 Write a dense thematic digest (max 1200 words) of everything material in \
-these notes, keeping every [n] citation attached to its claims. A source that \
+these notes, keeping every [n] citation attached to its claims. Keep the kind \
+in brackets after a source's title ([standard], [research], [practitioner], \
+[aggregator]) — the next stage needs it to weigh sources that disagree. \
+A source that \
 is the only one making its point has to survive this step: keep its specific, \
 named detail — the method, the number, the phrasing — rather than folding it \
 into a generality that reads the same with or without it. Markdown, \
