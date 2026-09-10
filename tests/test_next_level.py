@@ -349,9 +349,11 @@ def test_readme_page_serves_no_images(data_dir, monkeypatch):
     # the screenshot gallery must go with its images, or its captions narrate
     # pictures that aren't there
     assert "What it looks like" not in prose
-    # spot-check the content tracks the current feature set
-    assert "Citation chasing" in prose
-    assert "Export PDF" in prose
+    # spot-check the content tracks the current feature set. The feature was
+    # renamed to "Follow references" in 22ee667; this assertion kept the old
+    # name and had been failing since.
+    assert "Follow references" in prose
+    assert "Exports" in prose
     assert "general,science" in prose
 
 

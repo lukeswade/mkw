@@ -221,3 +221,46 @@ def test_a_source_that_has_earned_it_gets_a_larger_share():
     picked = rank_diverse(pool, set(), per_domain=2, limit=20, cap_for=lambda k: caps.get(k, 2))
     from collections import Counter
     assert Counter(r.url.split("/")[2] for r in picked) == {"forum.com": 4, "other.com": 2}
+
+
+def _re(url, engine):
+    return SearchResult(url=url, title=url, snippet="", engine=engine,
+                        published=None, score=1.0)
+
+
+def test_a_new_engine_gets_a_trial_share_instead_of_never_being_read():
+    """Marginalia, 2026-09-10: 43 results across one run's queries, every one
+    a URL no other engine found, and not a single fetch. An engine with no
+    read history sorts behind every engine that has one, so the round is full
+    before its turn — and it can never earn the history that would move it.
+    The pool below is in that sorted order: the proven engine first."""
+    pool = [_re(f"https://proven{i}.com/x", "braveapi") for i in range(10)]
+    pool += [_re(f"https://newbie{i}.com/x", "marginalia") for i in range(10)]
+
+    without = rank_diverse(pool, set(), per_domain=2, limit=8)
+    assert [r.engine for r in without] == ["braveapi"] * 8
+
+    with_trial = rank_diverse(pool, set(), per_domain=2, limit=8,
+                              trial=frozenset({"marginalia"}), trial_slots=3)
+    engines = [r.engine for r in with_trial]
+    assert engines.count("marginalia") == 3
+    assert engines.count("braveapi") == 5
+    assert len(with_trial) == 8
+
+
+def test_the_trial_share_never_exceeds_the_engine_share_cap():
+    """The trial is a few slots to produce a measurement, not a way around
+    the cap that stops one engine owning a round."""
+    pool = [_re(f"https://newbie{i}.com/x", "marginalia") for i in range(10)]
+    pool += [_re(f"https://proven{i}.com/x", "braveapi") for i in range(10)]
+    picked = rank_diverse(pool, set(), per_domain=2, limit=9, per_engine=2,
+                          trial=frozenset({"marginalia"}), trial_slots=5)
+    assert [r.engine for r in picked].count("marginalia") == 2
+
+
+def test_trial_slots_do_not_change_a_pool_with_no_trial_engine():
+    pool = [_re(f"https://a{i}.com/x", "braveapi") for i in range(5)]
+    plain = rank_diverse(pool, set(), per_domain=2, limit=4)
+    trialled = rank_diverse(pool, set(), per_domain=2, limit=4,
+                            trial=frozenset({"marginalia"}), trial_slots=3)
+    assert [r.url for r in plain] == [r.url for r in trialled]

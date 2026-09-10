@@ -39,7 +39,7 @@ from app.research import facet_queries, facets as facet_plan
 from app.research.bench import EngineBench
 from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult, refill_order, query_terms,
                                    SearxngError, categories_for_scope, cutoff_for,
-                                   engine_order, engine_tier)
+                                   engine_order, engine_preferred, engine_tier)
 from app.research.storage import RunStore, validate_citations
 
 log = logging.getLogger(__name__)
@@ -55,6 +55,11 @@ def effort_for_depth(depth: int) -> float:
     return depth / 2
 
 _PREMISE_SOURCE_CAP = 4
+# Candidates a keyed engine with no read history gets per round, so that it
+# can produce the measurement it is otherwise ranked by. Three is enough to
+# show up in engine_yields within a few runs and small enough that a bad new
+# engine costs a handful of fetches.
+_TRIAL_SLOTS = 3
 
 
 def cap_premise_results(results: list, premise_queries: list[str],
@@ -880,6 +885,7 @@ class Pipeline:
             current_keywords = the_plan.keywords
             dry_rounds = 0
             saturated_streak = 0
+            cap_extended = False
             pageno = 1
             stop_reason = "depth limit reached"
             for round_no in range(1, rounds + 1):
@@ -938,8 +944,22 @@ class Pipeline:
                 state.searched.extend(queries)
 
                 if len(state.findings) >= max_docs_for_depth(depth):
-                    stop_reason = "source cap reached"
-                    break
+                    # The cap counts sources, not coverage. 2026-09-10: one
+                    # engine filled the cap in round one, the run stopped
+                    # before any gap round, and a part of the question that
+                    # nothing had answered went out under "Not researched" —
+                    # from a run that never got to look for it. Spend one
+                    # more round on the parts with nothing, once.
+                    gaps = facet_plan.uncovered(state.facets, state.facet_kept)
+                    if gaps and round_no < rounds and not cap_extended:
+                        cap_extended = True
+                        self.bus.publish(run_id, "log", message=(
+                            f"source cap reached, but {len(gaps)} part(s) "
+                            f"have no sources yet — taking one more round "
+                            f"for them: " + "; ".join(gaps)))
+                    else:
+                        stop_reason = "source cap reached"
+                        break
                 if llm.total_calls >= max_llm_calls_for_depth(depth):
                     stop_reason = "LLM call cap reached"
                     break
@@ -1184,13 +1204,25 @@ class Pipeline:
             attributed = {(r.engine or "").strip().lower() for r in pool} - {""}
             per_engine = (engine_share(limit)
                           if share and state.group_by is None and len(attributed) > 1 else None)
+            # A keyed engine the install has never read cannot be ranked on a
+            # record it has no way to earn. Give it a few slots so it produces
+            # one; after that its own numbers decide, like everyone else's.
+            trial = frozenset(e for e in attributed
+                              if engine_preferred(e) and e not in state.engine_yield)
             engine_skips: Counter = Counter()
             chosen = rank_diverse(pool, state.seen_urls,
                                   per_domain=state.per_source,
                                   limit=limit, group=state.group_by,
                                   uncapped=uncapped, cap_for=cap_for,
                                   per_engine=per_engine, engine_skips=engine_skips,
-                                  held_back=held_back_pool if per_engine else None)
+                                  held_back=held_back_pool if per_engine else None,
+                                  trial=trial if share else frozenset(),
+                                  trial_slots=_TRIAL_SLOTS)
+            if trial and share:
+                self.bus.publish(run_id, "log", message=(
+                    f"{', '.join(sorted(trial))} has no read history here — "
+                    f"up to {_TRIAL_SLOTS} candidate(s) this round so it can "
+                    f"earn one"))
             if engine_skips:
                 self.bus.publish(run_id, "log", message=(
                     f"engine share capped at {per_engine} this round: " + ", ".join(
@@ -1640,14 +1672,24 @@ class Pipeline:
             if unanswered:
                 headings = "\n".join(l for l in overview.splitlines()
                                      if l.lstrip().startswith("#"))
+                # The premise verdict is the one place a part can be settled
+                # without a heading that names it. 2026-09-10: a document gave
+                # the official field dimensions, cited, in paragraph one and
+                # still listed "field dimension standards" as unresearched at
+                # its foot. That section is a cited verdict, not a passing
+                # mention, so its body counts as evidence — everywhere else
+                # headings still rule, because a part mentioned in passing is
+                # not a part that was answered.
+                evidence = headings + "\n" + synthesizer.premise_verdict(overview)
                 answered = [f for f in unanswered
-                            if facet_plan.about(f, headings)]
+                            if facet_plan.about(f, evidence)]
                 if answered:
                     unanswered = [f for f in unanswered if f not in answered]
                     self.bus.publish(run_id, "log", message=(
                         f"{len(answered)} part(s) the coverage count called "
-                        f"unresearched have a section of their own, so they "
-                        f"are not reported as gaps: " + "; ".join(answered)))
+                        f"unresearched are answered in the document itself, "
+                        f"so they are not reported as gaps: "
+                        + "; ".join(answered)))
             if unanswered:
                 # Named in the document itself, not just the log: a reader
                 # cannot otherwise tell a researched section from one the

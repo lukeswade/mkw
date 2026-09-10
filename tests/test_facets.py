@@ -642,7 +642,10 @@ async def test_a_part_with_its_own_section_is_not_reported_as_a_gap(data_dir):
     assert "## Competition Strategy" in overview
     assert "## Not researched" not in overview
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
-    assert "have a section of their own" in events
+    # Wording changed 2026-09-10: a part can now also be credited by the
+    # premise verdict, which is not a section of its own, so the log says
+    # "answered in the document itself".
+    assert "are answered in the document itself" in events
 
 
 def test_a_part_only_mentioned_in_passing_is_still_a_gap():

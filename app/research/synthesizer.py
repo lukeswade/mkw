@@ -144,6 +144,39 @@ def cited_ids(overview: str) -> set[int]:
     return {int(n) for n in re.findall(r"\[(\d+)\]", overview)}
 
 
+PREMISE_HEADING_MARK = "question assumes"
+
+
+def premise_verdict(overview: str) -> str:
+    """The premise section's body, but only when it settled something.
+
+    A part of the question can be answered inside the premise verdict
+    rather than under a heading of its own. 2026-09-10: a run stated the
+    official U8 field dimensions, with citations, in its first paragraph
+    and then printed "field dimension standards" under `## Not researched`
+    at the foot of the same document. The coverage recheck reads headings
+    only, and this heading names no facet, so it could not see it.
+
+    Returned only when the section cites a source. The prompt tells the
+    model to say plainly when the run found nothing that settles the
+    premise, and that admission is not evidence that anything was
+    researched.
+    """
+    lines = overview.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if l.lstrip().startswith("#")
+                  and PREMISE_HEADING_MARK in l.lower()), None)
+    if start is None:
+        return ""
+    body: list[str] = []
+    for l in lines[start + 1:]:
+        if l.lstrip().startswith("## "):
+            break
+        body.append(l)
+    text = "\n".join(body)
+    return text if cited_ids(text) else ""
+
+
 def funnel_losses(overview: str, findings: list[Finding],
                   facet_of: dict[str, str] | None
                   ) -> tuple[list[str], list[Finding]]:

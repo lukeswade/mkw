@@ -239,7 +239,9 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
                  cap_for=None,
                  per_engine: int | None = None,
                  engine_skips: Counter | None = None,
-                 held_back: list | None = None) -> list[SearchResult]:
+                 held_back: list | None = None,
+                 trial: frozenset[str] = frozenset(),
+                 trial_slots: int = 0) -> list[SearchResult]:
     """Pick fetch candidates: drop seen/duplicate URLs, cap per-source count.
 
     `group` decides what counts as one source, defaulting to the domain. A
@@ -258,6 +260,17 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
     was yielding two per round. Authority sites already bypass triage for the
     same reason: curated judgment outranks a heuristic.
 
+    `trial` engines are guaranteed up to `trial_slots` picks before the
+    ordinary order applies. An engine with no read history sorts behind
+    every engine that has one (searcher.engine_order), and the round is
+    full before its turn — so it is never read, never earns a record, and
+    stays last for ever. Marginalia was added on 2026-09-10 and returned 43
+    results across one run's four queries, every one of them a URL no other
+    engine found; none was fetched. This is a trial quota, not a made-up
+    score: a few slots to produce a measurement, still under `per_engine`
+    and the domain caps, so a bad new engine costs a handful of fetches
+    rather than a round.
+
     `per_engine` caps how many picks one search engine may supply. Sixty
     junk videos from one degraded engine once took a whole round while two
     engines returning the answer got nothing in; no engine is that good.
@@ -271,28 +284,46 @@ def rank_diverse(results: list[SearchResult], seen: set[str], *,
     taken: set[str] = set()
     domain_counts: Counter[str] = Counter()
     engine_counts: Counter[str] = Counter()
-    for r in results:
+
+    def admit(r: SearchResult, share_cap: int | None) -> bool:
+        """Take this result if the dedupe and cap rules allow it."""
         cu = canonicalize(r.url)
         if cu in seen or cu in taken:
-            continue
+            return False
         d = key(r)
         cap = cap_for(d) if cap_for is not None else per_domain
         # `uncapped` is judged on the URL's host, whatever the group key is.
         if domain_counts[d] >= cap and not _under(domain_of(cu), uncapped):
-            continue
+            return False
         eng = (r.engine or "").strip().lower()
-        if per_engine is not None and eng and engine_counts[eng] >= per_engine:
+        if share_cap is not None and eng and engine_counts[eng] >= share_cap:
             if engine_skips is not None:
                 engine_skips[eng] += 1
             if held_back is not None:
                 held_back.append(r)
-            continue
+            return False
         taken.add(cu)
         domain_counts[d] += 1
         engine_counts[eng] += 1
         out.append(r)
+        return True
+
+    # The trial pass. Bounded by trial_slots per engine and by `limit`, and
+    # it never exceeds the share cap, so the ordinary round still gets most
+    # of its slots from the engines that have earned them.
+    if trial and trial_slots > 0:
+        room = min(trial_slots, per_engine) if per_engine else trial_slots
+        for r in results:
+            if len(out) >= limit:
+                break
+            eng = (r.engine or "").strip().lower()
+            if eng in trial and engine_counts[eng] < room:
+                admit(r, per_engine)
+
+    for r in results:
         if len(out) >= limit:
             break
+        admit(r, per_engine)
     return out
 
 
