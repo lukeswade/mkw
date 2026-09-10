@@ -1,8 +1,30 @@
 # mkw review backlog — 29 findings, six-way read-only review, 2026-09-09
 
-Fixed in bd781f2: gap.py:96 array shift (x2 reports), orchestrator.py:186
-worker death, orchestrator.py:214 stale running row, feeds.py:218 false outage.
-Everything below is UNVERIFIED by me — agent findings, triage before acting.
+**Triaged 2026-09-10.** Every status below was checked against the code, not
+recalled. The previous note said "24 unverified, three high severity", which
+overstated the debt and invited re-fixing settled work.
+
+**8 fixed / 3 partial / 18 open.**
+
+| # | Status | Where it stands |
+|---|---|---|
+| 1, 2 | fixed | `bd781f2` — `models.pair_parallel()` filters index-aligned arrays as tuples; `gap._keep_fresh()` drops queries and their tags together |
+| 3 | **partial** | `c7c2e2f` re-checks the claim against the finished document and `96405c4` added the premise verdict — but both read HEADINGS. The finding argued for the kept findings' own title/summary/notes. Open. |
+| 4, 10 | **partial** | The same recheck covers the heading path. Not covered: `facet_kept == 0` with `facet_offtopic > 0` and those sources cited, where "Not researched" and "Researched but not used" can still name the same part. |
+| 5 | fixed | `bd781f2` — `feeds.NO_ENTRIES` is excluded from `degraded` |
+| 6 | fixed | `e66a095` — `allow_truncated` gates salvage; no repair round-trip after a length cut |
+| 7 | fixed | `bd781f2` — `cancel()` marks a running row with no live task `interrupted` |
+| 8 | fixed | `bd781f2` — the run-starting body of `_loop` is inside the try |
+| 12 | fixed | `bd781f2` — `FacetQueriesOut` uses `pair_parallel`, requiring facet AND query |
+| 15 | fixed | 2026-09-10 — `_mark_honestly()` is shared by both synthesis paths, the facet plan is persisted at plan time, and a run predating that says so in the document |
+| 9, 11, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 | open | Not investigated. Agent findings, unverified — triage before acting. |
+
+Two notes on the open list. **#21** is real but cosmetic: `Searcher.degraded`
+requires every search to have come back empty, so the gate is right and only
+the wording ("Every engine SearXNG queried refused the request") overclaims
+when one engine is in the dict. **#22** is untouched — the thin-banner work on
+2026-09-10 only moved the text into a constant so re-synthesis could
+recognise it.
 
 ## 1. [high/high] gap._fresh() drops entries from next_queries without dropping the aligned next_query_facets / next_query_scopes, so every round after the first can credit a source to the wrong part of the question and search it in the wrong scope
 - **where:** `app/research/gap.py:96`  (Counters, credit and coverage accounting)

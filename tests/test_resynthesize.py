@@ -448,3 +448,97 @@ def test_the_premise_body_stops_at_the_next_section():
     body = premise_verdict(overview)
     assert "standard [2]" in body
     assert "Rondos" not in body
+
+
+# ---- re-synthesis keeps the document honest ---------------------------------
+
+@respx.mock
+async def test_resynthesize_keeps_the_gap_section_it_used_to_delete(data_dir):
+    """The button rewrote an honest document into a confident one. It called
+    synthesize() with no premises, no uncovered_facets and no facet_of, and
+    the two appended sections lived only in the run path — so the premise
+    verdict, "Not researched" and "Researched but not used" all vanished
+    from a re-synthesized overview while its prose stayed just as assertive."""
+    import json
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result("https://example-a.com/article", "Article A")])))
+    respx.get("https://example-a.com/article").mock(
+        return_value=httpx.Response(200, html=article("Article A")))
+    repo = Repo(connect(cfg.db_path))
+
+    sc = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    sc["planner"] = [{
+        "title": "Batteries", "brief": "Chemistry and recycling cost.",
+        "facets": ["cell chemistry", "recycling cost"],
+        "subqueries": ["solid state cell chemistry"],
+        "query_facets": ["cell chemistry"],
+        "keywords": ["battery"],
+    }]
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(sc))
+    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=1,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+    run_dir = cfg.research_dir / run_id
+
+    # the plan is on disk, which is what makes the rebuild possible at all
+    meta = json.loads((run_dir / "meta.json").read_text())
+    assert "recycling cost" in meta["facets"]
+
+    first = (run_dir / "overview.md").read_text()
+    assert "## Not researched" in first
+    assert "recycling cost" in first
+
+    resynth_llm = FakeLLM({
+        "synth": ["# Batteries\n\nChemistry is settled [1].\n"],
+        "followups": [{"items": []}],
+    })
+    pipeline = Pipeline(cfg, repo, ProgressBus(),
+                        llm_factory=lambda: resynth_llm)
+    await pipeline.resynthesize(run_id)
+
+    again = (run_dir / "overview.md").read_text()
+    assert again.startswith("# Batteries")
+    assert "## Not researched" in again, "the gap section was dropped again"
+    assert "recycling cost" in again
+
+
+@respx.mock
+async def test_resynthesize_says_so_when_the_run_predates_the_stored_plan(data_dir):
+    """Old runs have no facets in meta, so the coverage sections genuinely
+    cannot be rebuilt. Saying nothing would leave a document that looks more
+    certain than the one it replaced."""
+    import json
+    cfg = make_cfg(data_dir)
+    repo, run_id = await _completed_run(cfg)
+    run_dir = cfg.research_dir / run_id
+    meta = json.loads((run_dir / "meta.json").read_text())
+    meta.pop("facets", None)
+    meta.pop("premises", None)
+    (run_dir / "meta.json").write_text(json.dumps(meta))
+
+    pipeline = Pipeline(cfg, repo, ProgressBus(), llm_factory=lambda: FakeLLM({
+        "synth": ["# Old run\n\nBody [1].\n"], "followups": [{"items": []}]}))
+    await pipeline.resynthesize(run_id)
+
+    overview = (run_dir / "overview.md").read_text()
+    assert "coverage sections could not be rebuilt" in overview
+
+
+@respx.mock
+async def test_a_thin_run_stays_thin_when_it_is_re_synthesized(data_dir):
+    """Thinness is a property of the run, not of one synthesis call — no new
+    sources are fetched, so the banner belongs on the rewrite too."""
+    cfg = make_cfg(data_dir)
+    repo, run_id = await _completed_run(cfg)
+    run_dir = cfg.research_dir / run_id
+    was = (run_dir / "overview.md").read_text()
+    (run_dir / "overview.md").write_text(
+        "> **Thin result.** No source strongly matched this question.\n\n" + was)
+
+    pipeline = Pipeline(cfg, repo, ProgressBus(), llm_factory=lambda: FakeLLM({
+        "synth": ["# Redone\n\nBody [1].\n"], "followups": [{"items": []}]}))
+    await pipeline.resynthesize(run_id)
+
+    assert "**Thin result.**" in (run_dir / "overview.md").read_text()

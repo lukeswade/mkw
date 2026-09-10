@@ -54,6 +54,23 @@ log = logging.getLogger(__name__)
 def effort_for_depth(depth: int) -> float:
     return depth / 2
 
+# A run whose sources never cleared the relevance bar says so at the top.
+# Named here because re-synthesis has to recognise it in the document it is
+# replacing — thinness is a property of the run, not of one synthesis call.
+_THIN_BANNER_MARK = "**Thin result.**"
+_THIN_BANNER = (
+    "> **Thin result.** No source strongly matched this question, so the "
+    "overview below is built from the best partial matches available. Treat "
+    "it as a starting point: a narrower question, a broader recency window, "
+    "or a retry once search engines recover will usually do better.\n\n")
+
+
+def _md_field(body: str, label: str) -> str:
+    """One `- **Label:** value` line out of a finding's .md header."""
+    m = re.search(rf"^- \*\*{re.escape(label)}:\*\*\s*(.+)$", body, re.M)
+    return m.group(1).strip() if m else ""
+
+
 _PREMISE_SOURCE_CAP = 4
 # Candidates a keyed engine with no read history gets per round, so that it
 # can produce the measurement it is otherwise ranked by. Three is enough to
@@ -861,6 +878,12 @@ class Pipeline:
                 state.query_facet[pq] = (
                     facet_plan.facet_for_query(pq, state.facets) or prem)
                 state.query_scope.setdefault(pq, "web")
+            # The facet plan lives only in memory during a run, so every
+            # post-hoc action was blind to it: resynthesize() could not name
+            # the parts, the premises or which query answered what, and
+            # rewrote honest documents into confident ones. Persist it.
+            store.update_meta(facets=list(state.facets),
+                              premises=list(state.premises))
             if state.premises:
                 self.bus.publish(run_id, "log", message=(
                     f"checking {len(state.premises)} thing(s) the question "
@@ -1255,8 +1278,11 @@ class Pipeline:
             merged = cap_premise_results(merged, state.premise_queries)
             if len(merged) < before:
                 self.bus.publish(run_id, "log", message=(
-                    f"{before - len(merged)} extra source(s) restating the "
-                    f"same premise dropped before fetching"))
+                    f"premise capped at {_PREMISE_SOURCE_CAP} source(s), "
+                    f"rule-makers first — {before - len(merged)} more left "
+                    f"the candidate pool (most would not have been fetched "
+                    f"anyway; this stops one premise crowding out the "
+                    f"question)"))
         limit_here = round_limit(breadth, max_docs_for_depth(state.depth) - len(state.findings),
                                  state.read, len(state.findings)) if state.group_by is None \
             else candidates_per_round(breadth)
@@ -1613,97 +1639,15 @@ class Pipeline:
                 facet_of=state.query_facet,
                 premises=state.premises)
             if thin:
-                overview = (
-                    "> **Thin result.** No source strongly matched this "
-                    "question, so the overview below is built from the best "
-                    "partial matches available. Treat it as a starting point: "
-                    "a narrower question, a broader recency window, or a retry "
-                    "once search engines recover will usually do better.\n\n"
-                    + overview)
+                overview = _THIN_BANNER + overview
                 stop_reason = f"{stop_reason} (no strong matches)"
             overview, removed = validate_citations(overview, len(findings))
             if removed:
                 self.bus.publish(run_id, "log",
                                  message=f"stripped invalid citations: {sorted(removed)}")
-            # `unanswered` above is computed from what was SEARCHED. It cannot
-            # see a part that was searched, kept, noted — and then lost in the
-            # map-reduce before it reached the page. That happened silently
-            # until 2026-09-09, so the check now also runs on the finished
-            # document, where the loss is actually visible.
-            dropped, strong_uncited = synthesizer.funnel_losses(
-                overview, findings, state.query_facet)
-            used = synthesizer.cited_ids(overview)
-            state.sources_uncited = sum(1 for f in findings
-                                        if f.idx not in used)
-            if dropped:
-                ids = {f: [g.idx for g in findings
-                           if state.query_facet.get(g.query, "") == f]
-                       for f in dropped}
-                overview = (
-                    overview.rstrip() + "\n\n## Researched but not used\n\n"
-                    + "The run kept sources for these parts of the question, "
-                    + "but nothing above cites them. They are worth reading "
-                    + "directly:\n\n"
-                    + "\n".join(
-                        f"- {f} — "
-                        + " ".join(f"[{i}]" for i in ids[f][:8])
-                        for f in dropped) + "\n")
-                self.bus.publish(run_id, "log", message=(
-                    f"{len(dropped)} part(s) had kept sources that the "
-                    f"overview never cited: " + "; ".join(dropped)))
-            if strong_uncited:
-                self.bus.publish(run_id, "log", message=(
-                    f"{len(strong_uncited)} source(s) at relevance 7+ were "
-                    f"read but not cited: "
-                    + ", ".join(f"[{f.idx}]" for f in strong_uncited[:10])))
-            # `unanswered` comes from facet_kept, which credits ONE part per
-            # source and vetoes any source whose title and summary share no
-            # word with the part's NAME. Conservative is right for steering
-            # rounds — a thin part keeps getting searched — but it is not a
-            # safe basis for telling a reader that a part went unresearched.
-            # 2026-09-09, measured A/B: eight sources answered "competition
-            # strategy", every one was vetoed because no title contains the
-            # word "competition", and the document carried a section headed
-            # "Competition Strategy: Managing Uneven Skill Levels" while
-            # claiming the part had no sources at all. So the CLAIM is
-            # re-checked against the finished document, downstream of every
-            # step that could have lost the part. Headings only: a part merely
-            # mentioned in passing is not a part that was answered.
-            if unanswered:
-                headings = "\n".join(l for l in overview.splitlines()
-                                     if l.lstrip().startswith("#"))
-                # The premise verdict is the one place a part can be settled
-                # without a heading that names it. 2026-09-10: a document gave
-                # the official field dimensions, cited, in paragraph one and
-                # still listed "field dimension standards" as unresearched at
-                # its foot. That section is a cited verdict, not a passing
-                # mention, so its body counts as evidence — everywhere else
-                # headings still rule, because a part mentioned in passing is
-                # not a part that was answered.
-                evidence = headings + "\n" + synthesizer.premise_verdict(overview)
-                answered = [f for f in unanswered
-                            if facet_plan.about(f, evidence)]
-                if answered:
-                    unanswered = [f for f in unanswered if f not in answered]
-                    self.bus.publish(run_id, "log", message=(
-                        f"{len(answered)} part(s) the coverage count called "
-                        f"unresearched are answered in the document itself, "
-                        f"so they are not reported as gaps: "
-                        + "; ".join(answered)))
-            if unanswered:
-                # Named in the document itself, not just the log: a reader
-                # cannot otherwise tell a researched section from one the
-                # model wrote out of its own head.
-                overview = (overview.rstrip() + "\n\n## Not researched\n\n"
-                            + "The run found no sources for these parts of the "
-                            + "question, and nothing above answers them:\n\n"
-                            + "\n".join(f"- {f}" for f in unanswered) + "\n")
-                missed = sum(state.facet_offtopic[f] for f in unanswered)
-                self.bus.publish(run_id, "log", message=(
-                    f"{len(unanswered)} part(s) of the question found no "
-                    f"sources: " + "; ".join(unanswered)
-                    + (f" ({missed} source(s) their searches returned were "
-                       f"about something else)" if missed else "")))
+            overview, state.sources_uncited = self._mark_honestly(
+                run_id, overview, findings, state.query_facet, unanswered,
+                state.facet_offtopic)
             fu = await synthesizer.follow_ups(llm, query=query, overview=overview)
         elif searcher is not None and searcher.degraded:
             # Every search came back empty *and* engines were reporting blocks.
@@ -1781,6 +1725,99 @@ class Pipeline:
         self.bus.publish(run_id, "done", status="completed",
                          stop_reason=stop_reason, sources=len(findings))
 
+    def _mark_honestly(self, run_id: str, overview: str,
+                       findings: list[Finding], facet_of: dict[str, str],
+                       unanswered: list[str],
+                       offtopic: Counter | None = None) -> tuple[str, int]:
+        """Append what the document does not admit about itself.
+
+        Two sections and a count. Lives here, not inline in `_run`, because
+        `resynthesize()` rewrote overviews without any of it: the premise
+        verdict, the gap list and the "researched but not used" list all
+        vanished from a re-synthesized document, which turned an honest
+        report into a confident one at the press of a button.
+
+        Returns the marked-up overview and how many kept sources went
+        uncited.
+        """
+        # `unanswered` is computed from what was SEARCHED. It cannot see a
+        # part that was searched, kept, noted — and then lost in the
+        # map-reduce before it reached the page. That happened silently
+        # until 2026-09-09, so the check also runs on the finished document,
+        # where the loss is actually visible.
+        dropped, strong_uncited = synthesizer.funnel_losses(
+            overview, findings, facet_of)
+        used = synthesizer.cited_ids(overview)
+        uncited = sum(1 for f in findings if f.idx not in used)
+        if dropped:
+            ids = {f: [g.idx for g in findings
+                       if facet_of.get(g.query, "") == f]
+                   for f in dropped}
+            overview = (
+                overview.rstrip() + "\n\n## Researched but not used\n\n"
+                + "The run kept sources for these parts of the question, "
+                + "but nothing above cites them. They are worth reading "
+                + "directly:\n\n"
+                + "\n".join(
+                    f"- {f} — "
+                    + " ".join(f"[{i}]" for i in ids[f][:8])
+                    for f in dropped) + "\n")
+            self.bus.publish(run_id, "log", message=(
+                f"{len(dropped)} part(s) had kept sources that the "
+                f"overview never cited: " + "; ".join(dropped)))
+        if strong_uncited:
+            self.bus.publish(run_id, "log", message=(
+                f"{len(strong_uncited)} source(s) at relevance 7+ were "
+                f"read but not cited: "
+                + ", ".join(f"[{f.idx}]" for f in strong_uncited[:10])))
+        # `unanswered` comes from facet_kept, which credits ONE part per
+        # source and vetoes any source whose title and summary share no word
+        # with the part's NAME. Conservative is right for steering rounds — a
+        # thin part keeps getting searched — but it is not a safe basis for
+        # telling a reader that a part went unresearched. 2026-09-09,
+        # measured A/B: eight sources answered "competition strategy", every
+        # one was vetoed because no title contains the word "competition",
+        # and the document carried a section headed "Competition Strategy:
+        # Managing Uneven Skill Levels" while claiming the part had no
+        # sources at all. So the CLAIM is re-checked against the finished
+        # document, downstream of every step that could have lost the part.
+        if unanswered:
+            headings = "\n".join(l for l in overview.splitlines()
+                                 if l.lstrip().startswith("#"))
+            # The premise verdict is the one place a part can be settled
+            # without a heading that names it. 2026-09-10: a document gave
+            # the official field dimensions, cited, in paragraph one and
+            # still listed "field dimension standards" as unresearched at its
+            # foot. That section is a cited verdict, not a passing mention,
+            # so its body counts as evidence — everywhere else headings still
+            # rule, because a part mentioned in passing is not a part that
+            # was answered.
+            evidence = headings + "\n" + synthesizer.premise_verdict(overview)
+            answered = [f for f in unanswered
+                        if facet_plan.about(f, evidence)]
+            if answered:
+                unanswered = [f for f in unanswered if f not in answered]
+                self.bus.publish(run_id, "log", message=(
+                    f"{len(answered)} part(s) the coverage count called "
+                    f"unresearched are answered in the document itself, "
+                    f"so they are not reported as gaps: "
+                    + "; ".join(answered)))
+        if unanswered:
+            # Named in the document itself, not just the log: a reader cannot
+            # otherwise tell a researched section from one the model wrote
+            # out of its own head.
+            overview = (overview.rstrip() + "\n\n## Not researched\n\n"
+                        + "The run found no sources for these parts of the "
+                        + "question, and nothing above answers them:\n\n"
+                        + "\n".join(f"- {f}" for f in unanswered) + "\n")
+            missed = sum((offtopic or Counter())[f] for f in unanswered)
+            self.bus.publish(run_id, "log", message=(
+                f"{len(unanswered)} part(s) of the question found no "
+                f"sources: " + "; ".join(unanswered)
+                + (f" ({missed} source(s) their searches returned were "
+                   f"about something else)" if missed else "")))
+        return overview, uncited
+
     # ---- re-synthesis ------------------------------------------------------------
     async def resynthesize(self, run_id: str) -> None:
         """Regenerate overview + follow-ups from a run's stored findings.
@@ -1806,6 +1843,22 @@ class Pipeline:
         today = datetime.now().date().isoformat()
         llm = self.llm_factory()
 
+        # The facet plan, persisted at plan time since 2026-09-10. Runs from
+        # before that have none, and then a re-synthesis genuinely cannot
+        # rebuild the coverage sections — it says so at the foot of the
+        # document rather than quietly dropping them, because a document that
+        # silently loses its own caveats reads as more confident than the one
+        # it replaced.
+        facets = [f for f in (meta.get("facets") or []) if isinstance(f, str)]
+        premises = [p for p in (meta.get("premises") or []) if isinstance(p, str)]
+        # `query_facet` is not stored, but every finding records the query it
+        # came from, and the facet each query attacked is recoverable from the
+        # facet list by the same matcher the run used.
+        facet_of = {f.query: (facet_plan.facet_for_query(f.query, facets) or "")
+                    for f in findings if f.query}
+        kept: Counter = Counter(v for v in facet_of.values() if v)
+        unanswered = facet_plan.uncovered(facets, kept) if facets else []
+
         self.bus.publish(run_id, "phase", phase="synthesis",
                          sources=len(findings))
         self.bus.publish(run_id, "log",
@@ -1815,6 +1868,9 @@ class Pipeline:
             recency_desc=recency_desc, today=today, state_md="",
             findings=findings, bus=self.bus, run_id=run_id,
             previous_overview=self._parent_overview(row),
+            uncovered_facets=unanswered,
+            facet_of=facet_of,
+            premises=premises,
             # never replace a run's existing overview with a placeholder
             placeholder_on_failure=False)
         if not synthesizer.looks_like_document(overview):
@@ -1827,6 +1883,24 @@ class Pipeline:
         if removed:
             self.bus.publish(run_id, "log",
                              message=f"stripped invalid citations: {sorted(removed)}")
+        # A run is thin for good: re-synthesizing it does not find better
+        # sources, so the banner the original carried belongs on this one too.
+        try:
+            was = store.overview_path.read_text(encoding="utf-8")
+        except OSError:
+            was = ""
+        if _THIN_BANNER_MARK in was:
+            overview = _THIN_BANNER + overview
+        overview, _ = self._mark_honestly(
+            run_id, overview, findings, facet_of, unanswered)
+        if not facets:
+            overview = (overview.rstrip()
+                        + "\n\n---\n\n*Re-synthesized from the stored sources. "
+                        + "This run predates the change that records which "
+                        + "parts of the question were asked, so the coverage "
+                        + "sections could not be rebuilt — an earlier version "
+                        + "of this document may have named gaps this one does "
+                        + "not.*\n")
         fu = await synthesizer.follow_ups(llm, query=query, overview=overview)
 
         store.write_overview(overview)
@@ -2034,7 +2108,14 @@ class Pipeline:
                 idx=r["idx"], url=r["url"], title=r["title"],
                 domain=r["domain"], published=r["published_date"],
                 relevance=r["relevance"], summary=r["summary"] or "",
-                notes_md=body, key_facts=[]))
+                notes_md=body, key_facts=[],
+                # The findings table has no column for these three, but the
+                # .md header carries them. Without `query` every finding
+                # groups under "" and a post-hoc synthesis loses the part
+                # structure entirely; without the tier it loses the ranking.
+                query=_md_field(body, "Found via"),
+                source_type=_md_field(body, "Source type"),
+                publisher=_md_field(body, "Publisher")))
         return out
 
     async def build_matrix(self, run_id: str) -> None:
