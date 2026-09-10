@@ -193,7 +193,11 @@ across sources and notes, and clickable citations.
 **Re-synthesize** rewrites the overview from the stored sources without
 searching again — for when the research succeeded but the final write-up did
 not (a truncation, a model that emitted its reasoning instead of the
-document). Normal runs detect that and retry once on their own.
+document). Normal runs detect that and retry once on their own. The rewrite
+keeps everything the document admits about itself, from the run's own
+coverage record; a run that finished before that record was kept says so at
+its foot instead, rather than dropping those sections and reading as more
+certain than the document it replaced.
 
 **Build comparison** re-reads the stored findings of a finished run and,
 when the run really does compare two or more things, writes a table: the
@@ -345,7 +349,23 @@ project was made this way; one run per arm is directional, not proof.
 ## How it reads the web
 
 Search returns far more than is worth reading, and much of the web does not
-want to be read. What happens between a query and a source:
+want to be read.
+
+First the question is broken into **parts** — every separate thing you asked
+for gets its own name, and the run is scored against those names from then
+on. Rounds go to whichever part has the least so far, no part may take more
+than a third of a round while another has none, and a part that never finds
+a source is reported to you rather than quietly filled in.
+
+The planner also picks out up to two **assumptions the question takes for
+granted** that a published standard could settle. "The fields we play on are
+way too small" is checkable, because governing bodies publish field
+dimensions; "we are getting destroyed" is not. Each gets one search, added
+after the parts have been allocated so checking costs them nothing. If an
+assumption turns out to be wrong the whole answer changes, so the document
+settles it before it answers anything else.
+
+What happens between a query and a source:
 
 1. **Search** goes through your own [SearXNG](https://github.com/searxng/searxng)
    instance, so no search engine sees an API key or a profile. The planner
@@ -386,7 +406,31 @@ want to be read. What happens between a query and a source:
 5. **Gap analysis** decides what to search next, or that the topic is
    saturated.
 6. **Synthesis** writes the overview, with every claim cited and every
-   citation checked against a real source.
+   citation checked against a real source. Notes are grouped by the part of
+   the question they answer, so a thinly-sourced part cannot be compressed
+   away by a crowded one on the way in, and within each part the sources are
+   ordered by what kind of page they are: a standard or specification from a
+   named body first, then research, then practitioners, then roundups. A
+   roundup never silently overrules a standard.
+
+**What the document admits about itself.** A confident report about nothing
+reads exactly like a confident report about something, so the overview is
+made to say where it is thin:
+
+- **Checking what the question assumes** — at the top, when the question
+  rested on something a published standard could settle. It says what the
+  sources actually establish and whether the assumption holds, or says
+  plainly that nothing settled it.
+- **Not researched** — parts of your question no source answered. Synthesis
+  is separately forbidden to write a section on them out of its own
+  knowledge, and the claim is re-checked against the finished document before
+  it is printed, so a part that *was* answered is not reported as a gap.
+- **Researched but not used** — parts the run kept sources for that the
+  overview never cites, with their numbers, so you can read them yourself.
+
+A run where nothing cleared the relevance bar opens with a **Thin result**
+banner instead: the overview is built from the best partial matches
+available, and says so rather than presenting them as findings.
 
 The optional headless browser:
 
@@ -421,7 +465,8 @@ What helps, in order of effort:
    the scraper it replaces (1,000 requests a month free; the Learned page
    counts them against your billing cycle). A Marginalia key
    (`MARGINALIA_API_KEY`) adds a small independent index that specialises in
-   the non-commercial web. A GitHub fine-grained token (`GITHUB_CODE_TOKEN`,
+   the non-commercial web — on one measured run, every result it returned
+   was a page no other engine had found. A GitHub fine-grained token (`GITHUB_CODE_TOKEN`,
    public repositories, read-only, no other permission) turns on GitHub
    code search for the code scope, which refuses unauthenticated calls. A
    free [CORE](https://core.ac.uk/services/api) key (`CORE_API_KEY`) adds
