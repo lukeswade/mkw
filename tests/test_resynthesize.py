@@ -385,3 +385,66 @@ def test_a_junk_source_type_is_discarded_not_ranked():
                     publisher="US Youth Soccer").source_type == "standard"
     assert NotesOut(relevance=5, source_type=" Standard ").source_type == "aggregator"
     assert source_rank("standard") < source_rank("") < source_rank("aggregator")
+
+
+# ---- the premise verdict as coverage evidence --------------------------------
+
+def test_a_part_settled_in_the_premise_verdict_is_not_called_unresearched():
+    """2026-09-10: a document gave the official U8 field dimensions, cited, in
+    its opening premise section and then listed "field dimension standards"
+    under "Not researched" at its own foot. The coverage recheck reads
+    headings, and this heading names no facet."""
+    from app.research import facets as facet_plan
+    from app.research.synthesizer import premise_verdict
+
+    # The wording is the real run's, because the credit is lexical: about()
+    # wants two of the part's own words. A verdict that settles the question
+    # in different words still reports a gap — that is about()'s deliberate
+    # one-sided error, and this fix does not change it.
+    overview = (
+        "# Coaching U8\n\n"
+        "## Checking what the question assumes\n\n"
+        "The sources give no single binding standard for U8 4v4 field "
+        "dimensions, but 25-35 yards long and 15-25 wide is the common "
+        "recommendation [25].\n\n"
+        "## TL;DR\n\nPlay narrow [1].\n")
+    headings = "\n".join(l for l in overview.splitlines()
+                         if l.lstrip().startswith("#"))
+
+    assert not facet_plan.about("field dimension standards", headings)
+    evidence = headings + "\n" + premise_verdict(overview)
+    assert facet_plan.about("field dimension standards", evidence)
+
+
+def test_an_unsettled_premise_is_not_evidence_that_anything_was_researched():
+    """The prompt tells the model to say plainly when the run found nothing
+    that settles the premise. That admission must not be read as coverage —
+    it is the opposite. Citations are the test, because a verdict that
+    settled something cites what settled it."""
+    from app.research.synthesizer import premise_verdict
+
+    overview = (
+        "# Coaching U8\n\n"
+        "## Checking what the question assumes\n\n"
+        "Nothing the run found states an official field dimension standard, "
+        "so this assumption is unchecked.\n\n"
+        "## TL;DR\n\nPlay narrow.\n")
+    assert premise_verdict(overview) == ""
+
+
+def test_a_document_with_no_premise_section_is_unchanged():
+    from app.research.synthesizer import premise_verdict
+    assert premise_verdict("# T\n\n## TL;DR\n\nBody [1].\n") == ""
+
+
+def test_the_premise_body_stops_at_the_next_section():
+    """It must not swallow the rest of the document, or every facet named
+    anywhere below would count as answered."""
+    from app.research.synthesizer import premise_verdict
+
+    overview = ("# T\n\n## Checking what the question assumes\n\n"
+                "The fields are standard [2].\n\n"
+                "## Coaching drills\n\nRondos and gates [4].\n")
+    body = premise_verdict(overview)
+    assert "standard [2]" in body
+    assert "Rondos" not in body
