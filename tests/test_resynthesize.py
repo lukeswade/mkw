@@ -514,8 +514,8 @@ async def test_resynthesize_says_so_when_the_run_predates_the_stored_plan(data_d
     repo, run_id = await _completed_run(cfg)
     run_dir = cfg.research_dir / run_id
     meta = json.loads((run_dir / "meta.json").read_text())
-    meta.pop("facets", None)
-    meta.pop("premises", None)
+    for k in ("facets", "premises", "query_facet", "facet_kept"):
+        meta.pop(k, None)
     (run_dir / "meta.json").write_text(json.dumps(meta))
 
     pipeline = Pipeline(cfg, repo, ProgressBus(), llm_factory=lambda: FakeLLM({
@@ -523,7 +523,61 @@ async def test_resynthesize_says_so_when_the_run_predates_the_stored_plan(data_d
     await pipeline.resynthesize(run_id)
 
     overview = (run_dir / "overview.md").read_text()
-    assert "coverage sections could not be rebuilt" in overview
+    assert "could not be recomputed" in overview
+    # and it must not invent one from the weaker reconstruction
+    assert "## Not researched" not in overview
+
+
+@respx.mock
+async def test_resynthesize_does_not_invent_gaps_the_run_never_had(data_dir):
+    """First live re-synthesis, 2026-09-10: the rebuilt map credited parts
+    lexically from each finding's query, so two parts whose sources sat in
+    the same document's bibliography were printed under "The run found no
+    sources for these parts of the question". The run's own accounting is
+    stored now, and that is what the claim is made from."""
+    import json
+    cfg = make_cfg(data_dir)
+    # The discriminating shape: the SOURCE is plainly about the part, so the
+    # run credits it and reports no gap — but the QUERY that found it shares
+    # almost nothing with the part's name, so rebuilding the map from queries
+    # alone credits nothing and invents one.
+    title = "Weight and circumference range for match balls"
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result("https://example-a.com/article", title)])))
+    respx.get("https://example-a.com/article").mock(
+        return_value=httpx.Response(200, html=article(title)))
+    repo = Repo(connect(cfg.db_path))
+
+    sc = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    sc["planner"] = [{
+        "title": "Balls", "brief": "Ball specifications.",
+        "facets": ["weight and circumference range"],
+        "subqueries": ["IFAB laws of the game specifications"],
+        "query_facets": ["weight and circumference range"],
+        "keywords": ["ball"],
+    }]
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(sc))
+    run_id = orch.enqueue(RunParams(query="size 3 ball", depth=1,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+    run_dir = cfg.research_dir / run_id
+
+    meta = json.loads((run_dir / "meta.json").read_text())
+    assert meta["query_facet"]["IFAB laws of the game specifications"] == \
+        "weight and circumference range"
+    # the run credited the part, so it printed no gap
+    assert meta["facet_kept"].get("weight and circumference range")
+    assert "## Not researched" not in (run_dir / "overview.md").read_text()
+
+    pipeline = Pipeline(cfg, repo, ProgressBus(), llm_factory=lambda: FakeLLM({
+        "synth": ["# Balls\n\nThe ball is round [1].\n"],
+        "followups": [{"items": []}]}))
+    await pipeline.resynthesize(run_id)
+
+    again = (run_dir / "overview.md").read_text()
+    assert "The run found no sources" not in again, \
+        "invented a gap for a part the run kept a source for"
 
 
 @respx.mock

@@ -1721,7 +1721,16 @@ class Pipeline:
                              finished_at=utcnow())
         store.update_meta(status="completed", stop_reason=stop_reason,
                           finished_at=utcnow(), stats=stats,
-                          followups=followups_json)
+                          followups=followups_json,
+                          # The run's own coverage accounting, so a later
+                          # re-synthesis does not have to guess at it. The
+                          # first attempt reconstructed the map lexically from
+                          # each finding's query and produced a "the run found
+                          # no sources for these parts" section naming two
+                          # parts whose sources were sitting in the same
+                          # document's bibliography.
+                          query_facet=dict(state.query_facet),
+                          facet_kept=dict(state.facet_kept))
         self.bus.publish(run_id, "done", status="completed",
                          stop_reason=stop_reason, sources=len(findings))
 
@@ -1851,13 +1860,24 @@ class Pipeline:
         # it replaced.
         facets = [f for f in (meta.get("facets") or []) if isinstance(f, str)]
         premises = [p for p in (meta.get("premises") or []) if isinstance(p, str)]
-        # `query_facet` is not stored, but every finding records the query it
-        # came from, and the facet each query attacked is recoverable from the
-        # facet list by the same matcher the run used.
-        facet_of = {f.query: (facet_plan.facet_for_query(f.query, facets) or "")
-                    for f in findings if f.query}
-        kept: Counter = Counter(v for v in facet_of.values() if v)
-        unanswered = facet_plan.uncovered(facets, kept) if facets else []
+        stored_map = meta.get("query_facet")
+        stored_kept = meta.get("facet_kept")
+        exact = isinstance(stored_map, dict) and isinstance(stored_kept, dict)
+        if exact:
+            # The run's own accounting, which used the note-taker's judgement
+            # of how much each page contributed to its part.
+            facet_of = {str(k): str(v) for k, v in stored_map.items()}
+            unanswered = facet_plan.uncovered(facets, Counter(stored_kept))
+        else:
+            # An older run. The query-to-part map can be approximated from
+            # each finding's query, but only lexically, and that is weaker
+            # than what the run did — weak enough to call a part unresearched
+            # whose sources are in this very document. Good enough to group
+            # the notes by part; NOT good enough to make a claim about
+            # coverage, so no gap list is derived from it.
+            facet_of = {f.query: (facet_plan.facet_for_query(f.query, facets) or "")
+                        for f in findings if f.query}
+            unanswered = []
 
         self.bus.publish(run_id, "phase", phase="synthesis",
                          sources=len(findings))
@@ -1893,14 +1913,14 @@ class Pipeline:
             overview = _THIN_BANNER + overview
         overview, _ = self._mark_honestly(
             run_id, overview, findings, facet_of, unanswered)
-        if not facets:
+        if not exact:
             overview = (overview.rstrip()
                         + "\n\n---\n\n*Re-synthesized from the stored sources. "
-                        + "This run predates the change that records which "
-                        + "parts of the question were asked, so the coverage "
-                        + "sections could not be rebuilt — an earlier version "
-                        + "of this document may have named gaps this one does "
-                        + "not.*\n")
+                        + "This run predates the change that records its own "
+                        + "coverage accounting, so which parts of the question "
+                        + "went unanswered could not be recomputed — an "
+                        + "earlier version of this document may have named "
+                        + "gaps this one does not.*\n")
         fu = await synthesizer.follow_ups(llm, query=query, overview=overview)
 
         store.write_overview(overview)
