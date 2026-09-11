@@ -49,7 +49,7 @@ class LLMError(Exception):
 
 
 # High-volume, mechanical calls — these are what the fast model is for.
-_FAST_KINDS = {"notes", "triage"}
+_FAST_KINDS = {"notes", "triage", "candidates"}
 
 
 class LLM:

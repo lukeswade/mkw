@@ -42,6 +42,8 @@ from app.research.pipeline import Pipeline
 from app.research.progress import ProgressBus
 from app.research.storage import RunStore
 
+STRONG = 6  # relevance at which an uncited source is a loss, not a judgment
+
 
 def clone(cfg, repo, src_row, src_store, src_meta, label: str) -> str:
     """A completed copy of the source run, findings and plan included."""
@@ -100,14 +102,25 @@ async def run_arm(cfg, repo, src_row, src_store, src_meta,
     store = RunStore(cfg.research_dir / rid)
     ov = store.overview_path.read_text() if store.overview_path.exists() else ""
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", ov)}
-    n = len(repo.findings_for_run(rid)) or 1
+    fs = repo.findings_for_run(rid)
+    n = len(fs) or 1
+    # The all-source rate has a false ceiling: on the 66-source reference run
+    # 7 of the 25 uncited were relevance-4/5 listicles that SHOULD stay
+    # uncited. Chasing 100% of that number forces junk in, which is padding
+    # by another name. The rate over sources at or above STRONG is the one
+    # to move.
+    strong = [f for f in fs if (f["relevance"] or 0) >= STRONG]
+    strong_cited = sum(1 for f in strong if f["idx"] in cited)
     words = len(ov.split())
     return {
         "arm": name, "run_id": rid, "overrides": over or "(deployed code)",
         "sources": n, "cited": len(cited), "cite_rate": f"{100*len(cited)/n:.0f}%",
+        "strong": len(strong), "strong_cited": strong_cited,
+        "strong_rate": f"{100*strong_cited/max(1, len(strong)):.0f}%",
         "words": words, "words_per_cite": round(words / max(1, len(cited)), 1),
         "wall_s": round(wall, 1), "error": err,
         "sections": [l[3:].strip() for l in ov.splitlines() if l.startswith("## ")],
+        "uncited_strong": sorted(f["idx"] for f in strong if f["idx"] not in cited),
     }
 
 
@@ -131,10 +144,12 @@ async def main() -> None:
         print(json.dumps(r, indent=1), flush=True)
 
     print("\n=== SUMMARY ===")
-    print(f"{'arm':<20}{'cited':>7}{'rate':>7}{'words':>8}{'w/cite':>8}{'wall':>8}")
+    print(f"{'arm':<20}{'cited':>7}{'rate':>7}{'str':>6}{'s-rate':>8}"
+          f"{'words':>8}{'w/cite':>8}{'wall':>8}")
     for r in results:
-        print(f"{r['arm']:<20}{r['cited']:>7}{r['cite_rate']:>7}{r['words']:>8}"
-              f"{r['words_per_cite']:>8}{r['wall_s']:>7}s"
+        print(f"{r['arm']:<20}{r['cited']:>7}{r['cite_rate']:>7}"
+              f"{r['strong_cited']:>3}/{r['strong']:<3}{r['strong_rate']:>7}"
+              f"{r['words']:>8}{r['words_per_cite']:>8}{r['wall_s']:>7}s"
               + (f"  ERR {r['error']}" if r["error"] else ""))
 
 

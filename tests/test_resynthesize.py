@@ -172,7 +172,7 @@ async def test_only_enormous_source_sets_are_map_reduced():
     from app.llm.client import est_tokens
     from app.research.synthesizer import _SINGLE_CALL_BUDGET
 
-    llm = FakeLLM({"synth": [capture]})
+    llm = FakeLLM({"synth": [capture], "candidates": [{"candidates": []}]})
     def mk(n):
         return [Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}",
                         domain="a.com", published=None, relevance=7,
@@ -191,7 +191,7 @@ async def test_only_enormous_source_sets_are_map_reduced():
                      today="t", state_md="", findings=mk(fits))
     assert llm.calls["synth"] == 1
 
-    big = FakeLLM({"synth": [capture]})
+    big = FakeLLM({"synth": [capture], "candidates": [{"candidates": []}]})
     await synthesize(big, query="q", title="T", brief="b", recency_desc="any",
                      today="t", state_md="", findings=mk(exceeds))
     assert big.calls["synth"] > 1                 # genuinely enormous: digested

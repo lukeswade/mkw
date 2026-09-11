@@ -6,9 +6,9 @@ import logging
 import re
 
 from app.llm import prompts
-from app.llm.client import LLM, est_tokens
+from app.llm.client import LLM, LLMError, est_tokens
 from app.llm.json_utils import LLMJsonError
-from app.models import FollowUpsOut, RECENCY_LABELS, source_rank
+from app.models import CandidatesOut, FollowUpsOut, RECENCY_LABELS, source_rank
 from app.research.notes import Finding, render_facts
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,14 @@ _STRONG_UNCITED = 7            # relevance at which "read but unused" is news
 # from being padded to fill a quota; the ceiling keeps a 150-source run from
 # trying to write a book.
 _PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
+# The candidate axis. Below the first number the document can cite every
+# source anyway, so the extraction call would buy nothing; a candidate on a
+# single source is a mention rather than something to assess; and the block
+# only fires when there are at least two candidates, because one candidate is
+# the subject of the question, not an axis of it.
+_CANDIDATES_MIN_SOURCES = 8
+_CANDIDATE_MIN_SOURCES = 2
+_MAX_CANDIDATES = 12
 _WORDS_PER_SOURCE = 50
 _MIN_TARGET_WORDS = 900
 _MAX_TARGET_WORDS = 5_000
@@ -164,6 +172,41 @@ def _pack(groups: list[tuple[str, list[str]]]
     return batches
 
 
+async def name_candidates(llm: LLM, *, query: str, findings: list[Finding]
+                          ) -> list[tuple[str, list[int]]]:
+    """The named things the question is choosing among, with their sources.
+
+    Strongest-first, ids filtered to sources the run actually kept, and a
+    candidate needs two sources to be listed. Any failure of the call means
+    no candidate block — this is an enrichment of synthesis and must never
+    cost the document itself.
+    """
+    if len(findings) < _CANDIDATES_MIN_SOURCES:
+        return []
+    known = {f.idx for f in findings}
+    lines = [f"[{f.idx}] {f.title} — {f.domain}: "
+             f"{' '.join((f.summary or '').split())[:200]}" for f in findings]
+    prompt = prompts.CANDIDATES.format(query=query, sources="\n".join(lines))
+    try:
+        out = await llm.chat_json(
+            "candidates", [{"role": "user", "content": prompt}],
+            CandidatesOut, max_tokens=1500, temperature=0.2)
+    except (LLMJsonError, LLMError) as e:
+        log.warning("candidate extraction skipped: %s", e)
+        return []
+    picked: list[tuple[str, list[int]]] = []
+    seen: set[str] = set()
+    for c in out.candidates:
+        ids = [i for i in c.sources if i in known]
+        key = c.name.lower()
+        if len(ids) < _CANDIDATE_MIN_SOURCES or key in seen:
+            continue
+        seen.add(key)
+        picked.append((c.name, ids))
+    picked.sort(key=lambda x: -len(x[1]))
+    return picked[:_MAX_CANDIDATES]
+
+
 def cited_ids(overview: str) -> set[int]:
     """The [n] citation ids a finished document actually uses."""
     return {int(n) for n in re.findall(r"\[(\d+)\]", overview)}
@@ -261,6 +304,25 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         prompt += prompts.SYNTH_STRUCTURE_BLOCK.format(
             parts="\n".join(f"- {f} — {n} source{'s' if n != 1 else ''}"
                              for f, n in sorted(named, key=lambda x: -x[1])))
+    # The second axis. The structure block above gives each PART of the
+    # question a section; when the question is choosing among named things,
+    # the parts are criteria and the candidates are a dimension the sections
+    # do not span. 2026-09-11, measured on a 66-source evaluation: the 25
+    # uncited sources clustered by product — every Joplin source, both
+    # Logseq, three Obsidian — while the sections were the five criteria.
+    # A candidate the document never names has no sentence its sources
+    # could be cited in, however long the document is made.
+    candidates = await name_candidates(llm, query=query, findings=findings)
+    if len(candidates) >= 2:
+        prompt += prompts.SYNTH_CANDIDATES_BLOCK.format(
+            candidates="\n".join(
+                f"- {name} — {len(ids)} source{'s' if len(ids) != 1 else ''}: "
+                + " ".join(f"[{i}]" for i in ids)
+                for name, ids in candidates))
+        if bus is not None and run_id:
+            bus.publish(run_id, "log", message=(
+                f"{len(candidates)} candidates named across the sources: "
+                + ", ".join(f"{n} ({len(ids)})" for n, ids in candidates)))
     if premises:
         # The question asserted something checkable. Saying whether it holds
         # comes before answering, because a wrong premise changes the answer.

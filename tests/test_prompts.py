@@ -267,7 +267,9 @@ async def test_synthesis_is_given_a_length_target_from_the_source_count():
     fs = [Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}", domain="a.com",
                   published=None, relevance=7, summary="s", notes_md="notes")
           for i in range(1, 41)]
-    await synthesize(FakeLLM({"synth": [capture]}), query="q", title="T",
+    await synthesize(FakeLLM({"synth": [capture],
+                              "candidates": [{"candidates": []}]}),
+                     query="q", title="T",
                      brief="b", recency_desc="any", today="2026-09-11",
                      state_md="", findings=fs)
     assert f"{target_words(40):,}" in seen[0]
@@ -306,7 +308,7 @@ def _fs(n_per_facet: dict[str, int]):
     return out
 
 
-async def _prompt_for(findings, **kw):
+async def _prompt_for(findings, candidates=None, **kw):
     from app.research.synthesizer import synthesize
     from tests.fake_llm import FakeLLM
     seen = []
@@ -315,7 +317,9 @@ async def _prompt_for(findings, **kw):
         seen.append(messages[-1]["content"])
         return "# Doc\n\nBody [1]."
 
-    await synthesize(FakeLLM({"synth": [capture]}), query="q", title="T",
+    await synthesize(FakeLLM({"synth": [capture],
+                              "candidates": [{"candidates": candidates or []}]}),
+                     query="q", title="T",
                      brief="b", recency_desc="any", today="2026-09-11",
                      state_md="", findings=findings, **kw)
     return seen[0]
@@ -357,3 +361,83 @@ async def test_no_structure_block_when_there_is_only_one_part():
     fs = _fs({"only thing": 5})
     p = await _prompt_for(fs, facet_of={"only thing": "only thing"})
     assert "section of its own" not in p
+
+
+# ---- the candidate axis -----------------------------------------------------
+
+async def test_candidates_with_enough_sources_are_named_strongest_first():
+    """2026-09-11, measured on a 66-source evaluation: the 25 uncited sources
+    clustered by PRODUCT while the sections were the CRITERIA. A candidate
+    the document never names has no sentence its sources can be cited in."""
+    fs = _fs({"interface": 6, "hosting": 4})       # 10 sources, ids 1-10
+    p = await _prompt_for(fs, candidates=[
+        {"name": "Joplin", "sources": [1, 2, 3]},
+        {"name": "Obsidian", "sources": [4, 5, 6, 7]},
+        {"name": "Logseq", "sources": [8]},            # one source: a mention
+        {"name": "Notion", "sources": [99, 100]},      # ids the run never kept
+        {"name": "joplin", "sources": [2, 3]},         # duplicate spelling
+    ])
+    assert "Obsidian — 4 sources: [4] [5] [6] [7]" in p
+    assert "Joplin — 3 sources: [1] [2] [3]" in p
+    assert p.index("Obsidian — 4") < p.index("Joplin — 3")   # strongest first
+    assert "Logseq" not in p
+    assert "Notion" not in p
+    assert p.count("Joplin —") == 1
+    assert "BY NAME" in p and "comparison table" in p
+
+
+async def test_one_candidate_is_the_subject_not_an_axis():
+    fs = _fs({"interface": 6, "hosting": 4})
+    p = await _prompt_for(fs, candidates=[{"name": "Joplin", "sources": [1, 2, 3]}])
+    assert "Joplin" not in p
+    assert "BY NAME" not in p
+
+
+async def test_small_runs_skip_the_extraction_call_entirely():
+    """Below the threshold the document can cite every source anyway, and the
+    call is unscripted here, so making it would fail the test."""
+    from app.research.notes import Finding
+    from app.research.synthesizer import synthesize, _CANDIDATES_MIN_SOURCES
+    from tests.fake_llm import FakeLLM
+    fs = [Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}", domain="a.com",
+                  published=None, relevance=7, summary="s", notes_md="n")
+          for i in range(1, _CANDIDATES_MIN_SOURCES)]
+    llm = FakeLLM({"synth": ["# Doc\n\nBody [1]."]})
+    await synthesize(llm, query="q", title="T", brief="b", recency_desc="any",
+                     today="t", state_md="", findings=fs)
+    assert llm.calls["candidates"] == 0
+
+
+async def test_a_failed_extraction_costs_nothing_but_the_block():
+    from app.llm.json_utils import LLMJsonError
+    from app.research.synthesizer import synthesize
+    from tests.fake_llm import FakeLLM
+    seen = []
+
+    def capture(messages):
+        seen.append(messages[-1]["content"])
+        return "# Doc\n\nBody [1]."
+
+    fs = _fs({"interface": 6, "hosting": 4})
+    llm = FakeLLM({"synth": [capture],
+                   "candidates": [LLMJsonError("candidates: garbage")]})
+    out = await synthesize(llm, query="q", title="T", brief="b",
+                           recency_desc="any", today="t", state_md="",
+                           findings=fs)
+    assert out.startswith("# Doc")
+    assert "BY NAME" not in seen[0]
+
+
+def test_candidates_out_cleans_junk_in_code():
+    from app.models import CandidatesOut
+    out = CandidatesOut.model_validate({"candidates": [
+        {"name": "  Joplin ", "sources": [3, "2", 2, "x", None]},
+        {"name": "", "sources": [1]},
+        "not a dict",
+        {"name": "NoSources"},
+        {"name": "x" * 500, "sources": "3"},
+    ]})
+    names = [c.name for c in out.candidates]
+    assert names == ["Joplin", "NoSources"]
+    assert out.candidates[0].sources == [2, 3]
+    assert out.candidates[1].sources == []

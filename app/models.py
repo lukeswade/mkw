@@ -448,6 +448,47 @@ class FollowUp(BaseModel):
         return v if v in RECENCY_CHOICES else "6months"
 
 
+class Candidate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    sources: list[int] = Field(default_factory=list, max_length=40)
+
+
+class CandidatesOut(BaseModel):
+    """The named things a question is choosing among, and which sources
+    cover each. Data for a prompt block, not prose: synthesis is told to
+    assess every candidate with enough sources by name.
+
+    2026-09-11: a 66-source evaluation of knowledge bases cited 41. The 25
+    uncited clustered by PRODUCT — all three Joplin sources, both Logseq,
+    three Obsidian — while the document's sections were the five evaluation
+    CRITERIA. A criteria-shaped document talks about whichever exemplar the
+    model reached for first; a candidate it never names has no sentence its
+    sources could be cited in, however long the document is."""
+    candidates: list[Candidate] = Field(default_factory=list, max_length=20)
+
+    @field_validator("candidates", mode="before")
+    @classmethod
+    def _drop_unusable(cls, v):
+        if not isinstance(v, list):
+            return v
+        out = []
+        for c in v:
+            if not isinstance(c, dict) or not str(c.get("name", "")).strip():
+                continue
+            ids = c.get("sources") or []
+            if not isinstance(ids, list):
+                continue
+            clean = []
+            for i in ids:
+                try:
+                    clean.append(int(i))
+                except (TypeError, ValueError):
+                    continue
+            out.append({"name": str(c["name"]).strip()[:60],
+                        "sources": sorted(set(clean))[:40]})
+        return out[:20]
+
+
 class FollowUpsOut(BaseModel):
     items: list[FollowUp] = Field(default_factory=list, max_length=10)
 

@@ -441,6 +441,27 @@ where that reads naturally.
 You may add further sections beyond these when the sources support them.
 """
 
+# The second axis. SYNTH_STRUCTURE_BLOCK gives the document a section per
+# PART of the question; when the question is choosing among named things,
+# the parts are criteria and the candidates are a dimension of their own.
+# Measured 2026-09-11 on a 66-source evaluation: the 25 uncited sources
+# clustered by product, not by criterion — a candidate the document never
+# named had no sentence for its sources to be cited in.
+SYNTH_CANDIDATES_BLOCK = """
+
+The sources cover these candidates — the named things the question is \
+choosing among — with this many sources each:
+{candidates}
+
+Assess every one of them BY NAME against the parts of the question above. A \
+candidate with two or more sources is not skipped and is not folded into "other \
+tools": say specifically what its sources establish about it, with their [n], \
+and where it falls short. Include one comparison table with a row per candidate \
+and a column per part of the question, then use the prose to explain the cells \
+that need it. The reader is choosing; a candidate you leave out is a choice you \
+made for them without showing your evidence.
+"""
+
 SYNTH_LENGTH_BLOCK = """
 
 This run read and kept {n} sources and the document must do justice to all \
@@ -517,6 +538,31 @@ Omit a cell entirely rather than guessing at it. A visible gap is more useful
 than an invented value, and a cell backed by no source id is worthless.
 
 Respond with only the JSON object."""
+
+
+CANDIDATES = """A research run kept the sources listed below for this question. \
+Name the CANDIDATES: the specific named things the question is choosing among, \
+comparing or evaluating — products, tools, libraries, services, models, methods, \
+standards, organisations. Not concepts, not criteria, not categories.
+
+Research question: {query}
+
+Sources (id, title, domain, one-line summary):
+{sources}
+
+Produce a JSON object with exactly this key:
+- "candidates": array of objects, each with:
+  - "name": the candidate's usual name, as the sources spell it
+  - "sources": array of the integer ids of the sources that say something \
+substantive about that candidate (not a passing mention in a list)
+
+Rules:
+- A source may support several candidates; a candidate may have one source.
+- Merge spellings and product variants under one name ("Obsidian" covers \
+"Obsidian Local REST API" unless the question treats them separately).
+- If the question is not choosing among or assessing named alternatives, \
+return an empty array — do not invent candidates out of concepts.
+- Output ONLY the JSON object."""
 
 
 FOLLOWUPS = """A research run just completed. Recommend follow-up research.
