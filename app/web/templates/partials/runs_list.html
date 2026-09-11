@@ -17,7 +17,7 @@
         <span class="run-meta">
           <span class="run-kinds">
             <span class="kind kind-{{ k }}" title="{{ KIND_HELP[k] }}">{{ KIND_LABEL[k] }}</span>
-            {%- if item.has_matrix %}<span class="kind kind-matrix"
+            {%- if item.has_matrix and k == 'research' %}<span class="kind kind-matrix"
                   title="This run has a comparison table">matrix</span>{% endif %}
           </span>
           <span class="meta-text">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}

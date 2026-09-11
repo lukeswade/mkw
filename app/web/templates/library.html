@@ -25,7 +25,8 @@
     <span class="hit-badges">
       <span class="chip status-{{ hit.run['status'] }}">{{ hit.run['status'] }}</span>
       <span class="kind kind-{{ hk }}">{{ KIND_LABEL[hk] }}</span>
-      {% if hit.has_matrix %}<span class="kind kind-matrix">matrix</span>{% endif %}
+      {# a claim check's verdict table is its shape, not a comparison #}
+      {% if hit.has_matrix and hk == 'research' %}<span class="kind kind-matrix">matrix</span>{% endif %}
     </span>
     <span class="hit-run">{{ hit.run['title'] or hit.run['query'] }}</span>
     <span class="hit-kind">{{ hit.kind }}{% if hit.title and hit.kind == 'finding' %}: {{ hit.title }}{% endif %}</span>

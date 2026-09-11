@@ -222,3 +222,15 @@ def test_rows_settled_under_the_old_rule_are_re_settled_once(data_dir):
     repo.update_run(store.run_id, has_matrix=0)
     migrate(conn)
     assert repo.get_run(store.run_id)["has_matrix"] == 0
+
+
+def test_a_claim_checks_verdict_table_is_not_a_comparison_badge(lib):
+    """Live data, 2026-09-11: every claim check carries a verdict table, so
+    the badge lit on all of them and meant nothing there."""
+    app, cfg, repo, seed = lib
+    rid = seed("verify", title="A claim check with a table")
+    RunStore(cfg.research_dir / rid).write_overview(
+        "# V\n\n| Claim | Verdict |\n|---|---|\n| x | supported [1] |\n")
+    with TestClient(app) as c:
+        assert 'kind kind-matrix' not in c.get("/library").text
+        assert 'kind kind-matrix' not in c.get("/partials/recent-runs").text
