@@ -109,6 +109,14 @@ _GENERAL_WEB_ENGINES = frozenset({
 _PREFERRED_ENGINES = frozenset({"braveapi", "marginalia", "google cse"})
 
 
+def _named(params: dict, engines: list[str]) -> dict:
+    """The same request, narrowed to named engines. `engines` replaces the
+    category selection, as SearXNG itself does."""
+    out = {k: v for k, v in params.items() if k != "categories"}
+    out["engines"] = ",".join(engines)
+    return out
+
+
 def engine_preferred(engine: str) -> bool:
     return (engine or "").strip().lower() in _PREFERRED_ENGINES
 
@@ -322,6 +330,7 @@ class Searcher:
         self.generalized = 0
         self.bench_events: list[str] = []
         self._engine_map_cache: dict[str, set[str]] | None = None
+        self._tr_support_cache: frozenset[str] | None = None
         # Searches need a longer budget than page fetches: SearXNG fans one
         # query out to a dozen-plus engines and waits for the slow ones. The
         # shared 15s client timeout was killing multi-category queries.
@@ -381,9 +390,80 @@ class Searcher:
                     params["engines"] = ",".join(sorted(wanted - excluded))
                     del params["categories"]
         time_range = RECENCY_TO_TIME_RANGE.get(recency)
-        if time_range:
-            params["time_range"] = time_range
 
+        # One logical search, however many requests it takes.
+        self.searches += 1
+
+        if time_range:
+            plan = await self._time_range_plan(params, time_range)
+        else:
+            plan = [params]
+
+        out: list[SearchResult] = []
+        seen: set[str] = set()
+        answered = False
+        for req in plan:
+            got, had_results = await self._send(req, query, recency)
+            answered = answered or had_results
+            for r in got:
+                if r.url not in seen:
+                    seen.add(r.url)
+                    out.append(r)
+        if not answered:
+            self.empty_searches += 1
+        return out
+
+    async def _time_range_plan(self, params: dict, time_range: str) -> list[dict]:
+        """Split one dated search into the engines that can date-filter and
+        the engines that cannot.
+
+        SearXNG drops any engine without `time_range_support` from a search
+        that carries a time range. On this install that is five of the seven
+        general engines — bing, marginalia, mwmbl, searchmysite and wiby —
+        so every run with a recency other than "all time" was querying
+        braveapi and google cse alone, and the indie indexes that exist
+        precisely to answer when the majors CAPTCHA were silently absent.
+        2026-09-11, a depth-10 run: 53 searches on two engines, 31 of them
+        empty.
+
+        Asking the rest without the parameter costs one extra request and
+        loses nothing: `cutoff_for(recency)` already drops a result whose
+        date is outside the window, so the dating is done either way — by
+        the engine where it can be, by us where it cannot.
+        """
+        emap = await self._engine_map()
+        supports = await self._time_range_support()
+        # An empty map means /config was unreachable — guessing a split would
+        # be worse than today's behaviour. An empty `supports` with a good map
+        # is a real answer ("none of them can"), not a missing one, so only
+        # the map is allowed to veto.
+        if not emap:
+            return [dict(params, time_range=time_range)]
+
+        if params.get("engines"):
+            wanted = {e.strip() for e in params["engines"].split(",") if e.strip()}
+        else:
+            cats = split_categories(params.get("categories", ""))
+            wanted = set().union(*(emap.get(c, set()) for c in cats)) if cats else set()
+        if not wanted:
+            return [dict(params, time_range=time_range)]
+
+        dated = sorted(wanted & supports)
+        undated = sorted(wanted - supports)
+        if not dated:
+            # Nothing can filter; sending the range would return nothing at
+            # all, which is how this was failing.
+            return [_named(params, undated)]
+        if not undated:
+            return [dict(params, time_range=time_range)]
+        return [dict(_named(params, dated), time_range=time_range),
+                _named(params, undated)]
+
+    async def _send(self, params: dict, query: str,
+                    recency: str) -> tuple[list[SearchResult], bool]:
+        """One SearXNG request, parsed. Returns its results and whether it
+        answered at all — the caller decides what counts as an empty search,
+        because a split search is still one search."""
         async with self._sem:
             resp = await self.client.get(
                 f"{self.base_url}/search", params=params,
@@ -399,7 +479,6 @@ class Searcher:
         resp.raise_for_status()
         data = resp.json()
 
-        self.searches += 1
         unresponsive = data.get("unresponsive_engines") or []
         for entry in unresponsive:
             if isinstance(entry, (list, tuple)) and entry:
@@ -416,8 +495,6 @@ class Searcher:
                 self.bench_events.extend(self.bench.observe(refused, answered))
             except Exception as ex:  # noqa: BLE001 — bookkeeping never stops a search
                 log.debug("bench bookkeeping failed: %s", ex)
-        if not data.get("results"):
-            self.empty_searches += 1
 
         cutoff = cutoff_for(recency)
         site = _site_scope(query)
@@ -445,7 +522,13 @@ class Searcher:
                 score=float(item.get("score") or 0.0),
                 author=(item.get("author") or "").strip(),
             ))
-        return out
+        return out, bool(data.get("results"))
+
+    async def _time_range_support(self) -> frozenset[str]:
+        """Engines SearXNG will keep in a search that carries a time range."""
+        if self._tr_support_cache is None:
+            await self._engine_map()          # fills both caches
+        return self._tr_support_cache or frozenset()
 
     async def _engine_map(self) -> dict[str, set[str]]:
         """category → enabled engine names, from SearXNG's /config, once per
@@ -455,14 +538,19 @@ class Searcher:
                 resp = await self.client.get(f"{self.base_url}/config", timeout=self.timeout)
                 resp.raise_for_status()
                 emap: dict[str, set[str]] = {}
+                dated: set[str] = set()
                 for e in resp.json().get("engines", []):
                     if e.get("enabled"):
                         for cat in e.get("categories") or []:
                             emap.setdefault(str(cat), set()).add(str(e["name"]))
+                        if e.get("time_range_support"):
+                            dated.add(str(e["name"]))
                 self._engine_map_cache = emap
+                self._tr_support_cache = frozenset(dated)
             except Exception as ex:  # noqa: BLE001
                 log.debug("engine map unavailable: %s", ex)
                 self._engine_map_cache = {}
+                self._tr_support_cache = frozenset()
         return self._engine_map_cache
 
     def drain_bench_events(self) -> list[str]:

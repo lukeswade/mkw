@@ -456,3 +456,118 @@ def test_a_searcher_without_timing_reports_everything():
     class Feeds:
         blocked_engines = {"https://dead.example/feed": "ConnectError"}
     assert round_refusals(Feeds(), 5) == Feeds.blocked_engines
+
+
+# ---- a dated search must not silently shed engines --------------------------
+
+def _config(engines):
+    """SearXNG /config shape: name, enabled, categories, time_range_support."""
+    return {"engines": [
+        {"name": n, "enabled": True, "categories": ["general"],
+         "time_range_support": tr} for n, tr in engines]}
+
+
+def _capture():
+    """Record every outbound /search request and answer each with one result."""
+    seen = []
+
+    def handler(req):
+        seen.append(dict(req.url.params))
+        return httpx.Response(200, json=_payload(
+            [{"url": f"https://e.test/{len(seen)}", "title": "t", "content": "c",
+              "engine": "x"}]))
+    return seen, handler
+
+
+@respx.mock
+async def test_a_dated_search_asks_the_undated_engines_too():
+    """SearXNG drops every engine without time_range_support from a search
+    carrying a time range. On this install that was five of seven general
+    engines, so every run with a recency other than "all time" ran on
+    braveapi and google cse alone — and the indie indexes that exist to
+    answer when the majors CAPTCHA were silently absent."""
+    respx.get(f"{BASE}/config").mock(return_value=httpx.Response(200, json=_config(
+        [("google cse", True), ("braveapi", True),
+         ("bing", False), ("marginalia", False)])))
+    seen, handler = _capture()
+    respx.get(f"{BASE}/search").mock(side_effect=handler)
+
+    async with httpx.AsyncClient() as client:
+        s = Searcher(BASE, client)
+        out = await s._query("voice cloning", "1year")
+
+    assert len(seen) == 2, "expected one dated request and one undated"
+    dated = [r for r in seen if "time_range" in r]
+    undated = [r for r in seen if "time_range" not in r]
+    assert len(dated) == 1 and len(undated) == 1
+    assert set(dated[0]["engines"].split(",")) == {"braveapi", "google cse"}
+    assert set(undated[0]["engines"].split(",")) == {"bing", "marginalia"}
+    # still ONE logical search, and both halves' results come back
+    assert s.searches == 1
+    assert len(out) == 2
+
+
+@respx.mock
+async def test_an_undated_search_is_a_single_request_as_before():
+    respx.get(f"{BASE}/config").mock(return_value=httpx.Response(200, json=_config(
+        [("google cse", True), ("bing", False)])))
+    seen, handler = _capture()
+    respx.get(f"{BASE}/search").mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        s = Searcher(BASE, client)
+        await s._query("voice cloning", "all")
+    assert len(seen) == 1
+    assert "time_range" not in seen[0]
+    assert "categories" in seen[0]        # unchanged: search by category
+
+
+@respx.mock
+async def test_no_split_when_every_engine_can_date_filter():
+    respx.get(f"{BASE}/config").mock(return_value=httpx.Response(200, json=_config(
+        [("google cse", True), ("braveapi", True)])))
+    seen, handler = _capture()
+    respx.get(f"{BASE}/search").mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        s = Searcher(BASE, client)
+        await s._query("voice cloning", "1year")
+    assert len(seen) == 1 and seen[0]["time_range"] == "year"
+
+
+@respx.mock
+async def test_when_nothing_can_date_filter_the_range_is_dropped_not_the_engines():
+    """Sending the range to a pool where no engine supports it returns
+    nothing at all — which is how this was failing. Our own cutoff still
+    drops results dated outside the window."""
+    respx.get(f"{BASE}/config").mock(return_value=httpx.Response(200, json=_config(
+        [("bing", False), ("marginalia", False)])))
+    seen, handler = _capture()
+    respx.get(f"{BASE}/search").mock(side_effect=handler)
+    async with httpx.AsyncClient() as client:
+        s = Searcher(BASE, client)
+        out = await s._query("voice cloning", "1year")
+    assert len(seen) == 1
+    assert "time_range" not in seen[0]
+    assert out
+
+
+@respx.mock
+async def test_a_split_search_that_answers_on_one_half_is_not_an_empty_search():
+    """empty_searches drives the degraded banner. A split search is still
+    one search, so a half that answers must not be averaged away — nor may
+    the quiet half count as its own failure."""
+    respx.get(f"{BASE}/config").mock(return_value=httpx.Response(200, json=_config(
+        [("google cse", True), ("bing", False)])))
+
+    def handler(req):
+        if "time_range" in dict(req.url.params):
+            return httpx.Response(200, json=_payload([]))        # dated half: nothing
+        return httpx.Response(200, json=_payload(
+            [{"url": "https://e.test/1", "title": "t", "content": "c", "engine": "bing"}]))
+    respx.get(f"{BASE}/search").mock(side_effect=handler)
+
+    async with httpx.AsyncClient() as client:
+        s = Searcher(BASE, client)
+        out = await s._query("voice cloning", "1year")
+    assert s.searches == 1
+    assert s.empty_searches == 0
+    assert len(out) == 1
