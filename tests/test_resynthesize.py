@@ -169,6 +169,9 @@ async def test_only_enormous_source_sets_are_map_reduced():
         calls.append(messages[-1]["content"])
         return "# Digest\n\nSummary [1]."
 
+    from app.llm.client import est_tokens
+    from app.research.synthesizer import _SINGLE_CALL_BUDGET
+
     llm = FakeLLM({"synth": [capture]})
     def mk(n):
         return [Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}",
@@ -176,14 +179,21 @@ async def test_only_enormous_source_sets_are_map_reduced():
                         summary="s", notes_md="word " * 800)
                 for i in range(1, n + 1)]
 
-    # a typical deep run stays a single call
+    # Sized off the constant rather than hardcoded, so raising the budget
+    # cannot quietly turn "enormous" into "typical" and leave this passing
+    # for the wrong reason.
+    per = est_tokens(mk(1)[0].notes_md)
+    fits = max(1, (_SINGLE_CALL_BUDGET // 2) // per)
+    exceeds = (_SINGLE_CALL_BUDGET // per) + 20
+
+    # a deep run that fits the window stays a single call
     await synthesize(llm, query="q", title="T", brief="b", recency_desc="any",
-                     today="t", state_md="", findings=mk(15))
+                     today="t", state_md="", findings=mk(fits))
     assert llm.calls["synth"] == 1
 
     big = FakeLLM({"synth": [capture]})
     await synthesize(big, query="q", title="T", brief="b", recency_desc="any",
-                     today="t", state_md="", findings=mk(40))
+                     today="t", state_md="", findings=mk(exceeds))
     assert big.calls["synth"] > 1                 # genuinely enormous: digested
 
 

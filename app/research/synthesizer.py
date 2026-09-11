@@ -19,7 +19,15 @@ log = logging.getLogger(__name__)
 # adds calls that share a long common prefix — which is what made a poisoned
 # KV-cache block repeat its damage across every digest of a run. Digesting is
 # for genuinely enormous runs, not a safety measure.
-_SINGLE_CALL_BUDGET = 28_000
+# Raised from 28k on 2026-09-11 after measuring this install rather than
+# guessing at it: the served model reports max_position_embeddings 262144, and
+# a timed call put marginal prefill at 402 tok/s. est_tokens over-counts by
+# about a third, so 100k here is ~75k real tokens — under a third of the
+# window — and a measured A/B on a 66-source run showed single-call synthesis
+# 23% faster than the four-batch digest (227s vs 297s) at identical citation
+# coverage (30 vs 31 of 66). Above this the digest still runs, which is what
+# keeps a 150-source run from spending six minutes in prefill.
+_SINGLE_CALL_BUDGET = 100_000
 _BATCH_BUDGET = 20_000         # est tokens per map batch
 _DIGEST_BASE_TOKENS = 4000     # room for a digest covering one part
 _DIGEST_PER_PART_TOKENS = 600  # ...plus this for each extra part it carries
