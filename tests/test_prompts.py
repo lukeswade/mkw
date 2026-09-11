@@ -237,3 +237,56 @@ async def test_no_deliverables_block_when_the_asker_named_none():
                      state_md="", findings=[f])
     assert "shape" not in seen[0].lower().split("research question")[0]
     assert "the asker also said" not in seen[0].lower()
+
+
+# ---- document length scales with how much was gathered ----------------------
+
+def test_target_words_scales_and_clamps():
+    """Measured 2026-09-11: documents came out 1000-2100 words whether a run
+    kept 20 sources or 89, so a deep run's extra sources had nowhere to go —
+    66 sources cited 36%, 23 sources cited 74%."""
+    from app.research.synthesizer import (target_words, _MIN_TARGET_WORDS,
+                                          _MAX_TARGET_WORDS)
+    assert target_words(6) == _MIN_TARGET_WORDS        # floor: never padded
+    assert target_words(200) == _MAX_TARGET_WORDS      # ceiling: never a book
+    assert target_words(66) == 3300
+    assert target_words(29) < target_words(66) < target_words(89)
+    assert target_words(0) == _MIN_TARGET_WORDS        # no findings, no crash
+
+
+async def test_synthesis_is_given_a_length_target_from_the_source_count():
+    from app.research.notes import Finding
+    from app.research.synthesizer import synthesize, target_words
+    from tests.fake_llm import FakeLLM
+    seen = []
+
+    def capture(messages):
+        seen.append(messages[-1]["content"])
+        return "# Doc\n\nBody [1]."
+
+    fs = [Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}", domain="a.com",
+                  published=None, relevance=7, summary="s", notes_md="notes")
+          for i in range(1, 41)]
+    await synthesize(FakeLLM({"synth": [capture]}), query="q", title="T",
+                     brief="b", recency_desc="any", today="2026-09-11",
+                     state_md="", findings=fs)
+    assert f"{target_words(40):,}" in seen[0]
+    assert "40 sources" in seen[0]
+    # Measured 2026-09-11: a hedged target ("write the shorter document if the
+    # sources do not carry it") was inert — asked for 3,300 words, got 1,480.
+    # Removing the escape hatch moved it to 2,197 words and 38 of 66 cited
+    # against 33. The instruction has to be a floor, with the anti-padding
+    # guards kept so length comes from coverage.
+    assert "at least" in seen[0]
+    assert "not padding" in seen[0]
+    assert "never cite a source you did not draw on" in seen[0]
+
+
+def test_the_output_cap_can_never_be_tighter_than_the_length_asked_for():
+    """A ceiling below the target would truncate the document the prompt just
+    requested."""
+    from app.research.synthesizer import target_words
+    for n in (1, 6, 29, 66, 89, 150, 400):
+        want = target_words(n)
+        max_out = min(16_000, max(8_000, int(want * 2.5)))
+        assert max_out >= want * 1.5, (n, want, max_out)

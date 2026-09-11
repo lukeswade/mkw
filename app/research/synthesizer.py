@@ -33,7 +33,24 @@ _DIGEST_BASE_TOKENS = 4000     # room for a digest covering one part
 _DIGEST_PER_PART_TOKENS = 600  # ...plus this for each extra part it carries
 _DIGEST_MAX_TOKENS = 8000
 _STRONG_UNCITED = 7            # relevance at which "read but unused" is news
+# Words of document per kept source, and the clamp around it. Measured over
+# eleven completed runs on 2026-09-11: the documents that used their research
+# sat at 47-60 words per source (23 sources -> 1077 words, 74% cited; 29 ->
+# 1738, 83%), and the ones that wasted it sat at 15-21 (66 -> 1388, 36%; 89 ->
+# 1304, 44%). Length was near-constant regardless of how much was gathered, so
+# a deep run's extra sources had nowhere to go. The floor keeps a 6-source run
+# from being padded to fill a quota; the ceiling keeps a 150-source run from
+# trying to write a book.
 _PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
+_WORDS_PER_SOURCE = 50
+_MIN_TARGET_WORDS = 900
+_MAX_TARGET_WORDS = 5_000
+
+
+def target_words(n_sources: int) -> int:
+    """How long a document with this many sources should be."""
+    return max(_MIN_TARGET_WORDS,
+               min(_MAX_TARGET_WORDS, _WORDS_PER_SOURCE * max(0, n_sources)))
 
 
 def looks_degenerate(text: str) -> bool:
@@ -223,6 +240,11 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         today=today, state_md=state_md or "(none)",
         notes_block="\n".join(blocks),
     )
+    # Length is set by how much was gathered, before any of the conditional
+    # blocks: the deliverables block comes last and is allowed to overrule it
+    # when the asker said something about length themselves.
+    want = target_words(len(findings))
+    prompt += prompts.SYNTH_LENGTH_BLOCK.format(n=len(findings), words=f"{want:,}")
     if premises:
         # The question asserted something checkable. Saying whether it holds
         # comes before answering, because a wrong premise changes the answer.
@@ -253,8 +275,10 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
     # actually waiting on, so stream it into the progress pane rather than
     # sitting behind a spinner. A stream failure falls back to a normal call —
     # the document matters more than the animation.
-    # A 100+ source deep run deserves a longer report than a 6-source one.
-    max_out = 8000 if len(findings) <= 30 else 12000
+    # Derived from the target rather than set beside it, so the ceiling can
+    # never be tighter than the length the prompt just asked for. ~2.5 tokens
+    # per word leaves room for headings, citation markers and markdown.
+    max_out = min(16_000, max(8_000, int(want * 2.5)))
 
     text = None
     if bus is not None and run_id:

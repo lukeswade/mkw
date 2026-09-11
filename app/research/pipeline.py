@@ -71,6 +71,39 @@ def _md_field(body: str, label: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def _md_section(body: str, heading: str) -> str:
+    """The body of one `## Heading` section of a finding's .md."""
+    m = re.search(rf"^## {re.escape(heading)}\s*$", body, re.M)
+    if not m:
+        return ""
+    rest = body[m.end():]
+    nxt = re.search(r"^## ", rest, re.M)
+    return (rest[:nxt.start()] if nxt else rest).strip()
+
+
+def _md_facts(body: str) -> list[dict]:
+    """`## Key facts` parsed back into the Fact shape render_facts expects.
+
+    The bullets were produced by render_facts, so this is its inverse:
+    `- claim (confidence n/10)` optionally followed by an indented `> "quote"`.
+    """
+    out: list[dict] = []
+    for line in _md_section(body, "Key facts").splitlines():
+        s = line.strip()
+        if s.startswith("- "):
+            claim = s[2:].strip()
+            conf = None
+            m = re.search(r"\s*\(confidence (\d+)/10\)$", claim)
+            if m:
+                conf = int(m.group(1))
+                claim = claim[:m.start()].strip()
+            out.append({"claim": claim, "confidence": conf,
+                        "evidence_quote": ""})
+        elif s.startswith('> "') and out:
+            out[-1]["evidence_quote"] = s[3:].rstrip('"').strip()
+    return out
+
+
 _PREMISE_SOURCE_CAP = 4
 # Candidates a keyed engine with no read history gets per round, so that it
 # can produce the measurement it is otherwise ranked by. Three is enough to
@@ -2137,11 +2170,20 @@ class Pipeline:
                 body = (store.dir / r["path"]).read_text(encoding="utf-8")
             except OSError:
                 body = r["summary"] or ""
+            # The .md is a rendered VIEW of a finding, not the finding: its
+            # header repeats the title, URL, domain and tier that _note_block
+            # emits from citation_line(), so feeding the whole file made
+            # synthesis read every source's identity twice in two formats —
+            # 13,872 of 79,963 est tokens on Matt's 66-source run, about 35
+            # seconds of prefill for nothing. Take the notes body and parse
+            # the facts back into shape instead, which is what a live run
+            # carries and what render_facts() knows how to cap.
             out.append(Finding(
                 idx=r["idx"], url=r["url"], title=r["title"],
                 domain=r["domain"], published=r["published_date"],
                 relevance=r["relevance"], summary=r["summary"] or "",
-                notes_md=body, key_facts=[],
+                notes_md=_md_section(body, "Notes") or body,
+                key_facts=_md_facts(body),
                 # The findings table has no column for these three, but the
                 # .md header carries them. Without `query` every finding
                 # groups under "" and a post-hoc synthesis loses the part

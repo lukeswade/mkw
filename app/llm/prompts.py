@@ -425,6 +425,21 @@ say that instead of guessing; never treat an unchecked assumption as \
 confirmed.
 """
 
+SYNTH_LENGTH_BLOCK = """
+
+This run read and kept {n} sources and the document must do justice to all \
+of them. Write at least {words} words.
+
+Reaching that length is a matter of COVERAGE, not padding. Every source that \
+earned its place should inform something you write, and a document too short \
+to carry them discards research that was already paid for. Give each distinct \
+part of the question its own substantial section rather than a sentence, name \
+specific tools, versions, numbers and trade-offs from the notes rather than \
+summarising them away, and where sources disagree say so and show both. Do \
+not restate a point in different words, and never cite a source you did not \
+draw on.
+"""
+
 SYNTH_DELIVERABLES_BLOCK = """
 
 The asker also said how they want the answer shaped:
