@@ -496,7 +496,32 @@ async def test_a_source_the_revision_cites_is_never_reported_unused():
                 "UNUSED: [4] — off the question\n")
     out, _, _ = await _run_reconcile(draft, revision, _rf(4))
     assert "[2] Title 2" not in out
-    assert "[4] Title 4 — off the question" in out
+    assert "[4] Title 4" in out
+
+
+async def test_a_reason_must_point_at_a_cited_source_other_than_itself():
+    """Measured 2026-09-11: "[25] duplicates the claim already covered by
+    [25]". A reason the reader cannot check is worse than none."""
+    draft = "# Doc\n\n## A\n\nClaim [1]. Claim [2].\n"
+    revision = ("# Doc\n\n## A\n\nClaim [1]. Claim [2].\n\n"
+                "UNUSED: [3] — same benchmark figures as [1]\n"      # checkable
+                "UNUSED: [4] — already covered by [4] above\n"       # itself
+                "UNUSED: [5] — duplicates existing coverage\n"       # points at nothing
+                "UNUSED: [6] — same as [9]\n")                       # [9] is not cited
+    out, _, _ = await _run_reconcile(draft, revision, _rf(6))
+    assert "[3] Title 3 — same benchmark figures as [1]" in out
+    assert "[4] Title 4\n" in out and "covered by [4]" not in out
+    assert "[5] Title 5\n" in out
+    assert "[6] Title 6\n" in out
+
+
+def test_cited_ids_ignores_the_unused_list():
+    """58 of 66 was once reported for a document whose body cited 51."""
+    from app.research.synthesizer import cited_ids, UNUSED_HEADING
+    doc = (f"# D\n\nBody [1] [2].\n\n{UNUSED_HEADING}\n\n"
+           "- [3] T — duplicates [1]\n- [4] T\n")
+    assert cited_ids(doc) == {1, 2}
+    assert cited_ids("# D\n\nBody [1] [2].\n") == {1, 2}
 
 
 async def test_low_relevance_sources_are_a_judgment_not_a_loss():

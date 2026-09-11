@@ -297,9 +297,11 @@ async def reconcile(llm: LLM, *, query: str, draft: str,
             + (f", accounted for {len(unused)} as redundant" if unused else "")))
     if unused:
         by_idx = {f.idx: f for f in findings}
+        unused = [(i, _checked_reason(why, i, now)) for i, why in unused]
         body = (body.rstrip() + f"\n\n{UNUSED_HEADING}\n\n"
-                + "Read and kept, but judged by the synthesis to add nothing "
-                + "beyond sources already cited:\n\n"
+                + "Read and kept, but not drawn on by the synthesis. Where "
+                + "it named the cited source that covers the same ground, "
+                + "that is shown:\n\n"
                 + "\n".join(
                     f"- [{i}] {by_idx[i].title} — {why}" if why else
                     f"- [{i}] {by_idx[i].title}"
@@ -308,8 +310,28 @@ async def reconcile(llm: LLM, *, query: str, draft: str,
 
 
 def cited_ids(overview: str) -> set[int]:
-    """The [n] citation ids a finished document actually uses."""
-    return {int(n) for n in re.findall(r"\[(\d+)\]", overview)}
+    """The [n] citation ids a finished document actually uses.
+
+    Stops at the "Researched but not used" heading: the list under it names
+    sources by the same [n] markers so the reader can jump to them, and
+    counting those as citations once reported 58 of 66 cited for a document
+    whose body cited 51. Everything below that heading is about what the
+    document did NOT use."""
+    cut = overview.find(UNUSED_HEADING)
+    body = overview if cut < 0 else overview[:cut]
+    return {int(n) for n in re.findall(r"\[(\d+)\]", body)}
+
+
+def _checked_reason(why: str, idx: int, cited: set[int]) -> str:
+    """A reason only if it names a cited source other than the one it is
+    excusing. Measured 2026-09-11: "[25] duplicates the claim already covered
+    by [25]" — the model excused a source by pointing at itself, and in
+    another run pointed at nothing. A reason the reader cannot check is
+    worse than none."""
+    refs = {int(n) for n in re.findall(r"\[(\d+)\]", why)}
+    if refs and idx not in refs and refs <= cited:
+        return why
+    return ""
 
 
 PREMISE_HEADING_MARK = "question assumes"

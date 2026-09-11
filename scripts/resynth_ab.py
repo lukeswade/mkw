@@ -117,7 +117,9 @@ async def run_arm(cfg, repo, src_row, src_store, src_meta,
     wall = time.time() - t
     store = RunStore(cfg.research_dir / rid)
     ov = store.overview_path.read_text() if store.overview_path.exists() else ""
-    cited = {int(n) for n in re.findall(r"\[(\d+)\]", ov)}
+    # The synthesizer's own count: it stops at the "Researched but not used"
+    # heading, whose [n] markers are about what the body did NOT cite.
+    cited = synthesizer.cited_ids(ov)
     fs = repo.findings_for_run(rid)
     n = len(fs) or 1
     # The all-source rate has a false ceiling: on the 66-source reference run

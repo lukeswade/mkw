@@ -517,7 +517,7 @@ in order to attach a citation to it.
 A source that genuinely adds nothing beyond a source the draft already cites \
 is not forced in. For each such source, AFTER the document, write exactly one \
 line in this form and nothing else on it:
-UNUSED: [n] — one sentence saying what it duplicates or why it is off the question
+UNUSED: [n] — one sentence naming the cited source it duplicates, as [k], and what they share
 A source you cited anywhere in the document is used; never list it here.
 
 Output the complete revised markdown document, starting with its "# " title \
