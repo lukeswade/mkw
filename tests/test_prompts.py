@@ -441,3 +441,113 @@ def test_candidates_out_cleans_junk_in_code():
     assert names == ["Joplin", "NoSources"]
     assert out.candidates[0].sources == [2, 3]
     assert out.candidates[1].sources == []
+
+
+# ---- the reconciliation pass ------------------------------------------------
+
+def _rf(n, rel=7):
+    from app.research.notes import Finding
+    return [Finding(idx=i, url=f"https://a.com/{i}", title=f"Title {i}",
+                    domain="a.com", published=None, relevance=rel,
+                    summary="s", notes_md=f"notes {i}") for i in range(1, n + 1)]
+
+
+async def _run_reconcile(draft, revision, findings, **kw):
+    from app.research.synthesizer import reconcile
+    from tests.fake_llm import FakeLLM
+    seen = []
+
+    def capture(messages):
+        seen.append(messages[-1]["content"])
+        return revision
+
+    llm = FakeLLM({"synth": [capture]})
+    out = await reconcile(llm, query="q", draft=draft, findings=findings,
+                          max_out=8000, **kw)
+    return out, seen, llm
+
+
+async def test_the_pass_places_strong_uncited_sources_and_accounts_for_the_rest():
+    """The first length target's escape hatch was silent. This one has to be
+    written down, per source, where the reader sees it."""
+    draft = "# Doc\n\n## A\n\nClaim [1]. Claim [2].\n\n## Open questions\n\n- x\n"
+    revision = ("# Doc\n\n## A\n\nClaim [1]. Claim [2]. Also [3], and [4].\n\n"
+                "## Open questions\n\n- x\n\n"
+                "UNUSED: [5] — repeats the vendor page already cited as [2]\n"
+                "UNUSED: [9] — never given to me\n")
+    out, seen, llm = await _run_reconcile(draft, revision, _rf(5))
+    # only the uncited sources travel; the cited ones do not
+    assert "notes 3" in seen[0] and "notes 5" in seen[0]
+    assert "notes 1" not in seen[0]
+    assert "[3]" in out and "[4]" in out
+    assert "UNUSED:" not in out
+    assert "## Researched but not used" in out
+    assert "[5] Title 5 — repeats the vendor page" in out
+    assert "[9]" not in out            # an id the pass was never asked about
+
+
+async def test_low_relevance_sources_are_a_judgment_not_a_loss():
+    """Asymmetric on purpose: 7 of 25 uncited on the reference run were
+    relevance-4/5 listicles that should stay uncited."""
+    fs = _rf(3, rel=5) + _rf(0)
+    out, seen, llm = await _run_reconcile("# Doc\n\nBody [1].\n", "# Doc\n\nBody [1].\n", fs)
+    assert llm.calls["synth"] == 0
+    assert out == "# Doc\n\nBody [1].\n"
+
+
+async def test_a_revision_that_lost_a_citation_is_refused():
+    draft = "# Doc\n\n## A\n\nClaim [1]. Claim [2].\n"
+    revision = "# Doc\n\n## A\n\nClaim [1]. New [3].\n"     # dropped [2]
+    out, _, _ = await _run_reconcile(draft, revision, _rf(3))
+    assert out == draft
+
+
+async def test_a_revision_that_shrank_the_draft_is_refused():
+    draft = "# Doc\n\n## A\n\n" + " ".join(["word"] * 200) + " [1] [2].\n"
+    revision = "# Doc\n\n## A\n\nShort [1] [2] [3].\n"
+    out, _, _ = await _run_reconcile(draft, revision, _rf(3))
+    assert out == draft
+
+
+async def test_a_collapsed_revision_is_refused():
+    draft = "# Doc\n\n## A\n\nClaim [1] [2].\n"
+    out, _, _ = await _run_reconcile(draft, "!" * 3000, _rf(3))
+    assert out == draft
+
+
+async def test_a_failed_call_keeps_the_draft():
+    from app.llm.client import LLMError
+    from app.research.synthesizer import reconcile
+    from tests.fake_llm import FakeLLM
+    draft = "# Doc\n\nClaim [1].\n"
+    llm = FakeLLM({"synth": [LLMError("boom")]})
+    out = await reconcile(llm, query="q", draft=draft, findings=_rf(3), max_out=8000)
+    assert out == draft
+
+
+def test_split_unused_tolerates_dash_variants_and_missing_reasons():
+    from app.research.synthesizer import split_unused
+    text = ("# D\n\nBody [1].\n\nUNUSED: [2] - dup of [1]\nUNUSED: [3] — \n"
+            "UNUSED: [2] — again\nunused: [4] — lowercase is not the form\n")
+    body, unused = split_unused(text, {2, 3, 4})
+    assert unused == [(2, "dup of [1]"), (3, "")]
+    assert "UNUSED" not in body
+    assert body.endswith("Body [1].\n\nunused: [4] — lowercase is not the form\n")
+
+
+async def test_synthesis_runs_the_pass_and_the_honesty_block_shares_its_heading(tmp_path):
+    """End to end through synthesize(): the draft leaves [2] and [3] uncited,
+    the pass places [2] and accounts for [3]."""
+    from app.research.synthesizer import synthesize, UNUSED_HEADING
+    from tests.fake_llm import FakeLLM
+    fs = _rf(3)
+    llm = FakeLLM({"synth": [
+        "# Doc\n\n## A\n\nClaim [1].\n",
+        "# Doc\n\n## A\n\nClaim [1]. More [2].\n\nUNUSED: [3] — same figures as [1]\n",
+    ]})
+    out = await synthesize(llm, query="q", title="T", brief="b", recency_desc="any",
+                           today="t", state_md="", findings=fs)
+    assert "More [2]." in out
+    assert out.count(UNUSED_HEADING) == 1
+    assert "[3] Title 3 — same figures as [1]" in out
+    assert llm.calls["synth"] == 2

@@ -1805,8 +1805,13 @@ class Pipeline:
             ids = {f: [g.idx for g in findings
                        if facet_of.get(g.query, "") == f]
                    for f in dropped}
+            # The reconciliation pass may already have opened this heading
+            # with per-source reasons; the part-level list joins it rather
+            # than printing the heading twice.
+            head = ("" if synthesizer.UNUSED_HEADING in overview
+                    else f"{synthesizer.UNUSED_HEADING}\n\n")
             overview = (
-                overview.rstrip() + "\n\n## Researched but not used\n\n"
+                overview.rstrip() + "\n\n" + head
                 + "The run kept sources for these parts of the question, "
                 + "but nothing above cites them. They are worth reading "
                 + "directly:\n\n"

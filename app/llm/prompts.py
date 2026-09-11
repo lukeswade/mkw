@@ -490,6 +490,46 @@ for, write the row and say what is unknown in it, rather than dropping the \
 table or inventing the value.
 """
 
+# Second pass over a finished draft. Code decides which sources are in
+# scope (uncited, relevance at or above the reconcile floor); the model
+# either places each one or accounts for it on a line code can parse. The
+# escape hatch is deliberately kept — a listicle that repeats a cited source
+# should not be forced in — but it is made ACCOUNTABLE: every skipped source
+# gets a stated reason that reaches the reader, rather than the silent short
+# document the first length target produced.
+SYNTH_RECONCILE = """You are revising a research overview so that it uses the \
+research that was gathered for it.
+
+Research question: {query}
+
+Below is the current draft, then the notes of {n} kept sources the draft does \
+not cite. Each of them cleared the run's relevance bar. Revise the draft so \
+that each is drawn on where it adds something specific — a number, a named \
+tool or version, a disagreement with a cited source, a caveat, a use case the \
+draft does not cover — and cite it as [n] in the section where it belongs, \
+extending that section's prose to carry it. Where a source's contribution has \
+no home in the existing sections, add a section.
+
+Keep everything the draft already has: every existing [n] citation stays, no \
+section is shortened, no claim is removed. Do not restate a point already made \
+in order to attach a citation to it.
+
+A source that genuinely adds nothing beyond a source the draft already cites \
+is not forced in. For each such source, AFTER the document, write exactly one \
+line in this form and nothing else on it:
+UNUSED: [n] — one sentence saying what it duplicates or why it is off the question
+
+Output the complete revised markdown document, starting with its "# " title \
+line, followed by the UNUSED lines if any. No preamble, no commentary.
+
+--- DRAFT ---
+{draft}
+--- END DRAFT ---
+
+Uncited source notes:
+{notes_block}
+"""
+
 SYNTH_PARTIAL = """You are compressing a subset of research notes for a later \
 synthesis stage.
 

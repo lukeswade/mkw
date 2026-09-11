@@ -166,8 +166,10 @@ async def test_only_enormous_source_sets_are_map_reduced():
     calls = []
 
     def capture(messages):
+        # cites every source, so the reconciliation pass has nothing to place
+        # and the call count below measures digesting alone
         calls.append(messages[-1]["content"])
-        return "# Digest\n\nSummary [1]."
+        return "# Digest\n\nSummary " + " ".join(f"[{i}]" for i in range(1, 400))
 
     from app.llm.client import est_tokens
     from app.research.synthesizer import _SINGLE_CALL_BUDGET

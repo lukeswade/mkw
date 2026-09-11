@@ -50,6 +50,20 @@ _PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
 _CANDIDATES_MIN_SOURCES = 8
 _CANDIDATE_MIN_SOURCES = 2
 _MAX_CANDIDATES = 12
+# The reconciliation pass. Relevance at which a kept-but-uncited source is a
+# loss rather than a judgment: on the 66-source reference run 7 of the 25
+# uncited were relevance-4/5 listicles that SHOULD stay uncited, and forcing
+# them in is padding under another name. Asymmetric on purpose — the cheap
+# direction (leave a weak source out) is free, the expensive one (drop a
+# strong one) gets a second call. The cap bounds that call's prefill.
+_RECONCILE_MIN_RELEVANCE = 6
+_RECONCILE_MAX_SOURCES = 24
+_RECONCILE_MIN_WORD_RATIO = 0.95   # a revision that shrank the draft is refused
+UNUSED_HEADING = "## Researched but not used"
+# Horizontal whitespace only: `\s*` after the dash once swallowed a newline
+# and read the following line as the reason.
+_UNUSED_LINE = re.compile(
+    r"^[ \t]*UNUSED:[ \t]*\[(\d+)\][ \t]*[—–-]+[ \t]*(.*?)[ \t]*$\n?", re.M)
 _WORDS_PER_SOURCE = 50
 _MIN_TARGET_WORDS = 900
 _MAX_TARGET_WORDS = 5_000
@@ -205,6 +219,87 @@ async def name_candidates(llm: LLM, *, query: str, findings: list[Finding]
         picked.append((c.name, ids))
     picked.sort(key=lambda x: -len(x[1]))
     return picked[:_MAX_CANDIDATES]
+
+
+def split_unused(text: str, allowed: set[int]) -> tuple[str, list[tuple[int, str]]]:
+    """The document without its UNUSED lines, and those lines as (id, reason).
+
+    Only ids the pass was actually asked about are kept — a model that
+    accounts for a source it was never given is not saying anything true."""
+    unused: list[tuple[int, str]] = []
+    seen: set[int] = set()
+    for m in _UNUSED_LINE.finditer(text):
+        i = int(m.group(1))
+        if i in allowed and i not in seen:
+            seen.add(i)
+            unused.append((i, m.group(2).strip()))
+    return _UNUSED_LINE.sub("", text).rstrip() + "\n", unused
+
+
+async def reconcile(llm: LLM, *, query: str, draft: str,
+                    findings: list[Finding], max_out: int,
+                    bus=None, run_id: str = "") -> str:
+    """A second pass that places the strong sources the draft left uncited.
+
+    Code decides what is in scope and code decides whether to accept the
+    result: the revision replaces the draft only if it kept every citation
+    the draft had and did not shrink. Anything else — a collapsed output, a
+    rewrite that lost content, a call failure — leaves the draft as it was,
+    so this pass can only add. Sources the model accounts for on UNUSED
+    lines are appended under a heading with their stated reason, which is
+    the part the reader could not see before: a source going uncited used
+    to be indistinguishable from a source being forgotten.
+    """
+    had = cited_ids(draft)
+    missing = sorted((f for f in findings
+                      if f.idx not in had
+                      and f.relevance >= _RECONCILE_MIN_RELEVANCE),
+                     key=lambda f: (source_rank(f.source_type), -f.relevance))
+    missing = missing[:_RECONCILE_MAX_SOURCES]
+    if not missing:
+        return draft
+    if bus is not None and run_id:
+        bus.publish(run_id, "log", message=(
+            f"reconciling {len(missing)} kept source(s) at relevance "
+            f"{_RECONCILE_MIN_RELEVANCE}+ the draft did not cite"))
+    prompt = prompts.SYNTH_RECONCILE.format(
+        query=query, n=len(missing), draft=draft.strip(),
+        notes_block="\n".join(_note_block(f) for f in missing))
+    try:
+        text = await llm.chat("synth", [{"role": "user", "content": prompt}],
+                              max_tokens=max_out, temperature=0.3)
+    except LLMError as e:
+        log.warning("reconciliation call failed, keeping draft: %s", e)
+        return draft
+    body, unused = split_unused(text, {f.idx for f in missing})
+    reason = ""
+    if not looks_like_document(body):
+        reason = "output was not a document"
+    elif not had <= cited_ids(body):
+        reason = f"lost citations {sorted(had - cited_ids(body))}"
+    elif len(body.split()) < _RECONCILE_MIN_WORD_RATIO * len(draft.split()):
+        reason = f"shrank to {len(body.split())} from {len(draft.split())} words"
+    if reason:
+        log.warning("reconciliation rejected: %s", reason)
+        if bus is not None and run_id:
+            bus.publish(run_id, "log",
+                        message=f"reconciliation rejected ({reason}); keeping the draft")
+        return draft
+    gained = sorted(cited_ids(body) - had)
+    if bus is not None and run_id:
+        bus.publish(run_id, "log", message=(
+            f"reconciliation cited {len(gained)} more source(s)"
+            + (f", accounted for {len(unused)} as redundant" if unused else "")))
+    if unused:
+        by_idx = {f.idx: f for f in findings}
+        body = (body.rstrip() + f"\n\n{UNUSED_HEADING}\n\n"
+                + "Read and kept, but judged by the synthesis to add nothing "
+                + "beyond sources already cited:\n\n"
+                + "\n".join(
+                    f"- [{i}] {by_idx[i].title} — {why}" if why else
+                    f"- [{i}] {by_idx[i].title}"
+                    for i, why in unused) + "\n")
+    return body
 
 
 def cited_ids(overview: str) -> set[int]:
@@ -384,7 +479,9 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         retry = await llm.chat("synth", [{"role": "user", "content": stern}],
                                max_tokens=max_out, temperature=0.4)
         if looks_like_document(retry):
-            return retry
+            return await reconcile(llm, query=query, draft=retry,
+                                   findings=findings, max_out=max_out,
+                                   bus=bus, run_id=run_id)
         # Both attempts failed. Publishing the output anyway is how a run
         # ends up showing 8000 exclamation marks where its overview should
         # be — the research itself is intact, so say so and point at the
@@ -409,7 +506,10 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                 f"If it fails again, a smaller model prompt helps: lower the "
                 f"depth, or set a repetition penalty on your inference "
                 f"server.\n")
-    return text
+    # The draft is done; now the strong sources it left out get one more
+    # chance to be placed, with the outcome measured and bounded in code.
+    return await reconcile(llm, query=query, draft=text, findings=findings,
+                           max_out=max_out, bus=bus, run_id=run_id)
 
 
 async def _map_digest(llm: LLM, query: str,
