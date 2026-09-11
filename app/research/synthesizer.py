@@ -272,11 +272,16 @@ async def reconcile(llm: LLM, *, query: str, draft: str,
         log.warning("reconciliation call failed, keeping draft: %s", e)
         return draft
     body, unused = split_unused(text, {f.idx for f in missing})
+    # Measured 2026-09-11: the model placed all twelve sources it was given
+    # AND listed eight of them as UNUSED with boilerplate reasons. A claim
+    # about the document is checked against the document, not believed.
+    now = cited_ids(body)
+    unused = [(i, why) for i, why in unused if i not in now]
     reason = ""
     if not looks_like_document(body):
         reason = "output was not a document"
-    elif not had <= cited_ids(body):
-        reason = f"lost citations {sorted(had - cited_ids(body))}"
+    elif not had <= now:
+        reason = f"lost citations {sorted(had - now)}"
     elif len(body.split()) < _RECONCILE_MIN_WORD_RATIO * len(draft.split()):
         reason = f"shrank to {len(body.split())} from {len(draft.split())} words"
     if reason:
@@ -285,7 +290,7 @@ async def reconcile(llm: LLM, *, query: str, draft: str,
             bus.publish(run_id, "log",
                         message=f"reconciliation rejected ({reason}); keeping the draft")
         return draft
-    gained = sorted(cited_ids(body) - had)
+    gained = sorted(now - had)
     if bus is not None and run_id:
         bus.publish(run_id, "log", message=(
             f"reconciliation cited {len(gained)} more source(s)"

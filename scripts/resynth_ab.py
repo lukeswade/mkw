@@ -82,13 +82,29 @@ def parse_arm(spec: str) -> tuple[str, dict[str, int]]:
     return name or "arm", over
 
 
+class TapBus(ProgressBus):
+    """A bus that also keeps every log line, so an arm can report what the
+    synthesis stages said about themselves (candidates named, sources the
+    reconciliation pass gained or refused) rather than only the outcome."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.lines: list[str] = []
+
+    def publish(self, run_id: str, type_: str, **fields) -> dict:
+        if type_ == "log" and fields.get("message"):
+            self.lines.append(str(fields["message"]))
+        return super().publish(run_id, type_, **fields)
+
+
 async def run_arm(cfg, repo, src_row, src_store, src_meta,
                   name: str, over: dict[str, int]) -> dict:
     rid = clone(cfg, repo, src_row, src_store, src_meta, name)
     saved = {k: getattr(synthesizer, k) for k in over}
     for k, v in over.items():
         setattr(synthesizer, k, v)
-    pipe = Pipeline(cfg, repo, ProgressBus(), llm_factory=lambda: LLM(cfg))
+    bus = TapBus()
+    pipe = Pipeline(cfg, repo, bus, llm_factory=lambda: LLM(cfg))
     t = time.time()
     try:
         await pipe.resynthesize(rid)
@@ -121,6 +137,8 @@ async def run_arm(cfg, repo, src_row, src_store, src_meta,
         "wall_s": round(wall, 1), "error": err,
         "sections": [l[3:].strip() for l in ov.splitlines() if l.startswith("## ")],
         "uncited_strong": sorted(f["idx"] for f in strong if f["idx"] not in cited),
+        "log": [l for l in bus.lines
+                if any(k in l for k in ("candidate", "reconcil", "cited"))],
     }
 
 

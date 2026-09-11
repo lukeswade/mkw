@@ -486,6 +486,19 @@ async def test_the_pass_places_strong_uncited_sources_and_accounts_for_the_rest(
     assert "[9]" not in out            # an id the pass was never asked about
 
 
+async def test_a_source_the_revision_cites_is_never_reported_unused():
+    """Measured 2026-09-11: the model placed all twelve sources it was given
+    and listed eight of them as UNUSED anyway. The list is a claim about the
+    document, so it is checked against the document."""
+    draft = "# Doc\n\n## A\n\nClaim [1].\n"
+    revision = ("# Doc\n\n## A\n\nClaim [1]. Placed [2]. Placed [3].\n\n"
+                "UNUSED: [2] — duplicates [1]\n"       # but it was cited
+                "UNUSED: [4] — off the question\n")
+    out, _, _ = await _run_reconcile(draft, revision, _rf(4))
+    assert "[2] Title 2" not in out
+    assert "[4] Title 4 — off the question" in out
+
+
 async def test_low_relevance_sources_are_a_judgment_not_a_loss():
     """Asymmetric on purpose: 7 of 25 uncited on the reference run were
     relevance-4/5 listicles that should stay uncited."""
