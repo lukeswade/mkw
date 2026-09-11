@@ -172,3 +172,68 @@ async def test_a_borderline_score_is_rechecked_once_and_averaged(data_dir):
 def test_instructions_first_is_the_default_notes_layout(data_dir):
     from app.config import Settings
     assert Settings(data_dir=str(data_dir)).notes_order == "instructions_first"
+
+
+# ---- what the asker said about the shape of the answer ----------------------
+
+def test_deliverables_are_capped_and_cleaned_in_code():
+    """Bound in code, not in the prompt: one runaway instruction must not be
+    able to rewrite the synthesis prompt."""
+    from app.models import PlannerOut
+    p = PlannerOut(
+        title="t", brief="b", facets=["a"], subqueries=["q"],
+        deliverables=["  include a comparison table  ", "", None,
+                      "x" * 500, "two", "three", "four", "five"])
+    assert p.deliverables[0] == "include a comparison table"
+    assert len(p.deliverables) == 4          # list capped
+    assert max(len(d) for d in p.deliverables) <= 200   # each clamped
+    assert "" not in p.deliverables
+
+
+def test_a_question_with_no_formatting_instruction_has_no_deliverables():
+    from app.models import PlannerOut
+    p = PlannerOut(title="t", brief="b", facets=["a"], subqueries=["q"])
+    assert p.deliverables == []
+
+
+async def test_synthesis_is_told_what_shape_the_asker_wanted():
+    """2026-09-11: a question asking for a comprehensive comparison table got
+    a good document with no table in it. The brief — the only thing that
+    reached synthesis — describes what to research, never what to produce."""
+    from app.research.notes import Finding
+    from app.research.synthesizer import synthesize
+    from tests.fake_llm import FakeLLM
+    seen = []
+
+    def capture(messages):
+        seen.append(messages[-1]["content"])
+        return "# Doc\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nBody [1]."
+
+    f = Finding(idx=1, url="https://a.com/x", title="T", domain="a.com",
+                published=None, relevance=8, summary="s", notes_md="notes")
+    await synthesize(FakeLLM({"synth": [capture]}), query="q", title="T",
+                     brief="b", recency_desc="any", today="2026-09-11",
+                     state_md="", findings=[f],
+                     deliverables=["Include a comprehensive comparison table"])
+    assert "comprehensive comparison table" in seen[0]
+    # and it comes last, so it has the final say over the generic instructions
+    assert seen[0].rindex("comprehensive comparison table") > seen[0].rindex("Research question")
+
+
+async def test_no_deliverables_block_when_the_asker_named_none():
+    from app.research.notes import Finding
+    from app.research.synthesizer import synthesize
+    from tests.fake_llm import FakeLLM
+    seen = []
+
+    def capture(messages):
+        seen.append(messages[-1]["content"])
+        return "# Doc\n\nBody [1]."
+
+    f = Finding(idx=1, url="https://a.com/x", title="T", domain="a.com",
+                published=None, relevance=8, summary="s", notes_md="notes")
+    await synthesize(FakeLLM({"synth": [capture]}), query="q", title="T",
+                     brief="b", recency_desc="any", today="2026-09-11",
+                     state_md="", findings=[f])
+    assert "shape" not in seen[0].lower().split("research question")[0]
+    assert "the asker also said" not in seen[0].lower()

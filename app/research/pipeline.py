@@ -365,6 +365,9 @@ class _RunState:
     # published standard behind each. Empty for most runs.
     premises: list[str] = field(default_factory=list)
     premise_queries: list[str] = field(default_factory=list)
+    # How the asker said the answer should be shaped. Never a facet: a
+    # deliverable is not something to go and search for.
+    deliverables: list[str] = field(default_factory=list)
     # _finalize reports how thin the run was, and needs the depth to know
     # what "thin" means at this setting.
     depth: int = 0
@@ -882,8 +885,14 @@ class Pipeline:
             # post-hoc action was blind to it: resynthesize() could not name
             # the parts, the premises or which query answered what, and
             # rewrote honest documents into confident ones. Persist it.
+            state.deliverables = list(the_plan.deliverables)
+            if state.deliverables:
+                self.bus.publish(run_id, "log", message=(
+                    f"{len(state.deliverables)} instruction(s) about the shape "
+                    f"of the answer: " + "; ".join(state.deliverables)))
             store.update_meta(facets=list(state.facets),
-                              premises=list(state.premises))
+                              premises=list(state.premises),
+                              deliverables=list(state.deliverables))
             if state.premises:
                 self.bus.publish(run_id, "log", message=(
                     f"checking {len(state.premises)} thing(s) the question "
@@ -1637,7 +1646,8 @@ class Pipeline:
                 previous_overview=previous_overview,
                 uncovered_facets=unanswered,
                 facet_of=state.query_facet,
-                premises=state.premises)
+                premises=state.premises,
+                deliverables=state.deliverables)
             if thin:
                 overview = _THIN_BANNER + overview
                 stop_reason = f"{stop_reason} (no strong matches)"
@@ -1860,6 +1870,8 @@ class Pipeline:
         # it replaced.
         facets = [f for f in (meta.get("facets") or []) if isinstance(f, str)]
         premises = [p for p in (meta.get("premises") or []) if isinstance(p, str)]
+        deliverables = [d for d in (meta.get("deliverables") or [])
+                        if isinstance(d, str)]
         stored_map = meta.get("query_facet")
         stored_kept = meta.get("facet_kept")
         exact = isinstance(stored_map, dict) and isinstance(stored_kept, dict)
@@ -1891,6 +1903,7 @@ class Pipeline:
             uncovered_facets=unanswered,
             facet_of=facet_of,
             premises=premises,
+            deliverables=deliverables,
             # never replace a run's existing overview with a placeholder
             placeholder_on_failure=False)
         if not synthesizer.looks_like_document(overview):

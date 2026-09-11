@@ -596,3 +596,43 @@ async def test_a_thin_run_stays_thin_when_it_is_re_synthesized(data_dir):
     await pipeline.resynthesize(run_id)
 
     assert "**Thin result.**" in (run_dir / "overview.md").read_text()
+
+
+@respx.mock
+async def test_a_re_synthesis_still_honours_the_shape_the_asker_asked_for(data_dir):
+    """Formatting instructions are persisted with the plan, so pressing
+    Re-synthesize does not quietly drop the table the asker asked for."""
+    import json
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result("https://example-a.com/article", "Article A")])))
+    respx.get("https://example-a.com/article").mock(
+        return_value=httpx.Response(200, html=article("Article A")))
+    repo = Repo(connect(cfg.db_path))
+
+    sc = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    sc["planner"] = [{
+        "title": "GPUs", "brief": "Compare three GPUs.",
+        "facets": ["gpu comparison"], "subqueries": ["gpu comparison 2026"],
+        "query_facets": ["gpu comparison"], "keywords": ["gpu"],
+        "deliverables": ["Include a comprehensive comparison table"],
+    }]
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(sc))
+    run_id = orch.enqueue(RunParams(query="compare gpus", depth=1,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+    run_dir = cfg.research_dir / run_id
+    meta = json.loads((run_dir / "meta.json").read_text())
+    assert meta["deliverables"] == ["Include a comprehensive comparison table"]
+
+    seen = []
+
+    def capture(messages):
+        seen.append(messages[-1]["content"])
+        return "# GPUs\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nBody [1]."
+
+    pipeline = Pipeline(cfg, repo, ProgressBus(), llm_factory=lambda: FakeLLM({
+        "synth": [capture], "followups": [{"items": []}]}))
+    await pipeline.resynthesize(run_id)
+    assert seen and "comprehensive comparison table" in seen[0]

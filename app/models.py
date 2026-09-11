@@ -144,6 +144,16 @@ class PlannerOut(BaseModel):
     # question.
     premises: list[str] = Field(default_factory=list, max_length=2)
     premise_queries: list[str] = Field(default_factory=list, max_length=2)
+    # Instructions about the SHAPE of the answer, not its subject: "include a
+    # comparison table", "advantages and limitations for each", "keep it
+    # short". 2026-09-11: a question asking for a comprehensive comparison
+    # table got a good document with no table in it, because the brief — the
+    # only thing that reaches synthesis — describes what to research and has
+    # never carried what to produce. These travel on their own channel,
+    # straight to synthesis, and are deliberately NOT facets: a run that
+    # searches for "comparison table" wastes a query and then reports the
+    # table as an unresearched part of the question.
+    deliverables: list[str] = Field(default_factory=list, max_length=4)
 
     @model_validator(mode="after")
     def _pair_premises(self):
@@ -180,6 +190,16 @@ class PlannerOut(BaseModel):
         if not isinstance(v, list):
             return []
         return [str(x).strip() for x in v if str(x or "").strip()][:2]
+
+    @field_validator("deliverables", mode="before")
+    @classmethod
+    def _clean_deliverables(cls, v):
+        """Bound in code, not in the prompt. One runaway instruction must not
+        be able to rewrite the synthesis prompt, so each is clamped to a
+        sentence's worth and the list to four."""
+        if not isinstance(v, list):
+            return []
+        return [str(x).strip()[:200] for x in v if str(x or "").strip()][:4]
 
     @field_validator("facets", "query_facets", mode="before")
     @classmethod

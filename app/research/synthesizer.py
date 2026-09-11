@@ -201,6 +201,7 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                      uncovered_facets: list[str] | None = None,
                      facet_of: dict[str, str] | None = None,
                      premises: list[str] | None = None,
+                     deliverables: list[str] | None = None,
                      placeholder_on_failure: bool = True) -> str:
     groups = [(facet, [_note_block(f) for f in fs])
               for facet, fs in group_by_facet(findings, facet_of)]
@@ -229,6 +230,15 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         # wants to re-read a 90%-identical overview to find the new part.
         clipped = previous_overview[:_PREVIOUS_OVERVIEW_CHARS]
         prompt += prompts.SYNTH_DELTA_BLOCK.format(previous_overview=clipped)
+    if deliverables:
+        # What the asker said about the shape of the answer, and last of the
+        # blocks deliberately: the form of the document is the one part of
+        # this the asker specified in their own words, so it sits nearest the
+        # model's turn and gets the final say over the generic instructions
+        # above. 2026-09-11: a question that asked for a comprehensive
+        # comparison table got a good document with no table in it.
+        prompt += prompts.SYNTH_DELIVERABLES_BLOCK.format(
+            deliverables="\n".join(f"- {d}" for d in deliverables))
     messages = [{"role": "user", "content": prompt}]
 
     # Synthesis is the longest single call in a run and the one the user is

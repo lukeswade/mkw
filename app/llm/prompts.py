@@ -32,6 +32,7 @@ Produce a JSON object with exactly these keys:
 - "query_scopes": array aligned with "subqueries" — where each query should be searched. One of: "web" (general search engines; the default), "video" (YouTube and video engines — for how-to and demonstration content), "code" (GitHub, package indexes, developer Q&A — ONLY for software, firmware or programming), "academic" (papers — ONLY for scientific, medical or engineering-research questions), "qa" (Stack Exchange sites — ONLY for software and sysadmin questions), "news" (current events), "social" (reddit and forum discussion), "files" (documents). Combine with "+" ("web+video", "web+social"). Irrelevant engines slow the search, add junk, and get the shared address rate-limited: name only scopes that can plausibly hold the answer. Most queries are "web", "web+video" or "web+social".
 - "premises": array of 0-2 assertions the question TAKES FOR GRANTED that a published standard, official specification, benchmark or consensus figure could settle. Quote the asker's own framing. Include one ONLY when being wrong would change the advice: "the fields we play on are way too small" is checkable, because governing bodies publish field dimensions, and if the fields turn out to be standard the answer changes completely. Most questions have NONE — return an empty array rather than inventing one. A private fact nobody has published ("we are getting destroyed", "my son is the only skilled player") is NOT checkable and must not be listed; a private number is checkable only as the benchmark around it ("is a 2% conversion rate low for this industry").
 - "premise_queries": array aligned with "premises" — the search query that finds the published standard or benchmark for each, naming the governing body or field where you can ("US Youth Soccer 4v4 U8 field dimensions"). Empty array when "premises" is empty.
+- "deliverables": array of 0-4 instructions the asker gave about the SHAPE OF THE ANSWER rather than its subject, copied in the asker's own words. "Include a comprehensive comparison table", "give advantages, limitations and caveats for each option", "keep it under a page", "end with a recommendation" are all deliverables. What to research is NOT one and belongs in "facets": "compare three GPUs" is a facet, "include a comparison table" is a deliverable. Return an empty array unless the asker actually said something about the FORM of the output — most questions say nothing, and inventing one reshapes a document nobody asked to have reshaped.
 - "keywords": array of 5-15 highly specific keywords or exact phrases (plain strings) that are strongly associated with the target information across these subqueries. These will be used for fast text extraction from large documents.
 
 A query naming three or four rare proper nouns at once ("Acme AIRO Genie structured output") matches no page and returns nothing: a quarter of one run's searches came back empty that way. Name the subject and ONE other distinctive term, and put the rest of the meaning in ordinary words. Not every query should name the subject vendor either — a facet like "how competitors compare" or "what this class of product typically costs" is answered by pages that never mention it.
@@ -422,6 +423,19 @@ assumption that turns out to be wrong changes the advice, and the reader \
 needs that before anything else. If the run found nothing that settles it, \
 say that instead of guessing; never treat an unchecked assumption as \
 confirmed.
+"""
+
+SYNTH_DELIVERABLES_BLOCK = """
+
+The asker also said how they want the answer shaped:
+{deliverables}
+
+Follow these. They describe the form of the document, so where one of them \
+disagrees with the general instructions above — length, a table, an ordering, \
+a closing recommendation — the asker's wording wins. Satisfy them from the \
+sources you were given: if the notes cannot fill a row of a table they asked \
+for, write the row and say what is unknown in it, rather than dropping the \
+table or inventing the value.
 """
 
 SYNTH_PARTIAL = """You are compressing a subset of research notes for a later \
