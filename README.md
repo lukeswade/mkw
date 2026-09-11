@@ -411,7 +411,14 @@ What happens between a query and a source:
    away by a crowded one on the way in, and within each part the sources are
    ordered by what kind of page they are: a standard or specification from a
    named body first, then research, then practitioners, then roundups. A
-   roundup never silently overrules a standard.
+   roundup never silently overrules a standard. The document is as long as
+   the research it carries — a target of 50 words per kept source, clamped —
+   with a section per part of the question. When the question is choosing
+   among named things, the candidates the sources cover are named too, each
+   assessed by name, with a comparison table. Then a second pass hands the
+   draft the strong sources it left uncited and asks for each to be placed
+   where it adds something specific; the revision is kept only if it lost
+   nothing the draft had.
 
 **What the document admits about itself.** A confident report about nothing
 reads exactly like a confident report about something, so the overview is
@@ -425,8 +432,11 @@ made to say where it is thin:
   is separately forbidden to write a section on them out of its own
   knowledge, and the claim is re-checked against the finished document before
   it is printed, so a part that *was* answered is not reported as a gap.
-- **Researched but not used** — parts the run kept sources for that the
-  overview never cites, with their numbers, so you can read them yourself.
+- **Researched but not used** — sources the run kept that the overview
+  does not cite, with their numbers so you can read them yourself, and —
+  where the synthesis named the cited source that covers the same ground —
+  that reason. Parts of the question whose sources all went uncited are
+  listed here too.
 
 A run where nothing cleared the relevance bar opens with a **Thin result**
 banner instead: the overview is built from the best partial matches

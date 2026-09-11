@@ -101,16 +101,104 @@ extra length carries more research rather than padding.
   `Finding` objects, keep it feeding what a live run feeds or every
   token-keyed heuristic diverges between paths.
 
+## Round two, same evening: the second axis
+
+Commits `4304ee9`, `e4b711a`, `e6035b8`, `c7279d8`.
+
+Looking at WHICH 25 sources the 62% arm left uncited, rather than how many:
+7 were relevance-4/5 listicles that should stay uncited, and the other 18
+clustered by PRODUCT — all three Joplin sources, both Logseq, three Obsidian,
+three vector-database guides — while the document's sections were the five
+evaluation CRITERIA. A criteria-shaped document talks about whichever
+exemplar the model reached for first. A candidate it never names has no
+sentence its sources could be cited in, however long the document is made.
+The structural fix had worked on the wrong axis for this question type.
+
+What shipped:
+
+1. **The metric.** The harness reports the cite rate over relevance >= 6
+   as well as the raw one. The raw rate has a false ceiling; chasing 100%
+   of it forces junk in, which is padding under another name.
+
+2. **The candidate axis** (`4304ee9`). One small structured call over the
+   kept sources' titles and summaries names the candidates and which
+   sources cover each (`CANDIDATES` -> `CandidatesOut`). Synthesis is told
+   to assess every candidate with two or more sources by name, and to
+   include a candidate x criterion table (`SYNTH_CANDIDATES_BLOCK`). Gated
+   in code: skipped under 8 sources, a one-source candidate is a mention
+   not a row, and the block needs two candidates. Extraction failure costs
+   the block, never the document.
+
+3. **A reconciliation pass** (`e4b711a`). After the draft, code lists the
+   kept sources at relevance 6+ it does not cite (cap 24) and hands them to
+   one more call with the draft. The model places each where it adds
+   something specific, or accounts for it on an `UNUSED: [n] — ...` line.
+   Code accepts the revision only if it is still a document, kept every
+   citation the draft had, and did not shrink by more than 5%; otherwise
+   the draft stands. Accounted-for sources go under `## Researched but not
+   used` with their reason. Costs 130-170s on a 66-source run.
+
+The measurements, body citations only (see the first trap below), same 66
+sources, one arm each:
+
+```
+original run              1,356 words   22 of 66   33%    21 of 57 strong   37%
+firm + structure          2,367         40         61%    38                67%
++ candidate axis          2,750         48         73%    45                79%
++ reconciliation          3,189         55         83%    51                89%
+```
+
+Words per cited source 57-62 in every row. The reconciliation pass, run in
+isolation over a FIXED draft, placed all 12 of the sources it was given and
+1 of 59 new sentences reused draft wording (that one was the table header),
+so the growth is content.
+
+Traps, each hit for real:
+
+- **`[n]` markers in the unused list counted as citations.** `cited_ids()`
+  scanned the whole document and the harness had its own regex; a run
+  reported 58 of 66 cited when the body cited 51. Both now stop at the
+  `## Researched but not used` heading. Any new consumer of citation ids
+  must use `synthesizer.cited_ids()`, not a regex.
+
+- **The model both cited a source and listed it as UNUSED**, with
+  boilerplate reasons, for 8 of 12. A claim about the document is checked
+  against the document: entries the body cites are dropped in code.
+
+- **The reasons were self-referential** — "[25] duplicates the claim
+  already covered by [25]" — or pointed at nothing. A reason is kept only
+  if it names a cited source other than the one it excuses; otherwise the
+  entry is listed bare. A reason the reader cannot check is worse than none.
+
+- **Arms are not repeatable at the draft level.** Two full arms of the same
+  code left 12 and 18 strong sources uncited before the pass ran. To
+  measure a pass, run it over a fixed stored draft (the isolated script
+  pattern), not inside a fresh synthesis.
+
 ## Still open
 
-- **62% is not 100%.** The model still writes 2,398 against a 3,300 target.
-  It has a strong prior toward ~1,500 words that firmer instruction only
-  partly overcomes. Next lever if wanted: per-section length targets, or a
-  second pass that expands sections whose sources went uncited.
+- **Per-section length floors** were the fourth item of the plan and were
+  NOT built: with the strong-source rate at 89% and the remaining six
+  accounted for or judged, floors target document length, not coverage.
+  The smallest section still lands at 110-160 words (release recency, few
+  sources). Build it only if length per se becomes the complaint.
 
-- **`Researched but not used` wording.** It fires for a part that HAS a
-  section when that section was written from sources attributed to other
-  parts. Technically precise, reads more damning than the reality.
+- **The remaining 6 strong uncited** on the reference run: [26] Studio 3T
+  (MongoDB GUI, relevance 8 but arguably off-question), [34], [39], [45],
+  [61] roundups, [66] a GitHub feature proposal at 9. Worth a look at
+  whether the note-taker's relevance is the right proxy for "belongs in
+  this document".
+
+- **Table shape varies.** The candidate block asks for candidate x part of
+  the question; one arm produced that exactly, another chose its own
+  columns (interface type, search, ingestion). Both are useful tables; the
+  prompt does not pin the columns and probably should not.
+
+
+- **`Researched but not used` wording** for the PART-level list (from
+  `_mark_honestly`) still fires for a part that has a section written from
+  sources attributed to other parts. The source-level list from the
+  reconciliation pass now shares the heading and carries reasons.
 
 - **Depth guidance.** Until length scaling goes further, depth 6 uses its
   sources better than depth 9+. Worth telling anyone running deep.
@@ -130,7 +218,15 @@ Reference rows currently in the Library for this work:
 
 - `20260911_173708_...` — Matt's original depth-9 run, 66 sources, untouched
 - `20260911_195922_...` — `[A/B firm-length]`
-- `20260911_201521_...` — `[A/B firm+structure]`, the current shipped behaviour
+- `20260911_201521_...` — `[A/B firm+structure]`
+- `20260911_204550_...` — `[A/B candidates]`
+- `20260911_205554_...` / `20260911_210916_...` — `[A/B reconcile]`,
+  `[A/B reconcile-v2]`: intermediate, before the two guards; safe to delete
+- `20260911_211953_...` — `[A/B final]`, the shipped behaviour
+
+The harness's `key=value` overrides only reach module constants; a pass that
+is new CODE needs a deploy, then a plain arm. Each arm's JSON now carries the
+stages' own log lines (candidates named; sources the pass gained or refused).
 
 ## Running the tests
 
