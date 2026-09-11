@@ -121,6 +121,13 @@ def _migrations() -> list:
                 updated_at    TEXT NOT NULL
             );
         """),
+        # has_matrix used to mean "matrix.md exists". 2026-09-11 it came to
+        # mean "a comparison table anywhere the reader sees one", including
+        # tables the synthesis writes into the overview. Rows settled as 0
+        # under the old rule go back to NULL so the boot backfill re-settles
+        # them under the new one. Versioned, so this runs exactly once.
+        lambda conn: conn.execute(
+            "UPDATE runs SET has_matrix = NULL WHERE has_matrix = 0"),
     ]
 
 

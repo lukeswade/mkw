@@ -176,3 +176,49 @@ def test_the_new_tab_and_library_render_runs_identically(lib):
     # the heading belongs to the New tab only
     assert "Research runs" in home
     assert "Research runs" not in library
+
+
+# ---- a table the synthesis wrote counts as a comparison ---------------------
+
+def test_markdown_has_table_needs_a_separator_row():
+    from app.research.storage import markdown_has_table
+    assert markdown_has_table("| a | b |\n|---|---|\n| 1 | 2 |\n")
+    assert markdown_has_table("| a | b |\n| :--- | :---: |\n| 1 | 2 |\n")
+    assert not markdown_has_table("prose with | pipes | in it [1] and more | text\n")
+    assert not markdown_has_table("|---|---|\n")          # separator with no header
+    assert not markdown_has_table("")
+
+
+def test_a_run_whose_overview_carries_a_table_is_badged_matrix(lib):
+    """2026-09-11: synthesis started writing candidate x criterion tables on
+    its own, and the badge only knew about matrix.md."""
+    app, cfg, repo, seed = lib
+    rid = seed("research", title="Tabled research")
+    RunStore(cfg.research_dir / rid).write_overview(
+        "# T\n\n| Tool | Fit |\n|---|---|\n| A | good [1] |\n")
+    seed("research", title="Plain research")
+    with TestClient(app) as c:
+        body = c.get("/library", params={"kind": "research+matrix"}).text
+        assert "Tabled research" in body
+        assert "Plain research" not in body
+        home = c.get("/partials/recent-runs").text
+        assert 'class="kind kind-matrix"' in home
+
+
+def test_rows_settled_under_the_old_rule_are_re_settled_once(data_dir):
+    from app.db import _migrations, migrate
+    cfg = load_settings(str(data_dir))
+    conn = connect(cfg.db_path)
+    repo = Repo(conn)
+    store = RunStore.create(cfg.research_dir, "old")
+    repo.create_run(run_id=store.run_id, query="old", depth=1, recency="all",
+                    dir=store.run_id, origin="web", status="completed", kind="research")
+    repo.update_run(store.run_id, has_matrix=0)
+    # rewind to just before the re-settle migration and run it
+    conn.execute(f"PRAGMA user_version = {len(_migrations()) - 1}")
+    migrate(conn)
+    assert repo.get_run(store.run_id)["has_matrix"] is None
+    # and it does not fire again on the next boot
+    repo.update_run(store.run_id, has_matrix=0)
+    migrate(conn)
+    assert repo.get_run(store.run_id)["has_matrix"] == 0

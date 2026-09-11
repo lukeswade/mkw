@@ -168,7 +168,7 @@ class Orchestrator:
         research_dir = self.cfg_loader().research_dir
         unknown = self.repo.runs_with_unknown_matrix()
         for row in unknown:
-            present = (research_dir / row["dir"] / "matrix.md").is_file()
+            present = RunStore(research_dir / row["dir"]).has_comparison()
             self.repo.update_run(row["id"], has_matrix=1 if present else 0)
         if unknown:
             log.info("has_matrix settled for %d run(s)", len(unknown))

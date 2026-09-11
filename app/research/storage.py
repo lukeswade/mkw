@@ -48,6 +48,20 @@ def validate_citations(md: str, n_sources: int) -> tuple[str, set[int]]:
     return _CITATION_RE.sub(repl, md), removed
 
 
+# A markdown table: a header row, then the separator row of dashes and
+# optional colons. Two pipes on one line is not enough — citation-heavy prose
+# never has the separator.
+_TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", re.M)
+
+
+def markdown_has_table(md: str) -> bool:
+    for m in _TABLE_SEP.finditer(md or ""):
+        before = md[:m.start()].rstrip("\n").rsplit("\n", 1)[-1]
+        if before.count("|") >= 2:
+            return True
+    return False
+
+
 class RunStore:
     """Filesystem layout of one research run."""
 
@@ -144,6 +158,18 @@ class RunStore:
 
     def write_matrix(self, md: str) -> None:
         atomic_write_text(self.matrix_path, md)
+
+    def has_comparison(self) -> bool:
+        """A comparison table anywhere the reader will see one: the matrix
+        action's own file, or a table the synthesis wrote into the overview.
+        2026-09-11: synthesis started producing candidate x criterion tables
+        on its own, and the Library badge only knew about matrix.md."""
+        if self.matrix_path.exists():
+            return True
+        try:
+            return markdown_has_table(self.overview_path.read_text(encoding="utf-8"))
+        except OSError:
+            return False
 
     def write_further(self, md: str) -> None:
         atomic_write_text(self.further_path, md)

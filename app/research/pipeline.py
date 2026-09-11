@@ -40,7 +40,7 @@ from app.research.bench import EngineBench
 from app.research.searcher import (VIDEO_ENGINES, Searcher, SearchResult, refill_order, query_terms,
                                    SearxngError, categories_for_scope, cutoff_for,
                                    engine_order, engine_preferred, engine_tier)
-from app.research.storage import RunStore, validate_citations
+from app.research.storage import RunStore, validate_citations, markdown_has_table
 
 log = logging.getLogger(__name__)
 
@@ -1720,6 +1720,10 @@ class Pipeline:
 
         store.write_overview(overview)
         store.write_further(synthesizer.render_further_md(fu.items))
+        # The Library's "matrix" badge. A fresh run has no matrix.md yet, so
+        # the overview's own table is the whole answer.
+        self.repo.update_run(run_id,
+                             has_matrix=1 if markdown_has_table(overview) else 0)
         followups_json = [f.model_dump() for f in fu.items]
 
         # vector index + cross-run similarity links (optional knowledge layer)
@@ -1976,6 +1980,9 @@ class Pipeline:
 
         store.write_overview(overview)
         store.write_further(synthesizer.render_further_md(fu.items))
+        # Re-settled, not only raised: a re-synthesis can drop the table the
+        # previous overview had, and a matrix.md built earlier still counts.
+        self.repo.update_run(run_id, has_matrix=1 if store.has_comparison() else 0)
         store.update_meta(followups=[f.model_dump() for f in fu.items],
                           resynthesized_at=utcnow())
         self.repo.fts_delete_run(run_id)

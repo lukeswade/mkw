@@ -115,7 +115,7 @@ def has_matrix(row, research_dir: Path) -> bool:
         known = None
     if known is not None:
         return bool(known)
-    return (research_dir / row["dir"] / "matrix.md").exists()
+    return RunStore(research_dir / row["dir"]).has_comparison()
 
 
 def _runs_context(request: Request, limit: int = 20) -> dict:

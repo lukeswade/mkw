@@ -648,3 +648,18 @@ async def test_a_re_synthesis_still_honours_the_shape_the_asker_asked_for(data_d
         "synth": [capture], "followups": [{"items": []}]}))
     await pipeline.resynthesize(run_id)
     assert seen and "comprehensive comparison table" in seen[0]
+
+
+@respx.mock
+async def test_resynthesis_settles_the_matrix_badge_from_the_new_overview(data_dir):
+    cfg = make_cfg(data_dir)
+    repo, run_id = await _completed_run(cfg)
+    assert repo.get_run(run_id)["has_matrix"] == 0          # settled at completion
+    tabled = FakeLLM({
+        "synth": ["# Again\n\n| Tool | Fit |\n|---|---|\n| A | good [1] |\n"],
+        "followups": [{"items": []}]})
+    await Pipeline(cfg, repo, ProgressBus(), llm_factory=lambda: tabled).resynthesize(run_id)
+    assert repo.get_run(run_id)["has_matrix"] == 1
+    plain = FakeLLM({"synth": ["# Again\n\nNo table [1].\n"], "followups": [{"items": []}]})
+    await Pipeline(cfg, repo, ProgressBus(), llm_factory=lambda: plain).resynthesize(run_id)
+    assert repo.get_run(run_id)["has_matrix"] == 0          # dropped with the table
