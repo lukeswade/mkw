@@ -245,6 +245,22 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
     # when the asker said something about length themselves.
     want = target_words(len(findings))
     prompt += prompts.SYNTH_LENGTH_BLOCK.format(n=len(findings), words=f"{want:,}")
+    # A section per part of the question. Models follow structure far more
+    # reliably than word counts — the length target alone moved a 66-source
+    # run from 1,480 to 2,197 words against a 3,300 ask, and the parts with
+    # two sources were the ones that vanished into a passing sentence.
+    #
+    # `uncovered_facets` is subtracted, not merely skipped. It is computed
+    # from facet_kept, which is credit-gated, while these groups come from
+    # query_facet, which is attribution — so a part can legitimately appear in
+    # BOTH, and naming it here while SYNTH_COVERAGE_BLOCK forbids a section on
+    # it would put two contradictory instructions in one prompt.
+    gagged = set(uncovered_facets or ())
+    named = [(f, len(fs)) for f, fs in groups if f and f not in gagged]
+    if len(named) > 1:
+        prompt += prompts.SYNTH_STRUCTURE_BLOCK.format(
+            parts="\n".join(f"- {f} — {n} source{'s' if n != 1 else ''}"
+                             for f, n in sorted(named, key=lambda x: -x[1])))
     if premises:
         # The question asserted something checkable. Saying whether it holds
         # comes before answering, because a wrong premise changes the answer.

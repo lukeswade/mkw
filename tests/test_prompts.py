@@ -290,3 +290,70 @@ def test_the_output_cap_can_never_be_tighter_than_the_length_asked_for():
         want = target_words(n)
         max_out = min(16_000, max(8_000, int(want * 2.5)))
         assert max_out >= want * 1.5, (n, want, max_out)
+
+
+# ---- a section per part of the question --------------------------------------
+
+def _fs(n_per_facet: dict[str, int]):
+    from app.research.notes import Finding
+    out, i = [], 0
+    for facet, n in n_per_facet.items():
+        for _ in range(n):
+            i += 1
+            out.append(Finding(idx=i, url=f"https://a.com/{i}", title=f"T{i}",
+                               domain="a.com", published=None, relevance=7,
+                               summary="s", notes_md="notes", query=facet))
+    return out
+
+
+async def _prompt_for(findings, **kw):
+    from app.research.synthesizer import synthesize
+    from tests.fake_llm import FakeLLM
+    seen = []
+
+    def capture(messages):
+        seen.append(messages[-1]["content"])
+        return "# Doc\n\nBody [1]."
+
+    await synthesize(FakeLLM({"synth": [capture]}), query="q", title="T",
+                     brief="b", recency_desc="any", today="2026-09-11",
+                     state_md="", findings=findings, **kw)
+    return seen[0]
+
+
+async def test_each_part_of_the_question_is_asked_for_its_own_section():
+    """Models follow structure more reliably than word counts, and the parts
+    with two sources are the ones that vanish into a passing sentence."""
+    fs = _fs({"agent interface": 37, "local hosting": 12, "manual editing": 2})
+    p = await _prompt_for(fs, facet_of={"agent interface": "agent interface",
+                                        "local hosting": "local hosting",
+                                        "manual editing": "manual editing"})
+    assert "agent interface — 37 sources" in p
+    assert "manual editing — 2 sources" in p
+    # ordered by weight, so the biggest part is obviously the longest section
+    assert p.index("agent interface — 37") < p.index("manual editing — 2")
+    assert "section of its own" in p
+
+
+async def test_a_part_synthesis_is_forbidden_to_write_about_is_never_listed():
+    """uncovered_facets comes from the credit-gated counter and these groups
+    from attribution, so a part can appear in both. Naming it here while
+    SYNTH_COVERAGE_BLOCK forbids a section on it would put two contradictory
+    instructions in one prompt."""
+    # three parts so the block still fires after one is subtracted
+    fs = _fs({"agent interface": 9, "local hosting": 4, "manual editing": 3})
+    p = await _prompt_for(fs, facet_of={"agent interface": "agent interface",
+                                        "local hosting": "local hosting",
+                                        "manual editing": "manual editing"},
+                          uncovered_facets=["manual editing"])
+    assert "agent interface — 9 sources" in p
+    assert "local hosting — 4 sources" in p
+    assert "manual editing — 3 sources" not in p     # never asked for
+    assert "manual editing" in p                     # still gagged by coverage
+    assert "Do not write a section on any of them" in p
+
+
+async def test_no_structure_block_when_there_is_only_one_part():
+    fs = _fs({"only thing": 5})
+    p = await _prompt_for(fs, facet_of={"only thing": "only thing"})
+    assert "section of its own" not in p

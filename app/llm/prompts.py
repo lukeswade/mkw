@@ -425,6 +425,22 @@ say that instead of guessing; never treat an unchecked assumption as \
 confirmed.
 """
 
+SYNTH_STRUCTURE_BLOCK = """
+
+The run gathered sources for these parts of the question:
+{parts}
+
+Give each one a section of its own, headed in your own words. Do not fold two \
+of them into a single section and do not leave one to a passing sentence \
+inside another — the asker named them separately and reads them separately. \
+The source counts tell you how much room each has earned: the part with the \
+most sources should be the longest section, and a part with two sources gets \
+a short section rather than a missing one. Order them as the question does \
+where that reads naturally.
+
+You may add further sections beyond these when the sources support them.
+"""
+
 SYNTH_LENGTH_BLOCK = """
 
 This run read and kept {n} sources and the document must do justice to all \
