@@ -826,8 +826,10 @@ def test_secondary_run_actions_live_in_a_menu_with_delete_last(data_dir, monkeyp
         page = client.get(f"/runs/{run_id}").text
     head = page[page.index('class="run-actions"'):page.index('class="run-h1"')]
     assert 'class="actions-menu" open' in head
-    assert head.index("evergreen-btn") < head.index("actions-menu")   # primary stays out
-    assert head.index("Export PDF") < head.index("Re-synthesize") < head.index("menu-sep") < head.index("delete-btn")
+    # PDF, HTML, Re-synthesize stay out; More is last and holds the rest
+    assert head.index("Export PDF") < head.index("Export HTML") < head.index("Re-synthesize") < head.index("actions-menu")
+    assert head.index("actions-menu") < head.index("evergreen-btn") < head.index("Export Markdown")
+    assert head.index("Build comparison") < head.index("menu-sep") < head.index("delete-btn")
     assert "Export interactive" not in head
 
 
@@ -841,7 +843,8 @@ def test_the_tab_bar_fits_a_phone(data_dir, monkeypatch):
         nav = home[home.index('<nav class="topnav"'):home.index("</nav>")]
         assert 'href="/briefs"' not in nav
         assert ">Claims<" in nav and "Check claims" not in nav
-        assert '<span class="brand-text"><span>Deep</span> <span>Research</span></span>' in nav
+        assert "brand-text" not in nav and ">Research<" not in nav   # the brand is the icon alone
+        assert 'aria-label="Deep Research home"' in nav          # still named for screen readers
         assert 'href="/briefs"' in client.get("/settings").text
         assert client.get("/briefs").status_code == 200          # the page itself stays
         assert 'class="run-tools"' in client.get("/partials/recent-runs").text or True
@@ -871,3 +874,20 @@ def test_lists_delete_by_selection_or_swipe_not_by_a_standalone_x(data_dir, monk
                         data={"ids": [c, "nope"], "view": "library", "kind": "research"})
         assert r.headers["hx-redirect"] == "/library?kind=research"
         assert repo.get_run(c) is None
+
+
+def test_a_long_question_is_folded_on_the_run_page(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    repo = Repo(connect(cfg.db_path))
+    with TestClient(app) as client:
+        repo.update_run(run_id, query="short question?", title="A title")
+        assert '<details class="orig-query">' not in client.get(f"/runs/{run_id}").text
+        repo.update_run(run_id, query="x " * 120, title="A title")
+        page = client.get(f"/runs/{run_id}").text
+        assert '<details class="orig-query">' in page and "show question" in page
+        assert "<details class=\"orig-query\" open" not in page              # folded by default
+        # the user pill sits in the badge row, not the detail line
+        home = client.get("/partials/recent-runs").text
+        assert 'class="run-user"' in home or "user-tag" not in home

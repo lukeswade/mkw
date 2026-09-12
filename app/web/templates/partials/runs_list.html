@@ -34,10 +34,10 @@
               {%- if item.has_matrix and k == 'research' %}<span class="kind kind-matrix"
                     title="This run has a comparison table">matrix</span>{% endif %}
             </span>
+            {% if r['created_by'] %}<span class="run-user"><span class="user-tag" style="--hue: {{ r['created_by'] | user_hue }}" title="started by {{ r['created_by'] }}">{{ r['created_by'] }}</span></span>{% endif %}
             <span class="meta-text">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
               {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
               · {{ r['created_at'] | localdt }}
-            {%- if r['created_by'] %} <span class="user-tag" style="--hue: {{ r['created_by'] | user_hue }}" title="started by {{ r['created_by'] }}">{{ r['created_by'] }}</span>{% endif %}
             </span>
           </span>
         </div>

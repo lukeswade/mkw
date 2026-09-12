@@ -1,26 +1,33 @@
 <header class="run-header">
   <div class="run-header-top">
     <div class="run-actions">
-      {% if row['status'] == 'completed' %}
-      <button class="evergreen-btn{{ ' is-on' if row['evergreen'] else '' }}"
-              hx-post="/runs/{{ run_id }}/evergreen"
-              hx-target="closest .run-header" hx-swap="outerHTML"
-              title="{{ 'Stop refreshing this research automatically' if row['evergreen'] else 'Re-research this topic every day and link the updates here' }}">
-        {{ '★ Evergreen on' if row['evergreen'] else '☆ Keep evergreen' }}
-      </button>
+      {# The three actions a reader reaches for stay out; everything else,
+         including Keep evergreen, folds into More, which sits last. On a
+         wide screen the menu is open and shown inline (app.js opens it,
+         CSS hides the summary); Delete is last and set apart. #}
+      <a class="export-btn" href="/runs/{{ run_id }}/export.pdf"
+         title="Download this run as a PDF">Export PDF</a>
+      <a class="export-btn" href="/runs/{{ run_id }}/export.html"
+         title="Download this run as a single self-contained web page — overview, sources, and collapsible notes, shareable anywhere">Export HTML</a>
+      {% if row['status'] in ('completed', 'interrupted', 'failed') %}
+      <button class="resynth-btn"
+              hx-post="/runs/{{ run_id }}/resynthesize"
+              hx-swap="outerHTML"
+              hx-confirm="Rewrite the overview from this run's stored sources? The current overview will be replaced."
+              title="Regenerate the overview from the stored sources without re-searching — for when synthesis failed or the model produced garbage">
+        Re-synthesize</button>
       {% endif %}
-      {# Seven chips wrapped into two rows above the title on a phone, with
-         Delete sitting beside Re-synthesize. The primary action stays out;
-         everything else lives in a menu that a wide screen simply shows
-         inline (app.js opens it, CSS hides the summary). Delete is last and
-         set apart. #}
       <details class="actions-menu" open>
         <summary title="More actions">More <span aria-hidden="true">▾</span></summary>
         <div class="menu">
-          <a class="export-btn" href="/runs/{{ run_id }}/export.pdf"
-             title="Download this run as a PDF">Export PDF</a>
-          <a class="export-btn" href="/runs/{{ run_id }}/export.html"
-             title="Download this run as a single self-contained web page — overview, sources, and collapsible notes, shareable anywhere">Export HTML</a>
+          {% if row['status'] == 'completed' %}
+          <button class="evergreen-btn{{ ' is-on' if row['evergreen'] else '' }}"
+                  hx-post="/runs/{{ run_id }}/evergreen"
+                  hx-target="closest .run-header" hx-swap="outerHTML"
+                  title="{{ 'Stop refreshing this research automatically' if row['evergreen'] else 'Re-research this topic every day and link the updates here' }}">
+            {{ '★ Evergreen on' if row['evergreen'] else '☆ Keep evergreen' }}
+          </button>
+          {% endif %}
           <a class="export-btn" href="/runs/{{ run_id }}/export.md"
              title="Download the overview and bibliography as one Markdown file — drops straight into Obsidian, Joplin or an agent's context">Export Markdown</a>
           {% if row['status'] == 'completed' %}
@@ -29,14 +36,6 @@
                   hx-swap="outerHTML"
                   title="Build a comparison table from this run's stored sources — no re-searching. Only works when the research actually compares two or more things.">
             Build comparison</button>
-          {% endif %}
-          {% if row['status'] in ('completed', 'interrupted', 'failed') %}
-          <button class="resynth-btn"
-                  hx-post="/runs/{{ run_id }}/resynthesize"
-                  hx-swap="outerHTML"
-                  hx-confirm="Rewrite the overview from this run's stored sources? The current overview will be replaced."
-                  title="Regenerate the overview from the stored sources without re-searching — for when synthesis failed or the model produced garbage">
-            Re-synthesize</button>
           {% endif %}
           <span class="menu-sep" aria-hidden="true"></span>
           <button class="delete-btn"
@@ -53,7 +52,16 @@
      worth showing. A claim check names itself from its own text, so the two
      are identical and printing both just says it twice. #}
   {% if row['query'] and row['query'] != (row['title'] or '') %}
+  {% if row['query'] | length > 160 %}
+  {# A long question took a third of a phone screen above the document.
+     Folded by default; the first line stays as a reminder of what was asked. #}
+  <details class="orig-query">
+    <summary><span class="q-preview">&ldquo;{{ row['query'] }}&rdquo;</span><span class="q-more">show question</span></summary>
+    <p class="orig-query">&ldquo;{{ row['query'] }}&rdquo;</p>
+  </details>
+  {% else %}
   <p class="orig-query">&ldquo;{{ row['query'] }}&rdquo;</p>
+  {% endif %}
   {% endif %}
   <div class="chip-row">
     {# What it is, before how it went — the list rows lead with the same thing. #}
