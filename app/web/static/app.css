@@ -535,6 +535,8 @@ input[type="checkbox"] {
   min-width: 0;
 }
 .run-item { cursor: pointer; }
+/* Fill the row so the badge line's right-aligned group reaches the edge on wide screens too. */
+.run-item .run-info { flex: 1 1 auto; }
 .run-title {
   color: var(--text-primary);
   font-weight: 450;
