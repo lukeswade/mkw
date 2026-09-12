@@ -520,6 +520,12 @@ To reach it from your phone, the intended path is a Cloudflare Tunnel with an
 Access policy — no inbound ports, TLS handled for you, an identity check
 before any request reaches the app:
 
+Once it is reachable, **Add to Home Screen** installs it: the app ships a web
+manifest, so it opens in its own window without browser chrome, with the
+run's actions folded into a *More* menu and long overviews carrying an *On
+this page* list. There is deliberately no service worker — pages are
+rendered live and a run's progress streams — so nothing is cached stale.
+
 ```bash
 # after creating a tunnel in the Cloudflare dashboard and adding an Access policy
 echo 'CLOUDFLARE_TUNNEL_TOKEN=...' >> .env
