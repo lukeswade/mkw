@@ -528,6 +528,15 @@ run's actions folded into a *More* menu and long overviews carrying an *On
 this page* list. There is deliberately no service worker — pages are
 rendered live and a run's progress streams — so nothing is cached stale.
 
+If the site sits behind Cloudflare Access, the home-screen icon needs one
+more thing: iOS fetches `apple-touch-icon` without your Access session, gets
+the login page, and draws a letter tile instead. Add a second Access
+application for the same hostname with path `static/*` and a single
+**Bypass → Everyone** policy — policies attach to an application, not a path,
+so it cannot live inside the main one — then re-add the app to the home
+screen. What that exposes is CSS, JS, icons and the manifest; nothing under
+`/static/` is run data.
+
 ```bash
 # after creating a tunnel in the Cloudflare dashboard and adding an Access policy
 echo 'CLOUDFLARE_TUNNEL_TOKEN=...' >> .env
