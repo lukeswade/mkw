@@ -252,7 +252,9 @@ A brief is a saved reading list plus a standing interest. Name it, add
 sources, run it: instead of searching the web it reads those sites, fetches
 what is new, and writes one synthesis across all of it. Toggle **☆ daily**
 and it runs on its own; anything an earlier brief already reported is
-skipped, so day two is not day one again.
+skipped, so day two is not day one again. Briefs are reached from the
+**Settings** page — they left the tab bar so it fits a phone — and finished
+briefs appear in the Library under the *Briefs* filter.
 
 Add sources **by site address, not feed URL** — nobody knows where a site
 keeps its feed. Type `simonwillison.net` and it finds the feed itself;

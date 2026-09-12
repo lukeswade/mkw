@@ -1072,6 +1072,11 @@ input[type="checkbox"] {
   main.container { padding: 1.5rem 1rem 3rem; }
   .nav-inner { padding: 0.5rem 1rem; gap: 1rem; }
   .topnav ul { gap: 0; }
+  /* The brand stacks its two words at the row's existing height, freeing
+     ~55px for tabs; the tabs themselves start at "New" and scroll. */
+  .topnav .brand { gap: 0.4rem; }
+  .topnav .brand-text { display: flex; flex-direction: column; font-size: 0.72rem; line-height: 1.05; letter-spacing: 0; }
+  .nav-inner { gap: 0.75rem; }
   /* The list scrolls, so say so: fade whichever edge is clipping. Both
      while scrolled; only the right one at the start, so "New" is not dimmed
      on every page load. */
@@ -1084,7 +1089,7 @@ input[type="checkbox"] {
     mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
   }
-  .topnav ul a { font-size: var(--text-sm); padding: 0.3rem 0.4rem; }
+  .topnav ul a { font-size: 0.75rem; padding: 0.3rem 0.35rem; }
   .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-2xl); }
   .card, article.card { padding: 1rem; margin-bottom: 1rem; }
   .new-run .controls { flex-direction: column; align-items: stretch; gap: 0.75rem; }
@@ -1144,6 +1149,7 @@ input[type="checkbox"] {
   flex: 1;
   margin-bottom: 0;
 }
+.run-tools { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; }
 
 /* ---- Run header actions ---- */
 .run-header-top {
@@ -1555,6 +1561,16 @@ input[type="checkbox"] {
 
 
 @media (max-width: 560px) {
+  /* The star and × used to be a column down the whole right side of the row,
+     so every line below the title stopped 90px short and the user pill fell
+     onto a line of its own (iPhone 16 Pro, 2026-09-11). They are pinned to
+     the top-right corner instead; only the title makes room for them, and
+     the badges and the detail line run the full width, the pill at the end.
+     The status badge sits right-aligned beneath the icons. */
+  .run-item-wrap { position: relative; }
+  .run-tools { position: absolute; top: .55rem; right: .5rem; gap: .25rem; }
+  .run-info .run-title { padding-right: 4.6rem; }
+
   /* Title on its own line, then every badge together on the next one: what
      it is on the left, how it ended on the right.
 

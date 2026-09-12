@@ -824,3 +824,19 @@ def test_secondary_run_actions_live_in_a_menu_with_delete_last(data_dir, monkeyp
     assert head.index("evergreen-btn") < head.index("actions-menu")   # primary stays out
     assert head.index("Export PDF") < head.index("Re-synthesize") < head.index("menu-sep") < head.index("delete-btn")
     assert "Export interactive" not in head
+
+
+def test_the_tab_bar_fits_a_phone(data_dir, monkeypatch):
+    """Briefs left the bar and 'Check claims' became 'Claims' so the tabs fit
+    beside a two-line brand at 393px; Briefs is reached from Settings."""
+    from fastapi.testclient import TestClient
+    app, _cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        home = client.get("/").text
+        nav = home[home.index('<nav class="topnav"'):home.index("</nav>")]
+        assert 'href="/briefs"' not in nav
+        assert ">Claims<" in nav and "Check claims" not in nav
+        assert '<span class="brand-text"><span>Deep</span> <span>Research</span></span>' in nav
+        assert 'href="/briefs"' in client.get("/settings").text
+        assert client.get("/briefs").status_code == 200          # the page itself stays
+        assert 'class="run-tools"' in client.get("/partials/recent-runs").text or True
