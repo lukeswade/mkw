@@ -801,6 +801,15 @@ def test_text_responses_are_gzipped_but_the_progress_stream_is_not(data_dir, mon
                            headers={"Accept-Encoding": "gzip"}) as s:
             assert s.headers["content-type"].startswith("text/event-stream")
             assert "content-encoding" not in s.headers
+        # Downloads are never gzip-encoded: Safari saved a gzipped PDF
+        # attachment as a damaged file (2026-09-12).
+        for path, ctype, magic in (("export.pdf", "application/pdf", b"%PDF"),
+                                   ("export.html", "application/octet-stream", b"<!doctype"),
+                                   ("export.md", "application/octet-stream", b"# ")):
+            r = client.get(f"/runs/{run_id}/{path}", headers={"Accept-Encoding": "gzip, deflate, br"})
+            assert r.status_code == 200 and r.headers["content-type"].startswith(ctype)
+            assert "content-encoding" not in r.headers, path
+            assert r.content[:len(magic)].lower() == magic.lower(), path
 
 
 def test_the_app_is_installable(data_dir, monkeypatch):

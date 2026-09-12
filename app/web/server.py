@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -203,7 +204,15 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
     # progress stream (text/event-stream) and zip downloads out of it. The
     # Library page is 148KB of HTML and the two stylesheets 130KB; on the LAN
     # nothing compressed them, and Cloudflare only compresses for the tunnel.
-    app.add_middleware(GZipMiddleware, minimum_size=1000)
+    # Downloads are excluded on top of Starlette's list: a PDF is already
+    # compressed, and a gzip-encoded `attachment` with no Content-Length is
+    # what Safari saves as a damaged file (2026-09-12, Export PDF on a MBP).
+    # The HTML and Markdown exports go out as octet-stream for the same
+    # reason they always did; the zip was excluded already.
+    app.add_middleware(
+        GZipMiddleware, minimum_size=1000,
+        exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES
+        + ("application/pdf", "application/octet-stream"))
     return app
 
 
