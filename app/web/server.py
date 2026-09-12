@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -196,6 +197,23 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
     app.include_router(learned_router)
     app.include_router(compare_router)
 
-    app.mount("/static", StaticFiles(directory=str(_HERE / "static")),
+    app.mount("/static", _HashedStatic(directory=str(_HERE / "static")),
               name="static")
+    # Compress text responses. Starlette's own exclusion list keeps the run
+    # progress stream (text/event-stream) and zip downloads out of it. The
+    # Library page is 148KB of HTML and the two stylesheets 130KB; on the LAN
+    # nothing compressed them, and Cloudflare only compresses for the tunnel.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     return app
+
+
+class _HashedStatic(StaticFiles):
+    """Static files are referenced through asset(), which appends a content
+    hash as ?v=. A URL that carries one can never serve stale bytes, so it
+    may be cached for a year; a bare URL keeps the default revalidation."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if b"v=" in (scope.get("query_string") or b"") and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response

@@ -169,3 +169,17 @@ document.addEventListener('click', function (e) {
     setTimeout(function () { b.textContent = was; b.classList.remove('done'); }, 1600);
   }).catch(function () { b.textContent = 'Copy failed'; });
 });
+
+// ---- Run actions: a menu on phones, inline everywhere else ----
+(function () {
+  var wide = window.matchMedia('(min-width: 641px)');
+  function apply() {
+    document.querySelectorAll('.actions-menu').forEach(function (d) {
+      if (wide.matches) d.setAttribute('open', ''); else d.removeAttribute('open');
+    });
+  }
+  apply();
+  wide.addEventListener('change', apply);
+  // The evergreen toggle swaps the whole header back in, open.
+  document.body.addEventListener('htmx:afterSwap', apply);
+})();

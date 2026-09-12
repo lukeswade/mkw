@@ -775,3 +775,52 @@ def test_the_brave_budget_is_tracked_and_the_new_page_warns_at_80_percent(data_d
         home = client.get("/").text
         assert "Brave Search API: 90 of 100 requests" in home                          # 90 >= 80%
         assert "90</strong> of 100 (90%)" in client.get("/learned").text
+
+
+# ---- transport, installability, and the actions menu -------------------------
+
+def test_text_responses_are_gzipped_but_the_progress_stream_is_not(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    with TestClient(app) as client:
+        r = client.get("/library", headers={"Accept-Encoding": "gzip"})
+        assert r.headers.get("content-encoding") == "gzip"
+        assert "Library" in r.text                       # transparently decoded
+        css = client.get("/static/app.css?v=abc123", headers={"Accept-Encoding": "gzip"})
+        assert css.headers.get("content-encoding") == "gzip"
+        assert "immutable" in css.headers["cache-control"]    # hashed URL: a year
+        bare = client.get("/static/app.css")
+        assert "immutable" not in bare.headers.get("cache-control", "")
+        with client.stream("GET", f"/runs/{run_id}/events",
+                           headers={"Accept-Encoding": "gzip"}) as s:
+            assert s.headers["content-type"].startswith("text/event-stream")
+            assert "content-encoding" not in s.headers
+
+
+def test_the_app_is_installable(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, _cfg = make_app(data_dir, monkeypatch)
+    with TestClient(app) as client:
+        home = client.get("/").text
+        assert 'rel="manifest"' in home
+        assert 'name="theme-color" content="#0d141a"' in home
+        assert 'apple-mobile-web-app-status-bar-style" content="default"' in home
+        assert "viewport-fit=cover" not in home
+        m = client.get("/static/manifest.json").json()
+        assert m["display"] == "standalone" and m["start_url"] == "/"
+        assert any(i["src"].endswith("icon.svg") for i in m["icons"])
+        assert client.get("/static/icon.svg").status_code == 200
+
+
+def test_secondary_run_actions_live_in_a_menu_with_delete_last(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    with TestClient(app) as client:
+        page = client.get(f"/runs/{run_id}").text
+    head = page[page.index('class="run-actions"'):page.index('class="run-h1"')]
+    assert 'class="actions-menu" open' in head
+    assert head.index("evergreen-btn") < head.index("actions-menu")   # primary stays out
+    assert head.index("Export PDF") < head.index("Re-synthesize") < head.index("menu-sep") < head.index("delete-btn")
+    assert "Export interactive" not in head

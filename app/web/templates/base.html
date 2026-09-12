@@ -7,6 +7,16 @@
   <title>{% block title %}Deep Research{% endblock %}</title>
   <link rel="icon" href="{{ asset('favicon-64.png') }}" type="image/png">
   <link rel="apple-touch-icon" href="{{ asset('favicon.png') }}">
+  {# Installable: Add to Home Screen gives a standalone window rather than a
+     Safari bookmark with browser chrome. No service worker on purpose —
+     server-rendered pages with a live progress stream are the worst case
+     for SW caching, and the manifest alone gets standalone mode. Status bar
+     'default' with no viewport-fit=cover: the OS keeps its own bar. #}
+  <link rel="manifest" href="{{ asset('manifest.json') }}">
+  <meta name="theme-color" content="#0d141a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Research">
   <link rel="stylesheet" href="{{ asset('vendor/inter.css') }}">
   <link rel="stylesheet" href="{{ asset('vendor/pico.min.css') }}">
   <link rel="stylesheet" href="{{ asset('app.css') }}">

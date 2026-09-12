@@ -1642,3 +1642,30 @@ table.compare td.better { color: var(--text-primary); font-weight: 600; }
   .toc summary { pointer-events: none; }
   .toc summary::after { display: none; }
 }
+
+/* ---- Run actions menu ----
+   Wide screens show every action inline (the menu is open and its summary
+   hidden); a phone gets the primary action plus a "More" chip that unfolds
+   the rest below it. Delete is last, behind a divider. */
+.actions-menu { display: contents; }
+.actions-menu > summary {
+  display: none; list-style: none; cursor: pointer; width: auto; margin: 0;
+  background: transparent; color: var(--text-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 0.3rem 0.7rem; font-size: var(--text-xs); line-height: 1.5;
+}
+.actions-menu > summary::-webkit-details-marker { display: none; }
+.actions-menu > summary::after { display: none; }
+.actions-menu[open] > summary { color: var(--text-primary); border-color: var(--text-faint); }
+.actions-menu > .menu { display: contents; }
+.menu-sep { display: none; }
+@media (max-width: 640px) {
+  .actions-menu { display: block; flex: 1 1 100%; }
+  .actions-menu > summary { display: inline-flex; align-items: center; gap: .3rem; }
+  .actions-menu > .menu {
+    display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem;
+    padding: .6rem; border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+    background: var(--bg-surface);
+  }
+  .menu-sep { display: block; flex: 1 1 100%; height: 1px; background: var(--border-subtle); margin: .15rem 0; }
+  .actions-menu .delete-btn { margin-left: auto; }
+}
