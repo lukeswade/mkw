@@ -10,11 +10,13 @@ from app.research.pipeline import (
 
 def test_half_step_scale_mapping():
     # UI depth n ≈ old depth n/2: 2 = one research unit, 6 = three, 10 = five
+    # 1.6 rounds per unit of effort since 2026-09-11: depth, not saturation,
+    # ended 60 of 91 runs and depth-10 kept 41 of a cap of 85.
     assert rounds_for_depth(1) == 1
-    assert rounds_for_depth(2) == 1
-    assert rounds_for_depth(3) == 2
-    assert rounds_for_depth(6) == 3
-    assert rounds_for_depth(10) == 5
+    assert rounds_for_depth(2) == 2
+    assert rounds_for_depth(3) == 3
+    assert rounds_for_depth(6) == 5
+    assert rounds_for_depth(10) == 8
 
 
 def test_breadth_scale():

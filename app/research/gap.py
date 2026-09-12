@@ -7,6 +7,7 @@ from app.llm import prompts
 from app.llm.client import LLM, est_tokens
 from app.llm.json_utils import LLMJsonError
 from app.models import GapOut
+from app.research.facets import content_words
 from app.research.notes import Finding, render_facts
 
 log = logging.getLogger(__name__)
@@ -30,13 +31,37 @@ def _truncate_state(state_md: str) -> str:
     return state_md[: _STATE_MAX_TOKENS * 3] + "\n\n[state truncated]"
 
 
+# Two queries whose content words overlap this much are one query. Measured
+# 2026-09-11 over 802 later-round queries: 27% were rephrasings of an earlier
+# one at Jaccard >= 0.6 (the prompt forbids "trivially rephrase" and the
+# model does it anyway), and they yielded 1.03 kept sources per query against
+# 1.48 for novel ones. 0.7 is the conservative end of what that measurement
+# supports; the round is refilled from the thinnest facets afterwards.
+_NEAR_DUP = 0.7
+
+
+def is_near_duplicate(query: str, prior: list[frozenset[str]]) -> bool:
+    w = content_words(query)
+    if not w:
+        return False
+    return any(len(w & p) / len(w | p) >= _NEAR_DUP for p in prior if p)
+
+
 def _fresh(queries: list[str], searched: list[str], breadth: int) -> list[str]:
     seen = {s.lower().strip() for s in searched}
-    return [q for q in queries if q.lower().strip() not in seen][:breadth]
+    prior = [content_words(s) for s in searched]
+    out: list[str] = []
+    for q in queries:
+        if q.lower().strip() in seen or is_near_duplicate(q, prior):
+            continue
+        out.append(q)
+        prior.append(content_words(q))
+    return out[:breadth]
 
 
 def _keep_fresh(out: GapOut, searched: list[str], breadth: int) -> None:
-    """Drop already-searched queries AND their aligned tags, in place.
+    """Drop already-searched queries — exact or near-duplicate — AND their
+    aligned tags, in place.
 
     Filtering next_queries alone shifted next_query_facets and
     next_query_scopes a slot left for every query dropped — and dropping is
@@ -46,8 +71,14 @@ def _keep_fresh(out: GapOut, searched: list[str], breadth: int) -> None:
     searching them in the wrong scope (2026-09-09).
     """
     seen = {s.lower().strip() for s in searched}
-    keep = [i for i, q in enumerate(out.next_queries)
-            if q.lower().strip() not in seen][:breadth]
+    prior = [content_words(s) for s in searched]
+    keep: list[int] = []
+    for i, q in enumerate(out.next_queries):
+        if q.lower().strip() in seen or is_near_duplicate(q, prior):
+            continue
+        keep.append(i)
+        prior.append(content_words(q))
+    keep = keep[:breadth]
 
     def picked(xs: list[str]) -> list[str]:
         return [xs[i] if i < len(xs) else "" for i in keep]

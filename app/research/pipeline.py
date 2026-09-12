@@ -158,8 +158,18 @@ def round_refusals(searcher, searches_before: int) -> dict[str, str]:
     return {k: v for k, v in blocked.items() if at.get(k, 0) > searches_before}
 
 
+# Rounds per unit of effort. Measured 2026-09-11 over 91 runs: depth ended
+# 60 of them and saturation 2; later rounds found as many new candidates per
+# search (~19) at the same mean relevance (6.5 -> 6.3 by round 5); and
+# depth-10 runs kept 41 of a cap of 85 on average because five rounds is
+# what five rounds yields. At the low end the source cap and the dry-round
+# rule stop a run first, so the extra rounds rarely run there. A depth-10
+# round is about five minutes.
+_ROUND_SCALE = 1.6
+
+
 def rounds_for_depth(depth: int) -> int:
-    return max(1, math.ceil(effort_for_depth(depth)))
+    return max(1, math.ceil(effort_for_depth(depth) * _ROUND_SCALE))
 
 def breadth_for_depth(depth: int) -> int:
     return min(2 + math.ceil(effort_for_depth(depth)), 10)
@@ -1032,6 +1042,18 @@ class Pipeline:
                             + f" — searching {len(added)} of them directly"))
                 if len(queries) < breadth and spare:
                     queries = queries + spare[:breadth - len(queries)]
+                if len(queries) < breadth and state.facets and round_no > 1:
+                    # Gap analysis proposes ~5 queries against a breadth of 7
+                    # whatever the wording asks for (measured 2026-09-11:
+                    # "up to 7" 4.8, "exactly 7" 4.6), and the near-duplicate
+                    # filter removes a quarter of those. Rounds were running
+                    # at two-thirds capacity while depth, not saturation,
+                    # ended 60 of 91 runs. The empty slots go to the parts of
+                    # the question with the fewest sources — one written
+                    # query each — so a short round is filled, not accepted.
+                    queries = queries + await self._fill_from_thin_facets(
+                        run_id, llm, query, the_plan.brief, state, queries,
+                        breadth - len(queries))
                 if round_no == 1 and state.premise_queries:
                     # Added after allocate(), so checking the premise costs a
                     # facet nothing. Two queries at most, round one only.
@@ -1180,6 +1202,46 @@ class Pipeline:
                          f"beyond the first opened to the whole web (only Google CSE "
                          f"honours site:)"))
         return [new_q for new_q, _old in pairs]
+
+    async def _fill_from_thin_facets(self, run_id: str, llm, query: str,
+                                     brief: str, state: "_RunState",
+                                     queries: list[str], slots: int) -> list[str]:
+        """One written query for each of the `slots` thinnest facets that has
+        no query this round yet. Novel against everything searched, including
+        near-duplicates; the mechanical facet query is the fallback."""
+        if slots <= 0:
+            return []
+        this_round = {state.query_facet.get(q, "") for q in queries}
+        order = sorted(facet_plan.clean_facets(state.facets),
+                       key=lambda f: state.facet_kept.get(f, 0))
+        want = [f for f in order if f not in this_round][:slots]
+        if not want:
+            return []
+        written = await facet_queries.write(
+            llm, query=query, brief=brief, facets=want,
+            searched=state.searched + queries)
+        prior = [facet_plan.content_words(q) for q in state.searched + queries]
+        added: list[str] = []
+        for f in want:
+            proposed = written.get(f)
+            options = ([proposed[0]] if proposed else []) + facet_plan.top_up_queries(
+                f, state.facet_subject, f in state.asked_facets)
+            for q in options:
+                if (q and q not in queries and q not in added
+                        and q not in state.searched
+                        and not gap_stage.is_near_duplicate(q, prior)):
+                    state.query_facet[q] = f
+                    state.query_scope.setdefault(
+                        q, proposed[1] if proposed and q == proposed[0] else "web")
+                    added.append(q)
+                    prior.append(facet_plan.content_words(q))
+                    break
+        if added:
+            self.bus.publish(run_id, "log", message=(
+                f"round topped up with {len(added)} quer"
+                f"{'y' if len(added) == 1 else 'ies'} on the thinnest part(s): "
+                + ", ".join(want[:len(added)])))
+        return added
 
     @staticmethod
     def _productive_queries(state: "_RunState", breadth: int) -> list[str]:

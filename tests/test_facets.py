@@ -657,3 +657,19 @@ def test_a_part_only_mentioned_in_passing_is_still_a_gap():
     headings = "\n".join(l for l in body.splitlines() if l.lstrip().startswith("#"))
     assert not about("parent communication", headings)
     assert about("parent communication", body)      # prose would have rescued it
+
+
+def test_a_rephrased_query_is_a_duplicate():
+    """Measured 2026-09-11: 27% of later-round queries rephrased an earlier
+    one and yielded 1.03 kept per query against 1.48 for novel ones."""
+    from app.models import GapOut
+    from app.research.gap import _keep_fresh, is_near_duplicate
+    from app.research.facets import content_words
+    prior = [content_words("qwen3 tts voice cloning rocm")]
+    assert is_near_duplicate("ROCm Qwen3-TTS voice cloning", prior)        # same words, reordered
+    assert not is_near_duplicate("CosyVoice 2 AMD inference benchmark", prior)
+    g = GapOut(next_queries=["qwen3 tts rocm voice cloning guide", "F5-TTS chunking long form", "f5 tts long-form chunking"],
+               next_query_facets=["a", "b", "b"], next_query_scopes=["web", "web", "video"])
+    _keep_fresh(g, ["qwen3 tts voice cloning rocm"], breadth=8)
+    assert g.next_queries == ["F5-TTS chunking long form"]     # rephrasing of searched, then of itself
+    assert g.next_query_facets == ["b"] and g.next_query_scopes == ["web"]  # tags stay aligned
