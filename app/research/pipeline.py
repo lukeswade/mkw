@@ -519,6 +519,37 @@ _GENERIC_DOMAINS = frozenset({
 })
 
 
+# "Best X in 2026", "A vs B", "… compared", "alternatives to …". Triage is told
+# to drop listicle content farms and reads these as that; the note-taker,
+# reading the page, scores them 6-9 as practitioner writing. Measured
+# 2026-09-11 on 33 random triage drops: 9 would have been kept, all at >= 6,
+# and 6 of those 9 were roundups. Rewording the triage prompt changed
+# nothing (the same 8 roundups dropped either way), so the reprieve is a
+# rule. On that sample the pattern caught 6 of 9 good pages and 2 of 24 junk;
+# across 65 runs it matches 7% of drops, 1.3 per round uncapped.
+_ROUNDUP_RE = re.compile(
+    r"\b(best|top\s*\d+|\d+\s+best|vs\.?|versus|compared?|comparison|"
+    r"alternatives?|which\s+(?:one|is)|reviews?|reviewed|roundup|ranked)\b", re.I)
+_ROUNDUP_SPARES = 4   # per round; the note-taker has the final say on each
+
+
+def spare_roundups(drop: set[int], candidates: list,
+                   limit: int = _ROUNDUP_SPARES) -> set[int]:
+    """Condemned candidates whose title reads like a roundup or comparison,
+    best-ranked first (pick() sorted the round best-first), at most `limit`.
+    Video hosts are exempt: a "Top 10" video is a different genre."""
+    out: set[int] = set()
+    for i in sorted(drop):
+        c = candidates[i]
+        if domain_of(c.url) in VIDEO_HOSTS:
+            continue
+        if _ROUNDUP_RE.search(c.title or ""):
+            out.add(i)
+            if len(out) >= limit:
+                break
+    return out
+
+
 def spare_productive(drop: set[int], candidates: list,
                      kept_domains: set[str]) -> set[int]:
     """Indices triage condemned on a domain that already yielded a kept
@@ -634,6 +665,11 @@ class Pipeline:
             log.info("triage spared %d candidate(s) on domains that already "
                      "produced kept sources", len(productive))
             drop -= productive
+        roundups = spare_roundups(drop, candidates)
+        if roundups:
+            log.info("triage spared %d roundup/comparison candidate(s) for "
+                     "the note-taker to judge", len(roundups))
+            drop -= roundups
         # A floor, not a half-round cap: see triage_floor. The reprieve goes
         # to the best-ranked of the condemned — pick() sorted candidates
         # best-first — so a round can never be emptied by one bad verdict,

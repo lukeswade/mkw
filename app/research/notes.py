@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 
 from app.llm import prompts
@@ -170,6 +171,35 @@ def select_excerpts(text: str, keywords: list[str], window: int = 1200, max_exce
     return excerpt_joiner.join(text[r["start"]:r["end"]].strip() for r in picked)
 
 
+# Hosts that carry other people's artefacts — directories, mirrors, awesome
+# lists — and paths that are conversations about a thing rather than the
+# thing. 2026-09-11: of 34 sources the note-taker called "standard", ~7 were
+# a glama.ai listing, a skillsllm page, an awesome-list mirror, a SourceForge
+# mirror and a GitHub ISSUE scored 9/10 as the maker's own documentation.
+# "standard" outranks research and practitioners in synthesis, so a
+# directory page could lead a section. Checkable by URL, so checked by URL.
+_DIRECTORY_HOSTS = frozenset({
+    "glama.ai", "skillsllm.com", "project-awesome.org", "sourceforge.net",
+    "mcp.so", "smithery.ai", "pulsemcp.com", "libraries.io", "awesomeopensource.com",
+    "alternativeto.net", "producthunt.com", "openagentskill.com", "agentskillshub.top",
+})
+_CONVERSATION_PATH_RE = re.compile(
+    r"/(issues|pull|pulls|discussions|discussion|forum|forums|t|topic|threads?|comments)/",
+    re.I)
+
+
+def demote_third_party_standard(notes: NotesOut, url: str) -> NotesOut:
+    """A page that hosts or discusses someone else's standard is not one."""
+    if notes.source_type != "standard":
+        return notes
+    host = (urlsplit(url).netloc or "").lower().removeprefix("www.")
+    third_party = any(host == d or host.endswith("." + d) for d in _DIRECTORY_HOSTS)
+    if third_party or _CONVERSATION_PATH_RE.search(urlsplit(url).path or ""):
+        notes.source_type = "aggregator"
+        notes.publisher = ""
+    return notes
+
+
 async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      url: str, title: str, detected_date: str | None,
                      text: str, keywords: list[str] | None = None,
@@ -212,6 +242,7 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
             # not fit in 1200 tokens; truncation there silently drops sources.
             NotesOut, max_tokens=2400, temperature=0.2,
         )
+        first = demote_third_party_standard(first, url)
         if not (recheck and 3 <= first.relevance <= 5):
             return first
         try:
@@ -222,6 +253,7 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
         except (LLMJsonError, LLMError):
             return first
         best = first if first.relevance >= second.relevance else second
+        best = demote_third_party_standard(best, url)
         best.relevance = int((first.relevance + second.relevance + 1) // 2)
         log.info("notes rechecked %s: %d and %d -> %d", url, first.relevance,
                  second.relevance, best.relevance)

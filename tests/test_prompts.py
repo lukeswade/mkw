@@ -48,13 +48,16 @@ def test_template_formats_without_error(name):
     assert "<" in rendered or not args
 
 
-def test_notes_prompt_carries_the_economy_rule():
-    """Half of recent runs' doc time went to writing full notes for sources
-    that scored ≤2 and were discarded — the rule must stay in the prompt,
-    and must stay ABOVE the thin-fallback band (3s keep their notes)."""
+def test_notes_prompt_has_no_economy_rule():
+    """It once said: decide the score first, write no notes at <= 2. Measured
+    2026-09-11: on 16 pages it had scored exactly 2, making notes compulsory
+    lifted 6 over the keep line; true junk barely moved. The score was being
+    decided before the page was read. The brief note-taker keeps its own
+    rule — its items are short and were not measured."""
     from app.llm import prompts
-    assert "ECONOMY RULE" in prompts.NOTES
-    assert "2 or lower" in prompts.NOTES
+    assert "ECONOMY RULE" not in prompts.NOTES
+    assert "ECONOMY RULE" not in prompts.NOTES_INSTRUCTIONS_FIRST
+    assert '"relevance": integer 0-10' in prompts.NOTES
 
 
 def test_planner_and_gap_demand_facet_spread():

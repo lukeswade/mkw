@@ -181,7 +181,9 @@ class Settings:
     # "default" is the kill switch. notes_recheck: "off" | "on" (a second look
     # at borderline 3-5 scores), under A/B.
     notes_order: str = "instructions_first"
-    notes_recheck: str = "off"
+    # On since 2026-09-11: 2 of 14 kept pages rescored across the keep line
+    # (both 4 -> 2), which is exactly the case the second look was built for.
+    notes_recheck: str = "on"
     # Brave Search API requests your plan allows per month; 0 = not tracked.
     # One request per search that includes the general category.
     brave_monthly_quota: int = 0

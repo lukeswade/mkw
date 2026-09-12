@@ -120,6 +120,13 @@ Produce a JSON object with exactly one key:
 
 Respond with only the JSON object."""
 
+# No "economy rule" here on purpose. It used to say: decide the score first
+# and write no notes at <= 2. Measured 2026-09-11 on 16 pages it had scored
+# exactly 2: with notes compulsory, 6 crossed the keep line (mean 2.06 ->
+# 3.25), while 13 pages of true 0-1 junk barely moved (1.85 -> 2.00). The
+# score was being decided before the page was read; the rule was an exit,
+# not a saving. Its time saving is small now that triage removes most junk
+# before any fetch.
 NOTES = """You are the note-taking stage of an automated research pipeline. \
 Extract what matters from ONE fetched web document.
 
@@ -146,8 +153,6 @@ Produce a JSON object with exactly these keys:
   - "claim": the extracted fact
   - "evidence_quote": a verbatim quote (≤200 chars) from the text supporting the claim, or null if unsupported
   - "confidence": integer 0-10 representing confidence in the claim
-
-ECONOMY RULE: decide the relevance score FIRST. If it is 2 or lower, the source will be discarded — output notes_md as "" and key_facts as [] (keep the one-sentence summary and published_date). Never write notes for a source you are scoring as junk.
 
 IMPORTANT: You must output ONLY valid, parseable JSON. Ensure all strings (especially in notes_md and quotes) are properly JSON-escaped (e.g. newlines as \\n, quotes as \\"). Do not wrap the JSON in markdown fences.
 

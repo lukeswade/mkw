@@ -604,3 +604,46 @@ async def test_a_round_triage_guts_is_refilled_from_what_the_share_cap_held_back
     from app.research.pipeline import triage_floor
     survivors_alone = triage_floor(16)             # what the round would have read without the refill
     assert len(repo.findings_for_run(run_id)) > survivors_alone
+
+
+def test_triage_spares_roundups_for_the_note_taker_to_judge():
+    """Measured 2026-09-11: 9 of 33 random triage drops would have been kept,
+    all at >= 6, six of them roundups; a reworded prompt changed nothing."""
+    from types import SimpleNamespace as NS
+    from app.research.pipeline import spare_roundups, _ROUNDUP_SPARES
+    c = lambda t, u="https://x.com/p": NS(title=t, url=u)
+    cands = [c("13 Best Free & Open Source Knowledge Base Software (2026)"),
+             c("AI Agent Memory Systems Compared: RAG vs Local SQLite"),
+             c("Homebrew Formulae: homebrew-cask"),
+             c("Top Vector Databases 2026 — pgvector vs Pinecone WHO WINS?", "https://www.youtube.com/watch?v=x"),
+             c("Best AI Agent Memory Frameworks in 2026: Compared and Ranked"),
+             c("Logseq alternatives for agent workflows"),
+             c("Which knowledge base is right for you?"),
+             c("The Complete Guide to Obsidian Automation")]
+    drop = set(range(len(cands)))
+    spared = spare_roundups(drop, cands)
+    assert 2 not in spared and 7 not in spared          # not roundups
+    assert 3 not in spared                              # a video, whatever its title
+    assert len(spared) == _ROUNDUP_SPARES               # bounded per round
+    assert spared == {0, 1, 4, 5}                       # best-ranked first
+    assert spare_roundups({2, 7}, cands) == set()
+
+
+def test_a_standard_hosted_or_discussed_by_a_third_party_is_an_aggregator():
+    from app.models import NotesOut
+    from app.research.notes import demote_third_party_standard as d
+    std = lambda: NotesOut(relevance=9, source_type="standard", publisher="NousResearch")
+    assert d(std(), "https://github.com/NousResearch/hermes-agent/issues/844").source_type == "aggregator"
+    assert d(std(), "https://glama.ai/mcp/servers/jeanibarz/knowledge-base-mcp-server").source_type == "aggregator"
+    assert d(std(), "https://discourse.joplinapp.org/t/joplin-mcp-server/12").source_type == "aggregator"
+    kept = d(std(), "https://github.com/NousResearch/hermes-agent")
+    assert kept.source_type == "standard" and kept.publisher == "NousResearch"
+    assert d(std(), "https://joplinapp.org/help/about/changelog/desktop/").source_type == "standard"
+    assert d(std(), "https://pypi.org/project/joplin-mcp/").source_type == "standard"
+    other = d(NotesOut(relevance=5, source_type="practitioner"), "https://glama.ai/x")
+    assert other.source_type == "practitioner"
+
+
+def test_the_borderline_recheck_is_on_by_default():
+    from app.config import Settings
+    assert Settings().notes_recheck == "on"
