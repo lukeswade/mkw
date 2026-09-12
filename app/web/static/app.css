@@ -178,6 +178,12 @@ h3 { font-size: var(--text-lg); }
 
 /* ---- Top Navigation ---- */
 .topnav {
+  /* Pico styles every <nav> as display:flex, which made .nav-inner a flex
+     item that would not shrink below its content: on a 393px phone it sat
+     at 567px inside a 393px nav, and the whole page scrolled sideways
+     (iPhone 16 Pro, 2026-09-11). Block, so .nav-inner is bounded by the
+     viewport and the tab list scrolls inside itself instead. */
+  display: block;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -217,7 +223,14 @@ h3 { font-size: var(--text-lg); }
   padding: 0;
   list-style: none;
   overflow-x: auto;
+  /* A flex item defaults to min-width:auto and will not shrink below its
+     content; without this the list's own overflow-x never engages. */
+  min-width: 0;
+  flex: 1 1 auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
+.topnav ul::-webkit-scrollbar { display: none; }
 .topnav ul a {
   text-decoration: none;
   color: var(--text-muted);
@@ -1059,6 +1072,18 @@ input[type="checkbox"] {
   main.container { padding: 1.5rem 1rem 3rem; }
   .nav-inner { padding: 0.5rem 1rem; gap: 1rem; }
   .topnav ul { gap: 0; }
+  /* The list scrolls, so say so: fade whichever edge is clipping. Both
+     while scrolled; only the right one at the start, so "New" is not dimmed
+     on every page load. */
+  .topnav ul {
+    mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+    padding-right: 1.5rem;
+  }
+  .topnav ul.at-start {
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  }
   .topnav ul a { font-size: var(--text-sm); padding: 0.3rem 0.4rem; }
   .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-2xl); }
   .card, article.card { padding: 1rem; margin-bottom: 1rem; }

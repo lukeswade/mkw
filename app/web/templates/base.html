@@ -32,6 +32,21 @@
       </ul>
     </div>
   </nav>
+  <script>
+    // On a phone the tab list scrolls; bring the current tab into view so
+    // "Settings" is not a link the user has to know to swipe to.
+    (function () {
+      var a = document.querySelector('.topnav ul a.active');
+      var ul = document.querySelector('.topnav ul');
+      if (!ul) return;
+      var edge = function () { ul.classList.toggle('at-start', ul.scrollLeft < 2); };
+      if (a && ul.scrollWidth > ul.clientWidth) {
+        ul.scrollLeft = Math.max(0, a.offsetLeft - (ul.clientWidth - a.offsetWidth) / 2);
+      }
+      edge();
+      ul.addEventListener('scroll', edge, { passive: true });
+    })();
+  </script>
   <main class="container fade-in">
     {% block content %}{% endblock %}
   </main>
