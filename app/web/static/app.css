@@ -1659,10 +1659,11 @@ table.compare td.better { color: var(--text-primary); font-weight: 600; }
 .actions-menu > .menu { display: contents; }
 .menu-sep { display: none; }
 @media (max-width: 640px) {
-  .actions-menu { display: block; flex: 1 1 100%; }
+  /* display:contents keeps the "More" chip on the same row as the primary
+     action; only the unfolded panel takes the full width below them. */
   .actions-menu > summary { display: inline-flex; align-items: center; gap: .3rem; }
   .actions-menu > .menu {
-    display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem;
+    display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: .4rem; margin-top: .1rem;
     padding: .6rem; border: 1px solid var(--border-subtle); border-radius: var(--r-md);
     background: var(--bg-surface);
   }
