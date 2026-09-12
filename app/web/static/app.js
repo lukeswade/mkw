@@ -147,8 +147,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!queued) { queued = true; requestAnimationFrame(update); }
   }, { passive: true });
   update();
-  // On a narrow screen a tap on an entry should close the list it came from.
-  links.forEach(function (a) { a.addEventListener('click', function () { if (!wide.matches) toc.removeAttribute('open'); }); });
+  // A click lights its own entry at once rather than after the scroll settles;
+  // on a narrow screen it also closes the list it came from.
+  links.forEach(function (a) {
+    a.addEventListener('click', function () {
+      current = a.getAttribute('href').slice(1);
+      links.forEach(function (b) { b.classList.toggle('current', b === a); });
+      if (!wide.matches) toc.removeAttribute('open');
+    });
+  });
 })();
 
 // ---- Copy as Markdown ----
