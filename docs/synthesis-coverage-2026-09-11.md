@@ -31,12 +31,23 @@ number.
 
 ## What shipped
 
-1. **`_SINGLE_CALL_BUDGET` 28k -> 100k** (`593dc90`). The served model reports
-   `max_position_embeddings 262144`. A timed call measured marginal prefill at
-   **402 tok/s**, and `est_tokens` over-counts real tokens by ~33% (est 84,211
-   came back as 63,498 actual). So 100k est is ~75k real, under a third of the
-   window. Single-call synthesis measured 23% faster than the four-batch
-   digest at identical citation coverage.
+1. **`_SINGLE_CALL_BUDGET` 28k -> 100k** (`593dc90`). A timed call measured
+   marginal prefill at **402 tok/s**, and `est_tokens` over-counts real tokens
+   (est 84,211 came back as 63,498 actual). Single-call synthesis measured
+   23% faster than the four-batch digest at identical citation coverage.
+
+   **Corrected the same night:** this note originally said "the model reports
+   262,144 positions, so 100k est is under a third of the window". The
+   MODEL does; the SERVER did not — the oMLX profile serving it capped
+   requests at 65,536 and refused a 66,568-token prompt with a 400
+   ("Prompt too long"), no truncation. Matt's run passed at 63,498 real
+   tokens by a 2k margin; a 100k-est prompt is 67-75k real and would have
+   failed the run after all its research. Now: the budget actually used is
+   `single_call_budget(llm)` = min(100k, 1.25 x the served window) with the
+   window a setting (`LLM_CONTEXT_TOKENS`, default 65,536) that the server's
+   own refusal corrects downward; and a refused prompt is digested and sent
+   again instead of failing the run (`PromptTooLong`). Set the setting to
+   what the serving profile actually enforces.
 
 2. **Length target derived from source count** (`6f197b0`).
    `target_words(n) = clamp(50 * n, 900, 5000)`, keyed on `len(findings)` —
@@ -93,8 +104,14 @@ extra length carries more research rather than padding.
   while `SYNTH_COVERAGE_BLOCK` forbids writing about it puts two
   contradictory instructions in one prompt. It is subtracted, with a test.
 
-- **`est_tokens` over-counts by about a third.** Any budget constant compared
-  against it is really ~75% of its face value in real tokens.
+- **`est_tokens` over-counts, by a content-dependent amount.** Measured
+  real/est 0.754 on prose notes and 0.667 on word salad. Any budget constant
+  compared against it is really 67-75% of its face value in real tokens.
+
+- **The model's context is not the server's.** `max_position_embeddings`
+  says what the weights can do; the serving profile says what a request may
+  carry, and here the two differed by 4x. Read the limit from the server's
+  refusal, never from the model card.
 
 - **Re-synthesis used to feed ~75% more text than the live run** for identical
   sources. Fixed by (3) above. If you add another path that rebuilds

@@ -9,6 +9,7 @@ the main and fast model, and for routing canned responses in tests.
 from __future__ import annotations
 
 import asyncio
+import re
 import logging
 from types import SimpleNamespace
 from typing import TypeVar
@@ -48,6 +49,27 @@ class LLMError(Exception):
     pass
 
 
+# The server's own words for "your prompt does not fit", two dialects:
+#   oMLX:   "Prompt too long: 66568 tokens exceeds max context window of 65536 tokens"
+#   OpenAI: "This model's maximum context length is 8192 tokens. However, you requested ..."
+_TOO_LONG_RE = re.compile(r"too long|context (?:window|length)", re.I)
+_LIMIT_RE = re.compile(r"context (?:window|length)\s+(?:of|is)\s+(\d[\d,]*)", re.I)
+
+
+class PromptTooLong(LLMError):
+    """The server refused the prompt as longer than its context window.
+
+    Terminal for THIS prompt and instant (no prefill is spent), so the
+    caller can shrink and retry. `limit` is the window the server named,
+    when it named one. Subclasses LLMError below so existing handlers that
+    treat a call failure as "keep what you had" keep working.
+    """
+
+    def __init__(self, message: str, limit: int | None = None):
+        super().__init__(message)
+        self.limit = limit
+
+
 # High-volume, mechanical calls — these are what the fast model is for.
 _FAST_KINDS = {"notes", "triage", "candidates"}
 
@@ -79,6 +101,11 @@ class LLM:
         self.supports_json_schema = True
         # Real token counts on streamed calls, same auto-disable on a 400.
         self.supports_stream_usage = True
+        # The served context window in REAL tokens. Settings first; the
+        # server's own refusal corrects it downward (see chat_raw). 2026-09-11:
+        # the model reported 262,144 positions but the serving profile capped
+        # requests at 65,536 and a 66k prompt was refused outright.
+        self.context_tokens = int(getattr(cfg, "llm_context_tokens", 0) or 0)
 
     def model_for(self, kind: str) -> str:
         return self.fast_model if kind in _FAST_KINDS else self.model
@@ -204,6 +231,16 @@ class LLM:
                         f"LLM auth failed ({e.status_code}) — check the API key "
                         f"for provider '{self.provider}'."
                     ) from e
+                elif e.status_code == 400 and _TOO_LONG_RE.search(str(e)):
+                    # Instant and deterministic for this prompt: no prefill
+                    # was spent and a retry would be refused again. Remember
+                    # the window the server named so later budgets fit.
+                    m = _LIMIT_RE.search(str(e))
+                    limit = int(m.group(1).replace(",", "")) if m else None
+                    if limit and (not self.context_tokens or limit < self.context_tokens):
+                        self.context_tokens = limit
+                    raise PromptTooLong(
+                        f"LLM call '{kind}' refused as too long: {e}", limit) from e
                 else:
                     raise LLMError(f"LLM request rejected: {e}") from e
             except APIError as e:

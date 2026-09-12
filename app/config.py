@@ -37,6 +37,7 @@ ENV_MAP = {
     "data_dir": "DATA_DIR",
     "fetch_concurrency": "FETCH_CONCURRENCY",
     "llm_concurrency": "LLM_CONCURRENCY",
+    "llm_context_tokens": "LLM_CONTEXT_TOKENS",
     "embedding_model": "EMBEDDING_MODEL",
     "embedding_base_url": "EMBEDDING_BASE_URL",
     "embedding_api_key": "EMBEDDING_API_KEY",
@@ -96,6 +97,7 @@ UI_EDITABLE = {
     "feeds",
     "respect_robots",
     "llm_concurrency",
+    "llm_context_tokens",
     "embedding_model",
     "embedding_base_url",
     "embedding_api_key",
@@ -139,6 +141,12 @@ class Settings:
     data_dir: str = "./data"
     fetch_concurrency: int = 8
     llm_concurrency: int = 4
+    # The context window the SERVER enforces, in real tokens — not what the
+    # model's config claims. 2026-09-11: Qwen3.6 reports 262,144 positions,
+    # the oMLX profile serving it capped requests at 65,536, and a prompt over
+    # that is refused with a 400 rather than truncated. Synthesis sizes its
+    # single-call budget from this; the server's own refusal corrects it.
+    llm_context_tokens: int = 65_536
     # Embeddings. Empty model = the bge-small baked into the image (fully
     # offline, no server needed). Naming a model routes embeddings to an
     # OpenAI-compatible /embeddings endpoint instead — e.g. a local oMLX or

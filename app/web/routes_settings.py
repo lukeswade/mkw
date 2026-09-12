@@ -26,7 +26,8 @@ _TEXT_FIELDS = ("llm_provider", "llm_base_url", "llm_model", "fast_model",
 _SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password",
                        "embedding_api_key")
 # Bounded integers: (field, low, high). Garbage leaves the setting alone.
-_INT_FIELDS = (("llm_concurrency", 1, 16), ("relevance_threshold", 0, 10),
+_INT_FIELDS = (("llm_concurrency", 1, 16), ("llm_context_tokens", 4_096, 4_000_000),
+               ("relevance_threshold", 0, 10),
                ("brave_monthly_quota", 0, 100_000_000), ("brave_cycle_day", 1, 31))
 
 

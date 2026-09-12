@@ -42,6 +42,14 @@
     <p class="hint">A run makes one planning and one synthesis call but a dozen
       or more per-document note calls. Naming a smaller, faster model here uses
       it for the notes only — often several times quicker with little loss.</p>
+    <label>Context window <small>(tokens)</small>
+      <input type="number" name="llm_context_tokens" value="{{ cfg.llm_context_tokens }}"
+             min="4096" max="4000000" step="1024">
+    </label>
+    <p class="hint">The window your <em>server</em> enforces per request, which
+      can be far below what the model supports — a serving profile capped at
+      65,536 refuses a longer prompt outright. Synthesis of a deep run fits its
+      one big call inside this and digests in batches when it cannot.</p>
 
     <div class="test-row">
       <button type="button" hx-post="/settings/test-llm" hx-target="#llm-test" class="secondary outline">Test LLM</button>

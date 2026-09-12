@@ -6,7 +6,7 @@ import logging
 import re
 
 from app.llm import prompts
-from app.llm.client import LLM, LLMError, est_tokens
+from app.llm.client import LLM, LLMError, PromptTooLong, est_tokens
 from app.llm.json_utils import LLMJsonError
 from app.models import CandidatesOut, FollowUpsOut, RECENCY_LABELS, source_rank
 from app.research.notes import Finding, render_facts
@@ -19,15 +19,29 @@ log = logging.getLogger(__name__)
 # adds calls that share a long common prefix — which is what made a poisoned
 # KV-cache block repeat its damage across every digest of a run. Digesting is
 # for genuinely enormous runs, not a safety measure.
-# Raised from 28k on 2026-09-11 after measuring this install rather than
-# guessing at it: the served model reports max_position_embeddings 262144, and
-# a timed call put marginal prefill at 402 tok/s. est_tokens over-counts by
-# about a third, so 100k here is ~75k real tokens — under a third of the
-# window — and a measured A/B on a 66-source run showed single-call synthesis
-# 23% faster than the four-batch digest (227s vs 297s) at identical citation
-# coverage (30 vs 31 of 66). Above this the digest still runs, which is what
-# keeps a 150-source run from spending six minutes in prefill.
+#
+# This constant is the CEILING. The budget actually used is the smaller of it
+# and what the served context window allows — see single_call_budget(). Raised
+# from 28k on 2026-09-11 after a measured A/B on a 66-source run showed
+# single-call synthesis 23% faster than the four-batch digest at identical
+# citation coverage. Later the same day the served window turned out to be
+# 65,536, not the model's 262,144: the serving profile caps it, and a prompt
+# over the cap is refused with a 400, not truncated. Matt's run passed at
+# 63,498 real tokens by a 2k margin.
 _SINGLE_CALL_BUDGET = 100_000
+# est_tokens over-counts real tokens: measured real/est of 0.754 (prose notes)
+# and 0.667 (word salad). An est budget of 1.25x the window keeps the real
+# count under 0.94 of it on the worst case seen, with room for the prompt
+# scaffolding around the notes.
+_EST_PER_REAL_TOKEN = 1.25
+
+
+def single_call_budget(llm) -> int:
+    """Est tokens the one big synthesis call may carry on THIS server."""
+    ctx = int(getattr(llm, "context_tokens", 0) or 0)
+    if ctx <= 0:
+        return _SINGLE_CALL_BUDGET
+    return min(_SINGLE_CALL_BUDGET, int(ctx * _EST_PER_REAL_TOKEN))
 _BATCH_BUDGET = 20_000         # est tokens per map batch
 _DIGEST_BASE_TOKENS = 4000     # room for a digest covering one part
 _DIGEST_PER_PART_TOKENS = 600  # ...plus this for each extra part it carries
@@ -384,26 +398,22 @@ def funnel_losses(overview: str, findings: list[Finding],
     return dropped, strong
 
 
-async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
-                     recency_desc: str, today: str, state_md: str,
-                     findings: list[Finding], bus=None, run_id: str = "",
-                     previous_overview: str = "",
-                     uncovered_facets: list[str] | None = None,
-                     facet_of: dict[str, str] | None = None,
-                     premises: list[str] | None = None,
-                     deliverables: list[str] | None = None,
-                     placeholder_on_failure: bool = True) -> str:
-    groups = [(facet, [_note_block(f) for f in fs])
-              for facet, fs in group_by_facet(findings, facet_of)]
-    blocks = [b for _, group in groups for b in group]
-
-    if est_tokens("".join(blocks)) > _SINGLE_CALL_BUDGET:
-        blocks = await _map_digest(llm, query, groups)
-
+def _compose_prompt(notes: list[str], *, query: str, title: str, brief: str,
+                    recency_desc: str, today: str, state_md: str,
+                    findings: list[Finding],
+                    groups: list[tuple[str, list[str]]],
+                    candidates: list[tuple[str, list[int]]],
+                    uncovered_facets: list[str] | None,
+                    premises: list[str] | None, previous_overview: str,
+                    deliverables: list[str] | None, bus=None,
+                    run_id: str = "") -> str:
+    """The synthesis prompt for these note blocks. A function because the
+    same instructions are composed again over digests when the server
+    refuses the single-call prompt as too long."""
     prompt = prompts.SYNTH.format(
         query=query, title=title, brief=brief, recency_desc=recency_desc,
         today=today, state_md=state_md or "(none)",
-        notes_block="\n".join(blocks),
+        notes_block="\n".join(notes),
     )
     # Length is set by how much was gathered, before any of the conditional
     # blocks: the deliverables block comes last and is allowed to overrule it
@@ -434,7 +444,6 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
     # Logseq, three Obsidian — while the sections were the five criteria.
     # A candidate the document never names has no sentence its sources
     # could be cited in, however long the document is made.
-    candidates = await name_candidates(llm, query=query, findings=findings)
     if len(candidates) >= 2:
         prompt += prompts.SYNTH_CANDIDATES_BLOCK.format(
             candidates="\n".join(
@@ -469,28 +478,82 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         # comparison table got a good document with no table in it.
         prompt += prompts.SYNTH_DELIVERABLES_BLOCK.format(
             deliverables="\n".join(f"- {d}" for d in deliverables))
-    messages = [{"role": "user", "content": prompt}]
+    return prompt
 
-    # Synthesis is the longest single call in a run and the one the user is
-    # actually waiting on, so stream it into the progress pane rather than
-    # sitting behind a spinner. A stream failure falls back to a normal call —
-    # the document matters more than the animation.
+
+async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
+                     recency_desc: str, today: str, state_md: str,
+                     findings: list[Finding], bus=None, run_id: str = "",
+                     previous_overview: str = "",
+                     uncovered_facets: list[str] | None = None,
+                     facet_of: dict[str, str] | None = None,
+                     premises: list[str] | None = None,
+                     deliverables: list[str] | None = None,
+                     placeholder_on_failure: bool = True) -> str:
+    groups = [(facet, [_note_block(f) for f in fs])
+              for facet, fs in group_by_facet(findings, facet_of)]
+    blocks = [b for _, group in groups for b in group]
+
+    digested = est_tokens("".join(blocks)) > single_call_budget(llm)
+    if digested:
+        blocks = await _map_digest(llm, query, groups)
+
+    # The candidate axis is computed once, before the prompt, because the
+    # prompt may be composed twice (see the refusal fallback below).
+    candidates = await name_candidates(llm, query=query, findings=findings)
+
+    def compose(notes: list[str]) -> str:
+        return _compose_prompt(
+            notes, query=query, title=title, brief=brief,
+            recency_desc=recency_desc, today=today, state_md=state_md,
+            findings=findings, groups=groups, candidates=candidates,
+            uncovered_facets=uncovered_facets, premises=premises,
+            previous_overview=previous_overview, deliverables=deliverables,
+            bus=bus, run_id=run_id)
+
+    prompt = compose(blocks)
     # Derived from the target rather than set beside it, so the ceiling can
     # never be tighter than the length the prompt just asked for. ~2.5 tokens
     # per word leaves room for headings, citation markers and markdown.
+    want = target_words(len(findings))
     max_out = min(16_000, max(8_000, int(want * 2.5)))
 
-    text = None
-    if bus is not None and run_id:
-        try:
-            text = await llm.chat_stream("synth", messages, bus, run_id,
-                                         max_tokens=max_out, temperature=0.4)
-        except Exception:
-            log.warning("streaming synthesis failed, retrying unstreamed",
-                        exc_info=True)
-    if text is None:
-        text = await llm.chat("synth", messages, max_tokens=max_out,
-                              temperature=0.4)
+    async def call(p: str) -> str:
+        # Synthesis is the longest single call in a run and the one the user
+        # is actually waiting on, so stream it into the progress pane rather
+        # than sitting behind a spinner. A stream failure falls back to a
+        # normal call — the document matters more than the animation. A
+        # refusal is not a stream failure: it propagates, so the caller can
+        # shrink the prompt instead of sending the same one again.
+        msgs = [{"role": "user", "content": p}]
+        if bus is not None and run_id:
+            try:
+                return await llm.chat_stream("synth", msgs, bus, run_id,
+                                             max_tokens=max_out, temperature=0.4)
+            except PromptTooLong:
+                raise
+            except Exception:
+                log.warning("streaming synthesis failed, retrying unstreamed",
+                            exc_info=True)
+        return await llm.chat("synth", msgs, max_tokens=max_out, temperature=0.4)
+
+    try:
+        text = await call(prompt)
+    except PromptTooLong as e:
+        if digested:
+            raise
+        # The server's window is smaller than the budget assumed. The
+        # refusal cost nothing (no prefill), so digest and go again rather
+        # than fail a run that just spent half an hour gathering sources.
+        log.warning("synthesis prompt refused as too long; digesting: %s", e)
+        if bus is not None and run_id:
+            bus.publish(run_id, "log", message=(
+                "the server refused the synthesis prompt as longer than its "
+                "context window" + (f" ({e.limit:,} tokens)" if e.limit else "")
+                + " — digesting the notes in batches and trying again"))
+        blocks = await _map_digest(llm, query, groups)
+        prompt = compose(blocks)
+        text = await call(prompt)
 
     if not looks_like_document(text):
         # Leaked reasoning monologue instead of a document. One stern retry;

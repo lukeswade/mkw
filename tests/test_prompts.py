@@ -589,3 +589,68 @@ async def test_synthesis_runs_the_pass_and_the_honesty_block_shares_its_heading(
     assert out.count(UNUSED_HEADING) == 1
     assert "[3] Title 3 — same figures as [1]" in out
     assert llm.calls["synth"] == 2
+
+
+# ---- the served context window, not the model's -----------------------------
+
+def test_the_single_call_budget_is_bounded_by_the_served_window():
+    """2026-09-11: the model reports 262,144 positions; the oMLX profile
+    serving it caps requests at 65,536 and refuses a longer prompt with a
+    400. The 100k est ceiling is ~67-75k real tokens: over the window."""
+    from types import SimpleNamespace as NS
+    from app.research.synthesizer import (single_call_budget, _SINGLE_CALL_BUDGET,
+                                          _EST_PER_REAL_TOKEN)
+    assert single_call_budget(NS(context_tokens=65_536)) == int(65_536 * _EST_PER_REAL_TOKEN)
+    assert single_call_budget(NS(context_tokens=65_536)) < _SINGLE_CALL_BUDGET
+    assert single_call_budget(NS(context_tokens=262_144)) == _SINGLE_CALL_BUDGET  # ceiling holds
+    assert single_call_budget(NS()) == _SINGLE_CALL_BUDGET                        # unknown: ceiling
+    # worst measured real/est ratio still lands under the window
+    assert int(65_536 * _EST_PER_REAL_TOKEN) * 0.754 < 65_536
+
+
+async def test_a_refusal_for_length_is_typed_and_teaches_the_client_its_window(data_dir):
+    import httpx
+    from openai import APIStatusError
+    from app.config import Settings
+    from app.llm.client import LLM, PromptTooLong
+    llm = LLM(Settings(data_dir=str(data_dir), llm_provider="openai",
+                       llm_api_key="sk-test", llm_model="m", llm_context_tokens=262_144))
+
+    async def refuse(**kw):
+        raise APIStatusError(
+            "Error code: 400 - {'error': {'message': 'Prompt too long: 66568 "
+            "tokens exceeds max context window of 65536 tokens'}}",
+            response=httpx.Response(400, request=httpx.Request("POST", "http://x")),
+            body=None)
+    llm.client.chat.completions.create = refuse
+    with pytest.raises(PromptTooLong) as ei:
+        await llm.chat("synth", [{"role": "user", "content": "x" * 10}])
+    assert ei.value.limit == 65_536
+    assert llm.context_tokens == 65_536          # corrected downward from the setting
+    assert llm.total_calls == 0                  # no retries: the refusal is terminal
+
+
+async def test_a_refused_synthesis_prompt_is_digested_and_sent_again():
+    """A depth-10 run must not fail at the synthesis step after forty minutes
+    of research because the budget assumed a larger window than the server
+    has. The refusal is instant, so digest and go again."""
+    from app.llm.client import PromptTooLong
+    from app.research.synthesizer import synthesize
+    from tests.fake_llm import FakeLLM
+    seen = []
+
+    def capture(messages):
+        seen.append(messages[-1]["content"])
+        return "# Doc\n\nBody [1] [2] [3] [4] [5] [6] [7] [8] [9] [10].\n"
+
+    fs = _fs({"a": 6, "b": 4})
+    llm = FakeLLM({
+        "synth": [PromptTooLong("too long", 65_536), "# Digest\n\nSummary [1] [2].", capture],
+        "candidates": [{"candidates": []}],
+    })
+    out = await synthesize(llm, query="q", title="T", brief="b", recency_desc="any",
+                           today="t", state_md="", findings=fs,
+                           facet_of={"a": "a", "b": "b"})
+    assert out.startswith("# Doc")
+    assert llm.calls["synth"] >= 3               # refused, digested, synthesized
+    assert "# Digest" in seen[-1] or "Summary [1] [2]" in seen[-1]   # the retry carried digests
