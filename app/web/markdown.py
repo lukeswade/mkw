@@ -72,6 +72,37 @@ def _scroll_tables(html: str) -> str:
     return _TABLE_CLOSE_RE.sub("</table></div>", html)
 
 
+_H2_RE = re.compile(r"<h2>(.*?)</h2>", re.S)
+_TAG_RE = re.compile(r"<[^>]+>")
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slug(text: str) -> str:
+    return _SLUG_RE.sub("-", text.lower()).strip("-")[:60] or "section"
+
+
+def anchor_sections(html: str) -> tuple[str, list[tuple[str, str]]]:
+    """Give every H2 a stable id and return the outline as (id, text).
+
+    Ids are slugs of the heading text so a link survives a re-render; a
+    repeated heading gets a numeric suffix. Only H2s: the document's
+    sections are what a reader navigates, not every sub-point."""
+    seen: dict[str, int] = {}
+    outline: list[tuple[str, str]] = []
+
+    def one(m: re.Match) -> str:
+        inner = m.group(1)
+        text = _TAG_RE.sub("", inner).strip()
+        base = _slug(text)
+        n = seen.get(base, 0)
+        seen[base] = n + 1
+        hid = base if n == 0 else f"{base}-{n + 1}"
+        outline.append((hid, text))
+        return f'<h2 id="{hid}">{inner}</h2>'
+
+    return _H2_RE.sub(one, html), outline
+
+
 def render(md_text: str) -> str:
     return _scroll_tables(_colour_verdicts(_md.render(md_text or "")))
 

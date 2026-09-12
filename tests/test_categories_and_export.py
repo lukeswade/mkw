@@ -122,42 +122,6 @@ async def test_html_export_is_a_complete_standalone_page(data_dir, monkeypatch):
     assert "attachment" in r.headers["content-disposition"]
 
 
-@respx.mock
-async def test_interactive_export_is_a_one_file_mini_app(data_dir, monkeypatch):
-    from fastapi.testclient import TestClient
-    from tests.test_web import make_app
-
-    cfg = make_cfg(data_dir)
-    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
-        [sx_result("https://example-a.com/article", "Article A")])))
-    respx.get("https://example-a.com/article").mock(
-        return_value=httpx.Response(200, html=article("Article A")))
-    repo = Repo(connect(cfg.db_path))
-    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
-                        llm_factory=lambda: FakeLLM(_script(
-                            synth="# T\n\nAn overview claim [1].\n")))
-    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=1,
-                                    recency="all", origin="cli"))
-    await orch.execute_now(run_id)
-
-    app, _cfg = make_app(data_dir, monkeypatch)
-    with TestClient(app) as client:
-        r = client.get(f"/runs/{run_id}/export-interactive.html")
-    assert r.status_code == 200
-    page = r.text
-    assert page.startswith("<!doctype html>")
-    assert 'data-tab="sources"' in page          # tab bar
-    assert 'id="search-box"' in page             # client-side search
-    assert 'href="#src-1"' in page               # citation jump target exists
-    assert 'id="src-1"' in page
-    assert "cited ×1" in page                    # back-reference count
-    assert "— planning —" in page or "planning" in page   # log tab content
-    assert "/static/" not in page                # self-contained
-    assert 'src="http' not in page
-    assert 'rel="icon" href="data:image/svg+xml' in page   # inline favicon
-    assert "interactive.html" in r.headers["content-disposition"]
-
-
 def test_adjacent_citations_all_link():
     from app.web.markdown import render_overview
     html = render_overview("Claim [1][8][9]. Real link [3](https://x.y).", 9)
@@ -176,7 +140,7 @@ def test_exports_are_served_as_opaque_downloads(data_dir, monkeypatch):
     app, cfg = make_app(data_dir, monkeypatch)
     run_id = seed_completed_run(cfg)
     with TestClient(app) as client:
-        for path in ("export.html", "export-interactive.html"):
+        for path in ("export.html",):
             r = client.get(f"/runs/{run_id}/{path}")
             assert r.status_code == 200
             assert r.headers["content-type"] == "application/octet-stream"
@@ -246,3 +210,55 @@ def test_video_engines_lead_only_when_videos_requested():
     assert engine_tier("youtube", VIDEO_ENGINES) == 0       # requested: leads
     assert engine_tier("bing") == 0                         # web unchanged
     assert engine_tier("arxiv", VIDEO_ENGINES) == 1         # academic unchanged
+
+
+# ---- Markdown exports and the contents rail ---------------------------------
+
+def test_markdown_export_is_the_overview_with_its_bibliography(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    from tests.test_web import make_app, seed_completed_run
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    with TestClient(app) as client:
+        r = client.get(f"/runs/{run_id}/export.md")
+        assert r.status_code == 200
+        assert r.headers["content-disposition"].endswith(f'"{run_id}.md"')
+        md = r.text
+        assert md.lstrip().startswith("# ")              # the document's own title
+        assert "## Sources" in md and "# Sources" in md   # bibliography demoted under it
+        assert "[1]" in md                                # citations left as markdown
+        z = client.get(f"/runs/{run_id}/export.zip")
+        assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
+    import io, zipfile
+    names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
+    assert f"{run_id}/overview.md" in names
+    assert f"{run_id}/sources.md" in names
+    assert any(n.startswith(f"{run_id}/findings/") for n in names)
+    assert not any("events.jsonl" not in n and n.endswith(".jsonl") for n in names)
+
+
+def test_sections_get_stable_ids_and_an_outline():
+    from app.web.markdown import anchor_sections, render
+    html, toc = anchor_sections(render("## TL;DR\n\nx\n\n## Agentic Interface: MCP\n\ny\n\n## TL;DR\n\nz\n\n### sub\n"))
+    assert toc == [("tl-dr", "TL;DR"), ("agentic-interface-mcp", "Agentic Interface: MCP"),
+                   ("tl-dr-2", "TL;DR")]
+    assert '<h2 id="tl-dr">' in html and '<h2 id="tl-dr-2">' in html
+    assert "<h3" in html and 'id=' not in html.split("<h3")[1].split(">")[0]   # h3 untouched
+
+
+def test_the_run_page_lists_its_sections_when_there_are_enough(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    from tests.test_web import make_app, seed_completed_run
+    from app.research.storage import RunStore
+    app, cfg = make_app(data_dir, monkeypatch)
+    run_id = seed_completed_run(cfg)
+    store = RunStore(cfg.research_dir / run_id)
+    with TestClient(app) as client:
+        store.write_overview("# T\n\n## A\n\na [1]\n\n## B\n\nb\n")
+        assert 'class="toc"' not in client.get(f"/runs/{run_id}").text      # two: no map
+        store.write_overview("# T\n\n## A\n\na [1]\n\n## B\n\nb\n\n## C\n\nc\n")
+        page = client.get(f"/runs/{run_id}").text
+        assert 'class="toc"' in page and 'href="#c"' in page and '<h2 id="c">' in page
+        assert "Export interactive" not in page
+        assert "Export Markdown" in page
+        assert 'class="copy-md"' in page

@@ -185,10 +185,12 @@ search goes quiet* below) or a topic with little to find (not). If the same
 question has other completed runs, the header offers each as a one-click
 **side-by-side comparison**.
 
-**Exports** — three ways to take the whole record with you: **PDF**, a
+**Exports** — three ways to take the record with you: **PDF**, a
 self-contained **HTML** page (dark-mode aware, opens from a double-click,
-shares over anything), and an **interactive** single file with tabs, search
-across sources and notes, and clickable citations.
+shares over anything), and **Markdown** — the overview and bibliography as
+one `.md` file that drops straight into Obsidian, Joplin or an agent's
+context. The Sources tab's *Files* list also offers every file of the run
+as one `.zip`: overview, bibliography, and a note file per source.
 
 **Re-synthesize** rewrites the overview from the stored sources without
 searching again — for when the research succeeded but the final write-up did

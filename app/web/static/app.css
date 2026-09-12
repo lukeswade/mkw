@@ -1596,3 +1596,49 @@ table.compare td.better { color: var(--text-primary); font-weight: 600; }
 .compare-queries, .compare-kept { font-size: var(--text-sm); color: var(--text-secondary); padding-left: 1.2rem; }
 .compare-queries li, .compare-kept li { margin: .2rem 0; }
 .compare-queries small { color: var(--text-muted); margin-right: .3rem; }
+
+/* ---- On this page: the overview's contents ----
+   A 4,000-word document with eight sections needs a map. Under 1100px it is
+   a collapsed list above the prose; from 1100px the run page widens and the
+   list becomes a sticky rail beside the prose, which keeps its 880px measure. */
+.prose h2 { scroll-margin-top: 4.5rem; }
+.toc { margin: 0 0 1rem; }
+.toc summary {
+  cursor: pointer; color: var(--text-muted); font-size: var(--text-sm);
+  font-weight: 500; letter-spacing: .02em; text-transform: uppercase;
+  list-style: none; display: flex; align-items: center; gap: .5rem;
+}
+.toc summary::-webkit-details-marker { display: none; }
+.toc summary::before { content: "▸"; font-size: .8em; transition: transform .15s ease; }
+.toc[open] summary::before { transform: rotate(90deg); }
+.toc ol { list-style: none; margin: .5rem 0 0; padding: 0 0 0 .75rem; border-left: 1px solid var(--border-subtle); }
+.toc li { margin: 0; }
+.toc a {
+  display: block; padding: .25rem .5rem; color: var(--text-muted);
+  text-decoration: none; font-size: var(--text-sm); line-height: 1.35;
+  border-radius: var(--r-sm); border-left: 2px solid transparent; margin-left: -.75rem; padding-left: 1.2rem;
+}
+.toc a:hover { color: var(--text-primary); background: var(--accent-glow); }
+.toc a.current { color: var(--text-primary); border-left-color: var(--accent); }
+.prose-tools { display: flex; justify-content: flex-end; margin: 0 0 -.5rem; }
+.copy-md {
+  background: transparent; color: var(--text-faint); border: 1px solid transparent;
+  border-radius: var(--r-sm); padding: .25rem .6rem; font-size: var(--text-xs);
+  cursor: pointer; margin: 0; line-height: 1.2; width: auto;
+}
+.copy-md:hover { color: var(--text-primary); border-color: var(--border); }
+.copy-md.done { color: var(--accent); }
+@media (min-width: 1100px) {
+  main.container.run-page { max-width: 1120px; }
+  /* Everything but the overview keeps the 880 measure, centred. */
+  main.run-page > :not(#tab-overview) { max-width: 880px; margin-left: auto; margin-right: auto; }
+  #tab-overview.has-toc.active {
+    display: grid; grid-template-columns: minmax(0, 880px) 200px;
+    gap: 2.5rem; justify-content: center; align-items: start;
+  }
+  #tab-overview.has-toc .toc { grid-column: 2; grid-row: 1; position: sticky; top: 4.5rem; margin: 0; max-height: calc(100vh - 6rem); overflow-y: auto; }
+  #tab-overview.has-toc .overview-prose { grid-column: 1; grid-row: 1; }
+  #tab-overview.has-toc > :not(.toc):not(.overview-prose) { grid-column: 1; }
+  .toc summary { pointer-events: none; }
+  .toc summary::before { display: none; }
+}

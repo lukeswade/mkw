@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ row['title'] or row['query'] }} · Deep Research{% endblock %}
+{% block main_class %} run-page{% endblock %}
 {% block content %}
 {% include "partials/run_header.html" %}
 
@@ -61,8 +62,25 @@
   <button data-tab="log">Log</button>
 </nav>
 
-<section class="tab-panel active" id="tab-overview">
-  <div class="prose">{{ overview_html | safe }}</div>
+<section class="tab-panel active{{ ' has-toc' if toc | length >= 3 else '' }}" id="tab-overview">
+  {% if toc | length >= 3 %}
+  {# A 4,000-word document with eight sections needs a map. A rail beside the
+     prose where the screen is wide enough; a collapsed list above it where it
+     is not. Two sections do not need one. #}
+  <details class="toc" open>
+    <summary>On this page <span class="count">{{ toc | length }}</span></summary>
+    <nav aria-label="On this page"><ol>
+      {% for id, text in toc %}<li><a href="#{{ id }}">{{ text }}</a></li>{% endfor %}
+    </ol></nav>
+  </details>
+  {% endif %}
+  <div class="prose overview-prose">
+    <div class="prose-tools">
+      <button type="button" class="copy-md" data-src="/runs/{{ run_id }}/file/overview.md"
+              title="Copy the overview as Markdown, citations included">Copy as Markdown</button>
+    </div>
+    {{ overview_html | safe }}
+  </div>
   {% if findings %}
   <h2 class="src-heading">Sources</h2>
   <ol class="src-list">
@@ -108,6 +126,7 @@
   {% endfor %}
   <h3>Files</h3>
   <p class="file-links">
+    <a href="/runs/{{ run_id }}/export.zip" title="Every file of this run — overview, bibliography, a note file per source">all files (.zip)</a> ·
     <a href="/runs/{{ run_id }}/export.pdf">export.pdf</a> ·
     {% for name in files %}
     <a href="/runs/{{ run_id }}/file/{{ name }}?download=1">{{ name }}</a>{% if not loop.last %} · {% endif %}

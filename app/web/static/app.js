@@ -118,3 +118,44 @@ document.addEventListener("DOMContentLoaded", () => {
       : "not needed for local servers";
   });
 });
+
+// ---- On this page: collapse on narrow screens, follow the reader on wide ----
+(function () {
+  var toc = document.querySelector('.toc');
+  if (!toc) return;
+  var wide = window.matchMedia('(min-width: 1100px)');
+  if (!wide.matches) toc.removeAttribute('open');
+  var links = Array.prototype.slice.call(toc.querySelectorAll('a[href^="#"]'));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  var heads = Object.keys(byId).map(function (id) { return document.getElementById(id); }).filter(Boolean);
+  if (!heads.length || !('IntersectionObserver' in window)) return;
+  var current = null;
+  function mark(id) {
+    if (current === id) return;
+    current = id;
+    links.forEach(function (a) { a.classList.toggle('current', a.getAttribute('href') === '#' + id); });
+  }
+  // The section whose heading most recently crossed the top third of the
+  // viewport is the one being read.
+  var io = new IntersectionObserver(function () {
+    var y = window.scrollY + window.innerHeight / 3, best = heads[0];
+    heads.forEach(function (h) { if (h.offsetTop <= y) best = h; });
+    mark(best.id);
+  }, { rootMargin: '-33% 0px -60% 0px', threshold: [0, 1] });
+  heads.forEach(function (h) { io.observe(h); });
+  // On a narrow screen a tap on an entry should close the list it came from.
+  links.forEach(function (a) { a.addEventListener('click', function () { if (!wide.matches) toc.removeAttribute('open'); }); });
+})();
+
+// ---- Copy as Markdown ----
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('.copy-md');
+  if (!b) return;
+  fetch(b.dataset.src).then(function (r) { return r.text(); }).then(function (t) {
+    return navigator.clipboard.writeText(t);
+  }).then(function () {
+    var was = b.textContent; b.textContent = 'Copied'; b.classList.add('done');
+    setTimeout(function () { b.textContent = was; b.classList.remove('done'); }, 1600);
+  }).catch(function () { b.textContent = 'Copy failed'; });
+});

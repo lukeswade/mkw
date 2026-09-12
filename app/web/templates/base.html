@@ -47,7 +47,7 @@
       ul.addEventListener('scroll', edge, { passive: true });
     })();
   </script>
-  <main class="container fade-in">
+  <main class="container fade-in{% block main_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
   <footer class="site-footer">

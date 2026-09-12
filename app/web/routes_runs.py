@@ -4,6 +4,9 @@ from __future__ import annotations
 import asyncio
 import shutil
 import json
+import zipfile
+import re
+import io
 import logging
 from pathlib import Path
 
@@ -16,9 +19,10 @@ from app.models import RunParams
 from app.research.estimate import estimate_run
 from app.research.progress import format_event
 from app.research.storage import SERVABLE_RE, RunStore
-from app.web.export import (PdfExportError, build_run_html, interactive_html,
+from app.web.export import (PdfExportError, build_run_html,
                             render_pdf, standalone_html)
-from app.web.markdown import render, render_overview, strip_leading_h1
+from app.web.markdown import (anchor_sections, render, render_overview,
+                              strip_leading_h1)
 from app.db import row_get
 from app.research.searcher import category_options, split_categories
 
@@ -272,14 +276,17 @@ async def run_page(request: Request, run_id: str):
     matrix_md = (store.matrix_path.read_text(encoding="utf-8")
                  if store.matrix_path.exists() else "")
 
+    # A claim check numbers evidence per claim and links each marker at
+    # its own source; render_overview would rewrite those [n] into
+    # bibliography anchors that do not exist and break the links.
+    overview_html = (render(strip_leading_h1(overview_md))
+                     if row_get(row, "kind") == "verify"
+                     else render_overview(strip_leading_h1(overview_md),
+                                          len(findings)))
+    overview_html, toc = anchor_sections(overview_html)
     ctx.update({
-        # A claim check numbers evidence per claim and links each marker at
-        # its own source; render_overview would rewrite those [n] into
-        # bibliography anchors that do not exist and break the links.
-        "overview_html": (render(strip_leading_h1(overview_md))
-                          if row_get(row, "kind") == "verify"
-                          else render_overview(strip_leading_h1(overview_md),
-                                               len(findings))),
+        "overview_html": overview_html,
+        "toc": toc,
         "matrix_html": render_overview(strip_leading_h1(matrix_md),
                                        len(findings)),
         "findings": findings,
@@ -501,32 +508,48 @@ async def export_html(request: Request, run_id: str):
         "Content-Disposition": f'attachment; filename="{run_id}.html"'})
 
 
-@router.get("/runs/{run_id}/export-interactive.html")
-async def export_interactive(request: Request, run_id: str):
-    """The run as a portable mini-app in one file: tabs, client-side search,
-    live citation jumps, theme toggle — still zero external assets."""
+@router.get("/runs/{run_id}/export.md")
+async def export_markdown(request: Request, run_id: str):
+    """The overview and its bibliography as one Markdown file. The run's own
+    files ARE markdown, so this is the native export: it drops into Obsidian,
+    Joplin or an agent's context with the [n] markers intact and the
+    numbered sources right under them."""
     row = _row_or_404(request, run_id)
     store, findings, overview_md, meta_line = _export_parts(request, run_id, row)
-    log_lines: list[str] = []
-    events_path = store.dir / "events.jsonl"
-    if events_path.is_file():
-        for line in events_path.read_text(encoding="utf-8").splitlines():
-            try:
-                text = format_event(json.loads(line))
-            except ValueError:
-                continue
-            if text:
-                log_lines.append(text)
-    page = interactive_html(
-        title=row["title"] or row["query"], query=row["query"],
-        meta_line=meta_line,
-        overview_html=render_overview(overview_md, len(findings)),
-        findings=findings, cards=_finding_cards(store, findings),
-        log_lines=log_lines)
-    # octet-stream so proxies can't inject a beacon script (see export_html)
-    return Response(page, media_type="application/octet-stream", headers={
-        "Content-Disposition":
-            f'attachment; filename="{run_id}-interactive.html"'})
+    sources_md = (store.sources_path.read_text(encoding="utf-8")
+                  if store.sources_path.exists() else "")
+    parts = [overview_md.rstrip()]
+    if sources_md.strip():
+        # The bibliography's own H1 becomes an H2 under the document's title.
+        parts.append(_SOURCES_H1_RE.sub("## Sources", sources_md.strip(), count=1))
+    parts.append(f"*{meta_line}*")
+    body = "\n\n".join(parts) + "\n"
+    # text/markdown is rewritten by nobody, but octet-stream keeps the same
+    # download behaviour as the HTML export across every browser.
+    return Response(body, media_type="application/octet-stream", headers={
+        "Content-Disposition": f'attachment; filename="{run_id}.md"'})
+
+
+_SOURCES_H1_RE = re.compile(r"\A#\s+Sources\s*$", re.M)
+
+
+@router.get("/runs/{run_id}/export.zip")
+async def export_zip(request: Request, run_id: str):
+    """Every file of the run — overview, bibliography, further research,
+    the matrix if built, meta, and one note file per source — as a zip.
+    Only the names the file route would serve; nothing else leaves the
+    directory."""
+    row = _row_or_404(request, run_id)
+    research_dir = request.app.state.cfg_loader().research_dir
+    root = research_dir / row["dir"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(root.rglob("*")):
+            rel = path.relative_to(root).as_posix()
+            if path.is_file() and (SERVABLE_RE.match(rel) or rel == "matrix.md"):
+                zf.write(path, arcname=f"{run_id}/{rel}")
+    return Response(buf.getvalue(), media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="{run_id}.zip"'})
 
 
 @router.get("/runs/{run_id}/file/{name:path}")
