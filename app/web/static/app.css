@@ -1391,9 +1391,12 @@ input[type="checkbox"] {
 
 
 /* A comparison table can be wider than the column; scroll it, never the page.
-   The first column is the dimension label, so it stays put while the entity
-   columns slide under it. */
-.matrix-scroll { overflow-x: auto; }
+   Every rendered table is wrapped in .table-scroll by the markdown renderer;
+   .matrix-scroll is the matrix action's outer wrapper, whose first column is
+   the dimension label and stays put while the entity columns slide under it. */
+.table-scroll, .matrix-scroll { overflow-x: auto; max-width: 100%; }
+.table-scroll { -webkit-overflow-scrolling: touch; margin: 1rem 0; }
+.table-scroll > table { margin: 0; }
 .matrix-scroll .prose table { min-width: 100%; }
 .matrix-scroll .prose td:first-child,
 .matrix-scroll .prose th:first-child {

@@ -234,3 +234,14 @@ def test_a_claim_checks_verdict_table_is_not_a_comparison_badge(lib):
     with TestClient(app) as c:
         assert 'kind kind-matrix' not in c.get("/library").text
         assert 'kind kind-matrix' not in c.get("/partials/recent-runs").text
+
+
+def test_every_rendered_table_is_wrapped_so_it_scrolls_not_the_page():
+    """393px iPhone, 2026-09-11: a 555px synthesis table pushed the whole
+    page to 568px wide. The renderer wraps every table."""
+    from app.web.markdown import render, render_overview
+    html = render("| a | b |\n|---|---|\n| 1 | 2 |\n\ntext")
+    assert html.count('<div class="table-scroll"><table') == 1
+    assert html.count("</table></div>") == 1
+    assert '<div class="table-scroll">' in render_overview("| a |\n|---|\n| [1] |\n", 1)
+    assert "table-scroll" not in render("no table here")

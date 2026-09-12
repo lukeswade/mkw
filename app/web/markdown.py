@@ -59,8 +59,21 @@ def _colour_verdicts(html: str) -> str:
     return _VERDICT_CELL_RE.sub(one, html)
 
 
+# Synthesis writes candidate x criterion tables into the overview, and a
+# table of five columns is wider than a phone. Every rendered table gets a
+# scroll container so the TABLE scrolls, never the page (393px iPhone,
+# 2026-09-11: an unwrapped 555px table pushed the whole page to 568).
+_TABLE_OPEN_RE = re.compile(r"<table\b")
+_TABLE_CLOSE_RE = re.compile(r"</table>")
+
+
+def _scroll_tables(html: str) -> str:
+    html = _TABLE_OPEN_RE.sub('<div class="table-scroll"><table', html)
+    return _TABLE_CLOSE_RE.sub("</table></div>", html)
+
+
 def render(md_text: str) -> str:
-    return _colour_verdicts(_md.render(md_text or ""))
+    return _scroll_tables(_colour_verdicts(_md.render(md_text or "")))
 
 
 def highlight_snippet(snippet: str) -> Markup:

@@ -93,6 +93,7 @@ def render_pdf(html: str) -> bytes:
 
 
 _PAGE_CSS = """
+.table-scroll{overflow-x:auto;max-width:100%}
 :root { color-scheme: light dark;
   --bg: #ffffff; --text: #1b1f23; --muted: #57606a; --border: #d8dee4;
   --accent: #0a6b52; --card: #f6f8fa; }
