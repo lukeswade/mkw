@@ -47,7 +47,12 @@ number.
    window a setting (`LLM_CONTEXT_TOKENS`, default 65,536) that the server's
    own refusal corrects downward; and a refused prompt is digested and sent
    again instead of failing the run (`PromptTooLong`). Set the setting to
-   what the serving profile actually enforces.
+   what the serving profile actually enforces. On this install the profile
+   was then raised to 262,144 (KV is ~20 KB/token for this hybrid model, so
+   the full window is ~5 GB) and verified with a 79,766-token needle prompt;
+   the setting is 262,144 and the budget is back at the 100k ceiling. The
+   same restart, with Hot Cache Size given as "8GB" rather than "8", made
+   KV prefix reuse real: an identical 7.2k prefix went 10.5s, 1.95s, 1.89s.
 
 2. **Length target derived from source count** (`6f197b0`).
    `target_words(n) = clamp(50 * n, 900, 5000)`, keyed on `len(findings)` —
