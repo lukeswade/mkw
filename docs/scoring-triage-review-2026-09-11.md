@@ -75,3 +75,90 @@ leaks were ethics-of-voice-cloning pages on a hardware question.
    case it was built for.
 
 Expected effect on a depth-9 run: +3–6 minutes, roughly +20 kept sources.
+
+---
+
+# Part two: gap analysis and the per-round caps
+
+Same night, same method: 91 completed research runs, 238 gap decisions,
+1,256 queries, plus an offline gap A/B on five stored rounds (state document
+and kept sources per round are in `rounds/round-NN.md`, so the exact prompt
+can be rebuilt).
+
+## Gap analysis — the prompt is sound; the count and the repeats were not
+
+**Saturation is not what ends runs.** 4 of 238 gap decisions said saturated;
+60 of 91 runs stopped on the depth limit, 11 on the source cap, 11 on two
+dry rounds. Later rounds were as productive as early ones: ~19 new
+candidates per search in every round, mean kept relevance 6.5 → 6.4 → 6.3 →
+6.3 → 5.8 through round five. Depth was the binding constraint.
+
+**Under-proposal.** Gap analysis returned 4.3 queries on average against a
+breadth of 7 at depth 9–10 (mode 5). Offline A/B: "up to 7" → 4.8, "EXACTLY
+7" → 4.6. The wording is inert; the model returns ~5. Rounds ran at about
+two-thirds of capacity.
+
+**Rephrasings.** Zero exact repeats (the filter works), but 27% of
+later-round queries rephrased an earlier one (content-word Jaccard ≥ 0.6),
+and those yielded **1.03 kept per query against 1.48** for novel ones. The
+prompt says "do not repeat or trivially rephrase"; the model does anyway.
+
+**Long queries.** 29% exceed the prompt's 3–8 words; kept per query 1.67 at
+≤8 words vs 1.29 at ≥9 and 0.81 at 12+. Only 2% of searches return nothing,
+so the cost is quality, not emptiness. Left alone for now — a length cap
+would need a refill and the effect is second-order.
+
+**Planner vs gap.** Round-one (planner) queries yield 1.78 kept each; gap
+rounds 1.40. Some of that is diminishing novelty, some is the two items
+above.
+
+Shipped (`da30202`): a near-duplicate is filtered like an exact repeat
+(Jaccard ≥ 0.7, tags kept aligned); a round short of its breadth is filled
+with one written query per thinnest facet, novel against everything
+searched; and depth buys 1.6 rounds per unit of effort (depth 10: 8 rounds,
+was 5).
+
+## Caps — which one binds, by depth
+
+```
+depth  rounds  breadth  picks/round  cap   mean kept (before)
+  4      2→4      4         36        28      16.5
+  6      3→5      5         44        45      13.7 (n=3)
+  9      5→8      7         60        74      66
+ 10      5→8      7         60        85      41.3 (n=25)
+```
+
+At depth ≤5 the **source cap** binds (all 11 cap-stops were at depth ≤5,
+mostly round 1–2). At depth ≥6 **rounds** bind: one depth-10 run in 25
+reached its cap. Five rounds at ~13 kept per round is ~65 at best; the
+measured mean was 41. The round scale addresses that directly; with the
+triage and economy changes adding ~20% more kept per round, the cap should
+now be reachable at depth 9–10. A depth-10 round is ~5 minutes median, so a
+depth-10 run goes from ~25 to ~40 minutes of rounds.
+
+**Left as they are, with the evidence:**
+
+- `engine_share` (a third of a round): 62 cap events over 90 runs — active,
+  not dominant. Correct.
+- `per_domain` 2, with productive-domain raises and authority exemptions:
+  the top domain holds 35% of kept sources on average, ≥30% in 32 of 90
+  runs. High, but the runs are product-specific (a Workato question keeps
+  Workato docs) and the exemptions are the reason. Not changed.
+- `per_facet_cap` (a third): same shape as the engine share; no evidence
+  against it in the three runs with facet accounting.
+- `candidates_per_round` (breadth·8+4) and `triage_floor` (a tenth, min 3):
+  the funnel after them keeps 47% of what is read; wider picks cost triage
+  prompt length only. Fine.
+- Dry-round rule (kept < 2, twice): fired 11 times, every one on a run that
+  had genuinely run out. Fine.
+- Concurrency (search 2, fetch 8, LLM 3): the LLM is the bottleneck by an
+  order of magnitude; the others do not matter.
+
+## Still open
+
+- Query length: cap at ~10 words with a refill, if the 1.29-vs-1.67 gap is
+  worth one more mechanism.
+- Facet accounting exists for 3 runs only; re-measure targeting after a
+  dozen more.
+- The estimate on the New page derives its time from past rounds and will
+  adjust on its own; its round count already reflects the new scale.
