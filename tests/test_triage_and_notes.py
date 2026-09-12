@@ -1,6 +1,7 @@
 """Candidate triage, full-page notes input, and index-page link chasing."""
 from __future__ import annotations
 
+import json
 import httpx
 import respx
 
@@ -50,8 +51,12 @@ async def test_triage_drops_candidates_before_any_fetch(data_dir):
     findings = repo.findings_for_run(run_id)
     assert {f["domain"] for f in findings} == {"example-a.com", "example-c.com",
                                                "example-e.com"}
-    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
-    assert "dropped at triage" in events
+    events = [json.loads(l) for l in (cfg.research_dir / run_id / "events.jsonl").read_text().splitlines() if l.strip()]
+    # one event per triage round carries the drops; no line per dropped page
+    tri = [e for e in events if e["type"] == "triage"]
+    assert len(tri) == 1 and tri[0]["dropped"] == 2 and tri[0]["considered"] == 5
+    assert tri[0]["to_read"] == 3 and len(tri[0]["dropped_urls"]) == 2
+    assert not any(e["type"] == "source_skipped" and str(e.get("reason", "")).startswith("dropped") for e in events)
     assert llm.calls["notes"] == 3
 
 
@@ -243,7 +248,7 @@ async def test_authority_site_candidates_survive_triage(data_dir):
     assert "charm.li" in domains          # condemned, but curated as authority
     assert len(domains) == 4              # the other condemned page stayed out
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
-    assert "dropped at triage" in events  # triage genuinely ran
+    assert '"type": "triage"' in events  # triage genuinely ran
 
 
 def test_authority_domains_parses_the_settings_blob(data_dir):

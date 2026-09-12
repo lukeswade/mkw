@@ -47,7 +47,10 @@ def summarize(repo, research_dir: Path, run_id: str) -> dict:
         "results seen": sum(e.get("results", 0) for e in ev if e["type"] == "searched"),
         "candidates": sum(e.get("candidates", 0) for e in ev if e["type"] == "searched"),
         "filler not fetched": filler,
-        "dropped at triage": sum(1 for e in ev if e["type"] == "source_skipped" and e.get("reason", "").startswith("dropped")),
+        # one "triage" event per round since 2026-09-11; older runs carry a
+        # source_skipped per dropped page instead
+        "dropped at triage": (sum(e.get("dropped", 0) for e in ev if e["type"] == "triage")
+                              + sum(1 for e in ev if e["type"] == "source_skipped" and e.get("reason", "").startswith("dropped"))),
         "read, scored 0-1": sum(1 for r in rel if r <= 1),
         "read, scored 2-3": sum(1 for r in rel if 2 <= r <= 3),
         "kept": len(findings),

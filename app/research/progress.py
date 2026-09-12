@@ -49,9 +49,21 @@ def format_event(e: dict, tz: str | None = None) -> str | None:
     if typ == "searched":
         return (f"[{t}]   {e.get('results')} results → "
                 f"{e.get('candidates')} new candidates")
+    if typ == "triage":
+        parts = [f"triage: {e.get('considered')} candidates → "
+                 f"{e.get('to_read')} to read · {e.get('dropped')} dropped"]
+        if e.get("domains"):
+            parts.append("(" + ", ".join(e["domains"]) + ")")
+        if e.get("spared"):
+            parts.append(f"· {e['spared']} spared")
+        return f"[{t}]   " + " ".join(parts)
     if typ == "source_skipped":
         title = (e.get("title") or "").strip()
         reason = str(e.get("reason") or "")
+        if reason.startswith("dropped at triage"):
+            # Runs recorded before the per-round triage event carry one of
+            # these per dropped page; their own aggregate log line follows.
+            return None
         quoted = f'  "{title[:70]}"' if title else ""
         # A page that was read and scored ends like a kept one: URL, title,
         # score last. Pages never read keep their reason in brackets.

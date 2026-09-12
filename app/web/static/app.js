@@ -38,7 +38,15 @@ function fmtEvent(e) {
     case "plan": return `[${t}] plan: ${e.title}\n` + list(e.subqueries);
     case "round_start": return `[${t}] ROUND ${e.round}/${e.depth}\n` + (e.queries || []).map((q, i) => `          · ${q}${(e.scopes || [])[i] ? `  [${e.scopes[i]}]` : ""}`).join("\n");
     case "searched": return `[${t}]   ${e.results} results → ${e.candidates} new candidates`;
+    case "triage": {
+      const doms = (e.domains || []).length ? ` (${e.domains.join(", ")})` : "";
+      const spared = e.spared ? ` · ${e.spared} spared` : "";
+      return `[${t}]   triage: ${e.considered} candidates → ${e.to_read} to read · ${e.dropped} dropped${doms}${spared}`;
+    }
     case "source_skipped": {
+      // one line per triage round is the "triage" event above; the per-page
+      // drops of older runs are not worth a line each
+      if (String(e.reason || "").startsWith("dropped at triage")) return null;
       // a page that was read and scored ends like a kept one: URL, title, score last
       const quoted = e.title ? `  "${String(e.title).slice(0, 70)}"` : "";
       const m = /^relevance (\d+)\/10$/.exec(e.reason || "");

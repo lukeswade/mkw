@@ -648,16 +648,21 @@ class Pipeline:
             state.spared_urls.add(canonicalize(candidates[i].url))
         if drop:
             state.skipped += len(drop)
-            for i, c in enumerate(candidates):
-                if i in drop:
-                    self.bus.publish(run_id, "source_skipped", url=c.url,
-                                     reason="dropped at triage",
-                                     title=(c.title or "")[:120],
-                                     engine=c.engine or "")
-            self.bus.publish(run_id, "log",
-                             message=(f"triage dropped {len(drop)} of "
-                                      f"{len(candidates)} candidates before "
-                                      f"fetching"))
+            # One event per round, not one per dropped page: 54 "dropped at
+            # triage" lines in a row made the log unreadable (2026-09-11).
+            # The dropped URLs stay in the event, so the record is intact
+            # and the comparison page still counts them; only the rendering
+            # is one line, with the domains that took the most of the cull.
+            dropped = [candidates[i] for i in sorted(drop)]
+            by_domain = Counter(domain_of(c.url) for c in dropped)
+            self.bus.publish(
+                run_id, "triage",
+                considered=len(candidates), dropped=len(drop),
+                to_read=len(candidates) - len(drop),
+                spared=len(condemned - drop),
+                domains=[f"{d} ×{n}" if n > 1 else d
+                         for d, n in by_domain.most_common(4)],
+                dropped_urls=[c.url for c in dropped][:80])
         return [c for i, c in enumerate(candidates) if i not in drop]
 
     def _authority_domains(self) -> frozenset[str]:

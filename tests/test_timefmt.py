@@ -23,8 +23,8 @@ def test_the_run_log_line_carries_the_local_clock():
 def test_skipped_sources_show_their_title_when_they_have_one():
     from app.research.progress import format_event
     line = format_event({"type": "source_skipped", "ts": 0, "url": "https://x/y",
-                         "reason": "dropped at triage", "title": "FIX stock price"}, tz="UTC")
-    assert line.endswith('(dropped at triage)  "FIX stock price"')
+                         "reason": "fetch failed", "title": "FIX stock price"}, tz="UTC")
+    assert line.endswith('(fetch failed)  "FIX stock price"')
 
 
 def test_a_kept_source_line_ends_with_its_score():
@@ -32,3 +32,19 @@ def test_a_kept_source_line_ends_with_its_score():
     line = format_event({"type": "finding", "ts": 0, "idx": 3, "title": "Reel seat loose -- how to fix it in place?",
                          "domain": "stripersonline.com", "relevance": 8}, tz="UTC")
     assert line.endswith("Reel seat loose -- how to fix it in place? (stripersonline.com) · 8/10")
+
+
+def test_a_triage_round_is_one_log_line_and_legacy_drops_are_none():
+    """2026-09-11: 54 'dropped at triage' lines in a row made the log
+    unreadable. A round is one line; the per-page drops of older runs are
+    hidden, since their own aggregate log line follows them."""
+    from app.research.progress import format_event
+    line = format_event({"type": "triage", "ts": 0, "considered": 60, "to_read": 6,
+                         "dropped": 54, "spared": 2,
+                         "domains": ["ranksquire.com ×3", "agdex.ai ×2"]}, tz="UTC")
+    assert line.endswith("triage: 60 candidates → 6 to read · 54 dropped (ranksquire.com ×3, agdex.ai ×2) · 2 spared")
+    assert format_event({"type": "source_skipped", "ts": 0, "url": "https://x/y",
+                         "reason": "dropped at triage", "title": "t"}, tz="UTC") is None
+    # a page that was actually read and rejected still gets its line
+    assert "✗" in format_event({"type": "source_skipped", "ts": 0, "url": "https://x/y",
+                                "reason": "relevance 2/10", "title": "t"}, tz="UTC")
