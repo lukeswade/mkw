@@ -847,7 +847,6 @@ def test_the_tab_bar_fits_a_phone(data_dir, monkeypatch):
         assert 'aria-label="Deep Research home"' in nav          # still named for screen readers
         assert 'href="/briefs"' in client.get("/settings").text
         assert client.get("/briefs").status_code == 200          # the page itself stays
-        assert 'class="run-tools"' in client.get("/partials/recent-runs").text or True
 
 
 def test_lists_delete_by_selection_or_swipe_not_by_a_standalone_x(data_dir, monkeypatch):
@@ -890,4 +889,5 @@ def test_a_long_question_is_folded_on_the_run_page(data_dir, monkeypatch):
         assert "<details class=\"orig-query\" open" not in page              # folded by default
         # the user pill sits in the badge row, not the detail line
         home = client.get("/partials/recent-runs").text
-        assert 'class="run-user"' in home or "user-tag" not in home
+        assert 'class="run-right"' in home                       # pill + star share the badge row
+        assert '<a class="run-title"' in home                    # the title is the link now

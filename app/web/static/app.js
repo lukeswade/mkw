@@ -231,6 +231,15 @@ document.addEventListener('click', function (e) {
         return;
       }
     }
+    // The row is a div now (the title is the link, so the evergreen star can
+    // live inside the badge row): a click anywhere else on it navigates,
+    // unless it landed on a control or a row is swiped open.
+    var item = t.closest('.run-item');
+    if (item && item.dataset.href && !t.closest('a, button, input, label')
+        && !document.querySelector('.run-row.open')) {
+      window.location.href = item.dataset.href;
+      return;
+    }
     // Tapping the revealed Delete deletes that one row through the same
     // endpoint the batch uses; tapping anywhere else closes an open row.
     var del = t.closest('.swipe-delete');

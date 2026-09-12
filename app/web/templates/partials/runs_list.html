@@ -22,10 +22,16 @@
     <button type="button" class="swipe-delete" data-id="{{ r['id'] }}" tabindex="-1">Delete</button>
     <div class="run-item-wrap">
       <label class="sel" aria-label="Select this run"><input type="checkbox" name="ids" value="{{ r['id'] }}"></label>
-      <a class="run-item" href="/runs/{{ r['id'] }}">
+      {# The row is a div and the TITLE is the link (a click anywhere on the
+         row navigates via app.js). A row that was one big <a> could not hold
+         the evergreen star — a button inside a link is invalid and clicks
+         through — so the star lived outside it and could never share a cell
+         with the user pill. Now pill and star are one right-aligned group on
+         the badge row, on every screen size. #}
+      <div class="run-item" data-href="/runs/{{ r['id'] }}">
         <div class="run-info">
           <span class="run-headline">
-            <span class="run-title">{{ r['title'] or r['query'] }}</span>
+            <a class="run-title" href="/runs/{{ r['id'] }}">{{ r['title'] or r['query'] }}</a>
             <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
           </span>
           <span class="run-meta">
@@ -34,15 +40,17 @@
               {%- if item.has_matrix and k == 'research' %}<span class="kind kind-matrix"
                     title="This run has a comparison table">matrix</span>{% endif %}
             </span>
-            {% if r['created_by'] %}<span class="run-user"><span class="user-tag" style="--hue: {{ r['created_by'] | user_hue }}" title="started by {{ r['created_by'] }}">{{ r['created_by'] }}</span></span>{% endif %}
+            <span class="run-right">
+              {%- if r['created_by'] %}<span class="user-tag" style="--hue: {{ r['created_by'] | user_hue }}" title="started by {{ r['created_by'] }}">{{ r['created_by'] }}</span>{% endif %}
+              {%- if r['status'] == 'completed' and r['evergreen'] %}{% include "partials/evergreen_star.html" %}{% endif -%}
+            </span>
             <span class="meta-text">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
               {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
               · {{ r['created_at'] | localdt }}
             </span>
           </span>
         </div>
-      </a>
-      {% if r['status'] == 'completed' and r['evergreen'] %}<span class="run-tools">{% include "partials/evergreen_star.html" %}</span>{% endif %}
+      </div>
     </div>
   </div>
   {% endfor %}

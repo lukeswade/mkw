@@ -534,6 +534,7 @@ input[type="checkbox"] {
   flex-direction: column;
   min-width: 0;
 }
+.run-item { cursor: pointer; }
 .run-title {
   color: var(--text-primary);
   font-weight: 450;
@@ -541,7 +542,18 @@ input[type="checkbox"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-decoration: none;
 }
+.run-title:hover { color: var(--text-primary); text-decoration: none; }
+/* The user pill and the evergreen star, one group at the right of the badge row. */
+.run-right { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
+.run-right:empty { display: none; }
+.run-right .evergreen-star {
+  background: transparent; color: var(--accent, #6ee7b7); border: 1px solid transparent;
+  border-radius: var(--r-sm); width: 24px; height: 24px; display: inline-flex; align-items: center;
+  justify-content: center; cursor: pointer; padding: 0; font-size: .95rem; line-height: 1; margin: 0;
+}
+.run-right .evergreen-star:hover { border-color: var(--border); }
 .run-meta {
   color: var(--text-muted);
   font-size: var(--text-sm);
@@ -1088,7 +1100,7 @@ input[type="checkbox"] {
   /* The brand is the icon alone (2026-09-11); the tabs get every pixel to
      its right and spread across them. */
   .topnav ul { flex: 1 1 auto; justify-content: space-between; }
-  .topnav ul a { font-size: 0.86rem; padding: 0.35rem 0.4rem; }
+  .topnav ul a { font-size: 0.93rem; padding: 0.35rem 0.3rem; }
   .hero h1, .run-header h1, .page-header h1 { font-size: var(--text-2xl); }
   .card, article.card { padding: 1rem; margin-bottom: 1rem; }
   .new-run .controls { flex-direction: column; align-items: stretch; gap: 0.75rem; }
@@ -1568,36 +1580,29 @@ input[type="checkbox"] {
      There is no × — a swipe reveals Delete, or Select-to-delete above. */
   .run-item { display: contents; }
   .run-info, .run-headline, .run-meta { display: contents; }
-  /* Columns: content | user pill | star. Row 1: title spans to the status
-     badge at the far right. Row 2: kind badges left, the user pill and the
-     evergreen star right (the pill used to sit at the end of the detail
-     line and wrapped onto a line of its own on long ones). Row 3: detail. */
+  /* Row 1: title, status badge at the far right. Row 2: kind badges left;
+     the user pill and evergreen star as one group at the right. Row 3: the
+     detail line, full width. */
   .run-item-wrap {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: 1fr auto;
     align-items: center;
     row-gap: .3rem;
-    column-gap: .5rem;
+    column-gap: .6rem;
     padding: .85rem 1rem;
     border-radius: var(--r-md);
   }
-  .run-title { grid-row: 1; grid-column: 1 / 3; white-space: normal; overflow: visible; }
-  .run-info .chip { grid-row: 1; grid-column: 3; justify-self: end; align-self: start; margin-top: .2rem; }
+  .run-title { grid-row: 1; grid-column: 1; white-space: normal; overflow: visible; }
+  .run-info .chip { grid-row: 1; grid-column: 2; justify-self: end; align-self: start; margin-top: .2rem; }
   .run-kinds { grid-row: 2; grid-column: 1; justify-self: start; }
-  .run-user { grid-row: 2; grid-column: 2; justify-self: end; }
-  .run-tools { grid-row: 2; grid-column: 3; justify-self: end; }
+  .run-right { grid-row: 2; grid-column: 2; justify-self: end; margin-left: 0; }
   .meta-text { grid-row: 3; grid-column: 1 / -1; }
-  .runs-region.selecting .run-item-wrap { grid-template-columns: auto 1fr auto auto; }
+  .runs-region.selecting .run-item-wrap { grid-template-columns: auto 1fr auto; }
   .runs-region.selecting .sel { grid-row: 1 / 4; grid-column: 1; }
-  .runs-region.selecting .run-title { grid-column: 2 / 4; }
-  .runs-region.selecting .run-kinds { grid-column: 2; }
-  .runs-region.selecting .run-user { grid-column: 3; }
-  .runs-region.selecting .run-info .chip, .runs-region.selecting .run-tools { grid-column: 4; }
+  .runs-region.selecting .run-title, .runs-region.selecting .run-kinds { grid-column: 2; }
+  .runs-region.selecting .run-info .chip, .runs-region.selecting .run-right { grid-column: 3; }
   .runs-region.selecting .meta-text { grid-column: 2 / -1; }
 }
-.run-user { display: inline-flex; align-items: center; }
-/* Wide screens: the pill closes the badge row on the right. */
-.run-meta .run-user { margin-left: auto; }
 
 /* ---- List tools: select-to-delete, and swipe-to-delete on phones ---- */
 .section-title .count { margin-left: .4rem; }
