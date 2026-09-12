@@ -129,21 +129,24 @@ document.addEventListener("DOMContentLoaded", () => {
   var byId = {};
   links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
   var heads = Object.keys(byId).map(function (id) { return document.getElementById(id); }).filter(Boolean);
-  if (!heads.length || !('IntersectionObserver' in window)) return;
-  var current = null;
-  function mark(id) {
-    if (current === id) return;
-    current = id;
-    links.forEach(function (a) { a.classList.toggle('current', a.getAttribute('href') === '#' + id); });
-  }
-  // The section whose heading most recently crossed the top third of the
-  // viewport is the one being read.
-  var io = new IntersectionObserver(function () {
+  if (!heads.length) return;
+  var current = null, queued = false;
+  // The section whose heading most recently passed the top third of the
+  // viewport is the one being read. A scroll listener, not an observer: an
+  // observer only fires when a heading crosses its band, so a long jump
+  // that lands between headings left the old entry lit.
+  function update() {
+    queued = false;
     var y = window.scrollY + window.innerHeight / 3, best = heads[0];
-    heads.forEach(function (h) { if (h.offsetTop <= y) best = h; });
-    mark(best.id);
-  }, { rootMargin: '-33% 0px -60% 0px', threshold: [0, 1] });
-  heads.forEach(function (h) { io.observe(h); });
+    heads.forEach(function (h) { if (h.getBoundingClientRect().top + window.scrollY <= y) best = h; });
+    if (current === best.id) return;
+    current = best.id;
+    links.forEach(function (a) { a.classList.toggle('current', a.getAttribute('href') === '#' + best.id); });
+  }
+  window.addEventListener('scroll', function () {
+    if (!queued) { queued = true; requestAnimationFrame(update); }
+  }, { passive: true });
+  update();
   // On a narrow screen a tap on an entry should close the list it came from.
   links.forEach(function (a) { a.addEventListener('click', function () { if (!wide.matches) toc.removeAttribute('open'); }); });
 })();

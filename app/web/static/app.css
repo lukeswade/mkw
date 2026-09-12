@@ -1609,8 +1609,8 @@ table.compare td.better { color: var(--text-primary); font-weight: 600; }
   list-style: none; display: flex; align-items: center; gap: .5rem;
 }
 .toc summary::-webkit-details-marker { display: none; }
-.toc summary::before { content: "▸"; font-size: .8em; transition: transform .15s ease; }
-.toc[open] summary::before { transform: rotate(90deg); }
+/* Pico draws the disclosure chevron as summary::after; one indicator is enough. */
+.toc summary::after { margin-left: 0; }
 .toc ol { list-style: none; margin: .5rem 0 0; padding: 0 0 0 .75rem; border-left: 1px solid var(--border-subtle); }
 .toc li { margin: 0; }
 .toc a {
@@ -1640,5 +1640,5 @@ table.compare td.better { color: var(--text-primary); font-weight: 600; }
   #tab-overview.has-toc .overview-prose { grid-column: 1; grid-row: 1; }
   #tab-overview.has-toc > :not(.toc):not(.overview-prose) { grid-column: 1; }
   .toc summary { pointer-events: none; }
-  .toc summary::before { display: none; }
+  .toc summary::after { display: none; }
 }
