@@ -575,14 +575,40 @@ async def run_file(request: Request, run_id: str, name: str,
             f'attachment; filename="{run_id}_{Path(name).name}"')
     return FileResponse(target, media_type=media, headers=headers)
 
+@router.post("/runs/batch-delete")
+async def batch_delete(request: Request, ids: list[str] = Form([]),
+                       view: str = Form("home"), kind: str = Form("")):
+    """Delete several runs at once — the list pages' Select-to-delete mode
+    and a phone's swipe both land here. Unknown ids are skipped rather than
+    failing the batch. Returns what the caller can swap in: the New tab gets
+    its list back, the Library reloads with its filter intact."""
+    repo = request.app.state.repo
+    for run_id in dict.fromkeys(ids):
+        row = repo.get_run(run_id)
+        if row is not None:
+            await _delete_run(request, row)
+    if view == "library":
+        target = "/library" + (f"?kind={kind}" if kind else "")
+        return Response(status_code=200, headers={"HX-Redirect": target})
+    return _tpl(request).TemplateResponse(
+        request, "partials/runs_list.html", _runs_context(request))
+
+
 @router.delete("/runs/{run_id}")
 async def delete_run(request: Request, run_id: str):
+    """Remove a run from every store it touches (the run page's Delete)."""
+    row = _row_or_404(request, run_id)
+    await _delete_run(request, row)
+    return Response(status_code=200, headers={"HX-Redirect": "/library"})
+
+
+async def _delete_run(request: Request, row) -> None:
     """Remove a run from every store it touches.
 
     Order matters: stop the pipeline first, or it keeps writing into a
     directory we are about to remove.
     """
-    row = _row_or_404(request, run_id)
+    run_id = row["id"]
     cfg = request.app.state.cfg_loader()
     orch = request.app.state.orch
 
@@ -614,5 +640,3 @@ async def delete_run(request: Request, run_id: str):
         shutil.rmtree(run_dir, ignore_errors=True)
     else:
         log.error("refusing to delete %s — outside %s", run_dir, research_root)
-
-    return Response(status_code=200, headers={"HX-Redirect": "/library"})

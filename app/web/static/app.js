@@ -183,3 +183,101 @@ document.addEventListener('click', function (e) {
   // The evergreen toggle swaps the whole header back in, open.
   document.body.addEventListener('htmx:afterSwap', apply);
 })();
+
+// ---- Run lists: select-to-delete everywhere, swipe-to-delete on touch ----
+(function () {
+  function region(el) { return el.closest('.runs-region'); }
+  function refresh(reg) {
+    var n = reg.querySelectorAll('.sel input:checked').length;
+    var b = reg.querySelector('.delete-selected');
+    b.disabled = n === 0;
+    b.textContent = n ? 'Delete selected (' + n + ')' : 'Delete selected';
+    reg.querySelectorAll('.run-item-wrap').forEach(function (w) {
+      var c = w.querySelector('.sel input');
+      w.classList.toggle('checked', !!(c && c.checked));
+    });
+  }
+  function setSelecting(reg, on) {
+    reg.classList.toggle('selecting', on);
+    // The New tab re-fetches its list every few seconds; not while it is
+    // being worked on, or the checkboxes vanish under the user's finger.
+    document.body.classList.toggle('list-busy', on || !!document.querySelector('.run-row.open'));
+    if (!on) reg.querySelectorAll('.sel input').forEach(function (c) { c.checked = false; });
+    refresh(reg);
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.closest('.select-toggle')) { setSelecting(region(t), true); return; }
+    if (t.closest('.select-cancel')) { setSelecting(region(t), false); return; }
+    var reg = region(t);
+    if (reg && reg.classList.contains('selecting')) {
+      var wrap = t.closest('.run-item-wrap');
+      if (wrap && !t.closest('.evergreen-star')) {
+        // In select mode a tap anywhere on the row toggles it; the link waits.
+        if (!t.closest('.sel input')) {
+          e.preventDefault();
+          var c = wrap.querySelector('.sel input');
+          c.checked = !c.checked;
+        }
+        refresh(reg);
+        return;
+      }
+    }
+    // Tapping the revealed Delete deletes that one row through the same
+    // endpoint the batch uses; tapping anywhere else closes an open row.
+    var del = t.closest('.swipe-delete');
+    if (del) {
+      var reg2 = region(del), form = reg2.querySelector('form');
+      htmx.ajax('POST', '/runs/batch-delete', {
+        target: reg2, swap: 'outerHTML',
+        values: { ids: del.dataset.id, view: form.view.value, kind: form.kind.value }
+      });
+      return;
+    }
+    var open = document.querySelector('.run-row.open');
+    if (open && !open.contains(t)) { open.classList.remove('open'); document.body.classList.remove('list-busy'); }
+  });
+  document.body.addEventListener('htmx:afterSwap', function () {
+    if (!document.querySelector('.runs-region.selecting') && !document.querySelector('.run-row.open')) {
+      document.body.classList.remove('list-busy');
+    }
+  });
+
+  // Swipe: horizontal drag on a row reveals Delete behind it. Touch only;
+  // touch-action:pan-y in CSS leaves vertical scrolling to the browser.
+  if (!window.matchMedia('(pointer: coarse)').matches) return;
+  var drag = null;
+  document.addEventListener('pointerdown', function (e) {
+    var wrap = e.target.closest('.run-item-wrap');
+    if (!wrap || e.pointerType === 'mouse' || region(wrap).classList.contains('selecting')) return;
+    drag = { wrap: wrap, row: wrap.closest('.run-row'), x: e.clientX, y: e.clientY, dx: 0, live: false };
+  }, { passive: true });
+  document.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.live) {
+      if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return;
+      drag.live = true;
+      drag.wrap.style.transition = 'none';
+    }
+    var wasOpen = drag.row.classList.contains('open');
+    drag.dx = Math.max(-96, Math.min(0, dx + (wasOpen ? -88 : 0)));
+    drag.wrap.style.transform = 'translateX(' + drag.dx + 'px)';
+  }, { passive: true });
+  function end() {
+    if (!drag) return;
+    var d = drag; drag = null;
+    d.wrap.style.transition = ''; d.wrap.style.transform = '';
+    if (!d.live) return;
+    var open = d.dx < -50;
+    document.querySelectorAll('.run-row.open').forEach(function (r) { if (r !== d.row) r.classList.remove('open'); });
+    d.row.classList.toggle('open', open);
+    document.body.classList.toggle('list-busy', open || !!document.querySelector('.runs-region.selecting'));
+    // A drag must not also be a tap on the link underneath.
+    var swallow = function (ev) { ev.preventDefault(); ev.stopPropagation(); };
+    d.wrap.addEventListener('click', swallow, { capture: true, once: true });
+    setTimeout(function () { d.wrap.removeEventListener('click', swallow, { capture: true }); }, 300);
+  }
+  document.addEventListener('pointerup', end, { passive: true });
+  document.addEventListener('pointercancel', end, { passive: true });
+})();

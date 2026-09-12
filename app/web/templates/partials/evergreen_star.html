@@ -1,7 +1,10 @@
-{# Self-swapping evergreen toggle for list rows. #}
-<button class="evergreen-star{{ ' is-on' if r['evergreen'] else '' }}"
+{# List rows show the star only for runs that ARE evergreen: it says "this
+   one refreshes itself" and switches it off. Turning it on is the run page's
+   job ("Keep evergreen"). The empty span is what the toggle-off swaps in —
+   htmx ignores an empty body, so something has to come back. #}
+{% if r['evergreen'] %}
+<button class="evergreen-star is-on"
         hx-post="/runs/{{ r['id'] }}/evergreen?view=star"
         hx-target="this" hx-swap="outerHTML"
-        title="{{ 'Stop refreshing this research daily' if r['evergreen'] else 'Re-research this topic daily and link the updates' }}">
-  {{- '★' if r['evergreen'] else '☆' -}}
-</button>
+        title="Refreshes daily — click to stop">★</button>
+{%- else %}<span class="run-tools-empty" hidden></span>{% endif %}

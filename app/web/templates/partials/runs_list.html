@@ -1,44 +1,52 @@
 {% if runs %}
-{% if list_heading %}<h3 class="section-title">{{ list_heading }}</h3>{% endif %}
-<div class="run-list">
-  {% for item in runs %}
-  {% set r = item.row %}
-  <div class="run-item-wrap">
-    <a class="run-item" href="/runs/{{ r['id'] }}">
-      {% set k = r['kind'] or 'research' %}
-      <div class="run-info">
-        {# Title leads; its badges sit right beside it. On a narrow screen the
-           badges drop to their own row, type left and status right. #}
-        <span class="run-headline">
-          <span class="run-title">{{ r['title'] or r['query'] }}</span>
-          <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
-        </span>
-        {# What it is leads the detail line, level with the text beside it. #}
-        <span class="run-meta">
-          <span class="run-kinds">
-            <span class="kind kind-{{ k }}" title="{{ KIND_HELP[k] }}">{{ KIND_LABEL[k] }}</span>
-            {%- if item.has_matrix and k == 'research' %}<span class="kind kind-matrix"
-                  title="This run has a comparison table">matrix</span>{% endif %}
-          </span>
-          <span class="meta-text">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
-            {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
-            · {{ r['created_at'] | localdt }}
-          {%- if r['created_by'] %} <span class="user-tag" style="--hue: {{ r['created_by'] | user_hue }}" title="started by {{ r['created_by'] }}">{{ r['created_by'] }}</span>{% endif %}
-          </span>
-        </span>
-      </div>
-    </a>
-    <span class="run-tools">
-      {% if r['status'] == 'completed' %}{% include "partials/evergreen_star.html" %}{% endif %}
-      <button class="delete-btn"
-              hx-delete="/runs/{{ r['id'] }}"
-              hx-confirm="Are you sure you want to delete this run?"
-              hx-target="closest .run-item-wrap"
-              hx-swap="outerHTML"
-              title="Delete run">×</button>
+<div class="runs-region">
+{% if list_heading %}<h3 class="section-title">{{ list_heading }} <span class="count">{{ runs | length }}</span></h3>{% endif %}
+{# One form is the whole list, so a batch delete is just its submit. The
+   standalone × per row is gone: on a phone a row swipes left to reveal
+   Delete; everywhere, "Select to delete" turns the rows into checkboxes. #}
+<form class="run-list" hx-post="/runs/batch-delete" hx-target="closest .runs-region"
+      hx-swap="outerHTML" hx-confirm="Delete the selected runs and all their files?">
+  <input type="hidden" name="view" value="{{ 'library' if nav == 'library' else 'home' }}">
+  <input type="hidden" name="kind" value="{{ kind or '' }}">
+  <div class="list-tools">
+    <button type="button" class="select-toggle">Select to delete</button>
+    <span class="selecting-only">
+      <button type="submit" class="delete-selected" disabled>Delete selected</button>
+      <button type="button" class="select-cancel">Cancel</button>
     </span>
   </div>
+  {% for item in runs %}
+  {% set r = item.row %}
+  {% set k = r['kind'] or 'research' %}
+  <div class="run-row">
+    <button type="button" class="swipe-delete" data-id="{{ r['id'] }}" tabindex="-1">Delete</button>
+    <div class="run-item-wrap">
+      <label class="sel" aria-label="Select this run"><input type="checkbox" name="ids" value="{{ r['id'] }}"></label>
+      <a class="run-item" href="/runs/{{ r['id'] }}">
+        <div class="run-info">
+          <span class="run-headline">
+            <span class="run-title">{{ r['title'] or r['query'] }}</span>
+            <span class="chip status-{{ r['status'] }}">{{ r['status'] }}</span>
+          </span>
+          <span class="run-meta">
+            <span class="run-kinds">
+              <span class="kind kind-{{ k }}" title="{{ KIND_HELP[k] }}">{{ KIND_LABEL[k] }}</span>
+              {%- if item.has_matrix and k == 'research' %}<span class="kind kind-matrix"
+                    title="This run has a comparison table">matrix</span>{% endif %}
+            </span>
+            <span class="meta-text">depth {{ r['depth'] }} · {{ RECENCY_LABELS[r['recency']] | lower }}
+              {%- if item.stats and item.stats.sources_kept is defined %} · {{ item.stats.sources_kept }} sources{% endif %}
+              · {{ r['created_at'] | localdt }}
+            {%- if r['created_by'] %} <span class="user-tag" style="--hue: {{ r['created_by'] | user_hue }}" title="started by {{ r['created_by'] }}">{{ r['created_by'] }}</span>{% endif %}
+            </span>
+          </span>
+        </div>
+      </a>
+      {% if r['status'] == 'completed' and r['evergreen'] %}<span class="run-tools">{% include "partials/evergreen_star.html" %}</span>{% endif %}
+    </div>
+  </div>
   {% endfor %}
+</form>
 </div>
 {% else %}
 <div class="empty-state">

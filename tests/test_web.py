@@ -301,20 +301,25 @@ def test_evergreen_star_in_lists(data_dir, monkeypatch):
     repo = Repo(connect(cfg.db_path))
     with TestClient(app) as client:
         home = client.get("/")
-        assert "evergreen-star" in home.text
-        assert "☆" in home.text                  # off state
+        # 2026-09-11: the star is an indicator that a run refreshes itself,
+        # and its off switch — not a switch on every row. Nothing evergreen,
+        # no star.
+        assert "evergreen-star" not in home.text
 
         # toggling from a list swaps just the star, not a page header
         r = client.post(f"/runs/{run_id}/evergreen?view=star")
         assert r.status_code == 200
         assert "★" in r.text and "run-header" not in r.text
+        assert "evergreen-star is-on" in client.get("/").text
         assert repo.get_run(run_id)["evergreen"] == 1
 
         lib = client.get("/library")
         assert "★" in lib.text                   # on state visible in library
 
+        # off again: no hollow star any more — something non-empty still
+        # comes back, because htmx ignores an empty body and would not swap
         r = client.post(f"/runs/{run_id}/evergreen?view=star")
-        assert "☆" in r.text
+        assert "★" not in r.text and "☆" not in r.text and "run-tools-empty" in r.text
         assert repo.get_run(run_id)["evergreen"] == 0
 
 
@@ -527,7 +532,7 @@ def test_the_new_tab_poll_pauses_when_the_tab_is_hidden(data_dir, monkeypatch):
     app, _cfg = make_app(data_dir, monkeypatch)
     with TestClient(app) as client:
         page = client.get("/").text
-    assert "every 5s [document.visibilityState=='visible']" in page
+    assert "every 5s [document.visibilityState=='visible' && !document.body.classList.contains('list-busy')]" in page
 
 
 def test_has_matrix_is_read_from_the_row_not_the_disk(data_dir, monkeypatch):
@@ -840,3 +845,29 @@ def test_the_tab_bar_fits_a_phone(data_dir, monkeypatch):
         assert 'href="/briefs"' in client.get("/settings").text
         assert client.get("/briefs").status_code == 200          # the page itself stays
         assert 'class="run-tools"' in client.get("/partials/recent-runs").text or True
+
+
+def test_lists_delete_by_selection_or_swipe_not_by_a_standalone_x(data_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    app, cfg = make_app(data_dir, monkeypatch)
+    a = seed_completed_run(cfg); b = seed_completed_run(cfg); c = seed_completed_run(cfg)
+    repo = Repo(connect(cfg.db_path))
+    with TestClient(app) as client:
+        home = client.get("/partials/recent-runs").text
+        assert 'class="select-toggle"' in home and 'class="swipe-delete"' in home
+        assert "hx-delete" not in home                         # no per-row ×
+        assert 'name="view" value="home"' in home
+        assert 'name="view" value="library"' in client.get("/library").text
+        # the New tab gets its list back, minus the deleted rows
+        r = client.post("/runs/batch-delete", data={"ids": [a, b], "view": "home"})
+        assert r.status_code == 200
+        # exact hrefs: the seeded ids are prefixes of one another
+        assert f'href="/runs/{a}"' not in r.text and f'href="/runs/{b}"' not in r.text
+        assert f'href="/runs/{c}"' in r.text
+        assert repo.get_run(a) is None and repo.get_run(b) is None
+        assert not (cfg.research_dir / a).exists()
+        # the Library reloads with its filter; an unknown id is skipped, not an error
+        r = client.post("/runs/batch-delete",
+                        data={"ids": [c, "nope"], "view": "library", "kind": "research"})
+        assert r.headers["hx-redirect"] == "/library?kind=research"
+        assert repo.get_run(c) is None
