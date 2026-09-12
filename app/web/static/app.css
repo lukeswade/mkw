@@ -547,8 +547,16 @@ input[type="checkbox"] {
   text-decoration: none;
 }
 .run-title:hover { color: var(--text-primary); text-decoration: none; }
-/* The user pill and the evergreen star, one group at the right of the badge row. */
-.run-right { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
+/* Wide screens (the phone grid below places these cells explicitly and is
+   unaffected by `order`): the status badge is locked to the top row's right
+   edge; the second row reads kind badges, then the detail text, then the
+   user pill and evergreen star — left-aligned, in that order. The pill group
+   sits before the detail text in the DOM only so the phone grid can put it
+   in its own cell; here `order` puts it last. */
+.run-headline .chip { margin-left: auto; }
+.run-kinds { order: 1; }
+.meta-text { order: 2; }
+.run-right { order: 3; display: inline-flex; align-items: center; gap: .4rem; }
 .run-right:empty { display: none; }
 .run-right .evergreen-star {
   background: transparent; color: var(--accent, #6ee7b7); border: 1px solid transparent;
