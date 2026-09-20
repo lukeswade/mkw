@@ -134,8 +134,8 @@ def looks_like_document(text: str) -> bool:
 # 7-8 (1,688 findings, 2026-09-20); showing 6 in arrival order discards the
 # last two whatever their confidence. Module constants so scripts/resynth_ab.py
 # can flip them per arm.
-_FACTS_PER_SOURCE = 6
-_FACTS_BY_CONFIDENCE = False
+_FACTS_PER_SOURCE = 8
+_FACTS_BY_CONFIDENCE = True
 
 
 def _note_block(f: Finding) -> str:

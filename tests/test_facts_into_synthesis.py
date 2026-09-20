@@ -31,10 +31,10 @@ def _finding():
 
 
 def test_note_block_follows_the_module_knobs(monkeypatch):
-    base = synthesizer._note_block(_finding())
-    assert base.count("- fact") == 6 and "fact 6" not in base    # today's default
-    monkeypatch.setattr(synthesizer, "_FACTS_PER_SOURCE", 8)
-    monkeypatch.setattr(synthesizer, "_FACTS_BY_CONFIDENCE", True)
     ranked = synthesizer._note_block(_finding())
     assert ranked.count("- fact") == 8
     assert ranked.index("fact 6") < ranked.index("fact 2")     # 10/10 before 2/10
+    monkeypatch.setattr(synthesizer, "_FACTS_PER_SOURCE", 6)
+    monkeypatch.setattr(synthesizer, "_FACTS_BY_CONFIDENCE", False)
+    base = synthesizer._note_block(_finding())
+    assert base.count("- fact") == 6 and "fact 6" not in base

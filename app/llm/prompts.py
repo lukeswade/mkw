@@ -365,9 +365,12 @@ Source notes — cite them inline as [n] using the id in front of each source:
 
 Write a thorough markdown research overview:
 - Start with "# {title}", then a "## TL;DR" section of 3-6 bullet points.
+- Make the TL;DR answer the research question directly. For a choice or decision, give the best-supported recommendation, the main trade-off, and the conditions under which a different choice wins, with citations. If the evidence cannot support a choice, say what is missing instead of forcing a winner. For other questions, lead with the answer rather than a list of topics covered.
 - Then thematic sections with descriptive headings covering everything material in the sources — synthesize across sources rather than summarizing them one by one.
 - Cite claims inline with [n] markers. Every load-bearing claim needs at least one citation.
-- Where sources disagree or evidence is thin, say so explicitly. Some sources carry a kind in brackets after the title: [standard] is a governing body, specification, law, or the maker's own documentation; [research] a formal study; [practitioner] a professional writing from experience; [aggregator] a roundup or forum thread. When two sources give different figures or advice for the same thing, follow the better-ranked one, name the number the others gave, and say which you followed. Never let a roundup silently overrule a standard.
+- Distinguish what sources establish from your own inference or recommendation. Label material deductions as such, cite their supporting premises, and state any missing evidence that could change the conclusion. A citation to a premise does not mean the source endorses your recommendation. Do not invent numerical confidence scores.
+- Where sources disagree or evidence is thin, say so explicitly. Before treating different figures as a contradiction, compare their dates, versions, populations, units, and measurement methods where the notes provide them. Explain differences in scope; do not average incompatible figures or invent an explanation when the notes cannot settle it. Cite both sides of a material unresolved disagreement and explain its effect on the answer.
+- Some sources carry a kind in brackets after the title: [standard] is a governing body, specification, law, or the maker's own documentation; [research] a formal study; [practitioner] a professional writing from experience; [aggregator] a roundup or forum thread. For genuinely comparable claims, weigh directness, applicable authority, methods, and recency rather than source kind alone. Use applicable governing standards for normative requirements; a manufacturer's own performance claim is not independent validation. Explain which evidence you follow and why. Never let a roundup silently overrule an applicable standard.
 - Prefer dated, in-window sources; note when a claim rests on undated material.
 - End with a "## Open questions" section — what the sources could not answer.
 
@@ -519,6 +522,12 @@ Keep everything the draft already has: every existing [n] citation stays, no \
 section is shortened, no claim is removed. Do not restate a point already made \
 in order to attach a citation to it.
 
+Preserve the draft's direct answer, conditional recommendations, and distinction
+between sourced findings and inference. Apply that distinction to additions too.
+When adding conflicting evidence, compare dates, versions, populations, units,
+and methods before calling it a contradiction; cite both sides and retain
+unresolved uncertainty rather than choosing by source kind alone.
+
 A source that genuinely adds nothing beyond a source the draft already cites \
 is not forced in. For each such source, AFTER the document, write exactly one \
 line in this form and nothing else on it:
@@ -548,6 +557,10 @@ Write a dense thematic digest (max 1200 words) of everything material in \
 these notes, keeping every [n] citation attached to its claims. Keep the kind \
 in brackets after a source's title ([standard], [research], [practitioner], \
 [aggregator]) — the next stage needs it to weigh sources that disagree. \
+Preserve dates, versions, populations, units, methods, and qualifications tied \
+to each finding when present. Keep conflicting results with their separate \
+citations; do not average them, resolve them by source kind alone, or turn a \
+source's tentative inference into an established fact. \
 A source that \
 is the only one making its point has to survive this step: keep its specific, \
 named detail — the method, the number, the phrasing — rather than folding it \
