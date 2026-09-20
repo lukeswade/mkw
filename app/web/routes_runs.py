@@ -22,7 +22,7 @@ from app.research.storage import SERVABLE_RE, RunStore
 from app.web.export import (PdfExportError, build_run_html,
                             render_pdf, standalone_html)
 from app.web.markdown import (anchor_sections, render, render_overview,
-                              strip_leading_h1)
+                              strip_leading_h1, strip_repeated_h1)
 from app.db import row_get
 from app.research.searcher import category_options, split_categories
 
@@ -478,7 +478,8 @@ async def export_pdf(request: Request, run_id: str):
     html = build_run_html(
         title=row["title"] or row["query"], query=row["query"],
         meta_line=meta_line,
-        overview_html=render_overview(overview_md, len(findings)),
+        overview_html=render_overview(
+            strip_repeated_h1(overview_md, row["title"] or row["query"]), len(findings)),
         findings=findings, cards=_finding_cards(store, findings))
     try:
         pdf = render_pdf(html, title=row["title"] or row["query"])
@@ -498,7 +499,8 @@ async def export_html(request: Request, run_id: str):
     page = standalone_html(
         title=row["title"] or row["query"], query=row["query"],
         meta_line=meta_line,
-        overview_html=render_overview(overview_md, len(findings)),
+        overview_html=render_overview(
+            strip_repeated_h1(overview_md, row["title"] or row["query"]), len(findings)),
         findings=findings, cards=_finding_cards(store, findings))
     # octet-stream, not text/html: Cloudflare (and other RUM-injecting
     # proxies) rewrite text/html responses in transit and add a beacon

@@ -328,6 +328,18 @@ def test_exports_still_carry_their_own_heading(data_dir, monkeypatch):
     assert "Keep This Heading" in html
 
 
+def test_exports_do_not_print_the_title_twice(data_dir, monkeypatch):
+    """The export writes its own H1 from the run title; an overview that
+    opens with the same heading used to print it again right underneath."""
+    client, cfg = _client(data_dir, monkeypatch)
+    _repo, store = _seed(cfg)          # no title, so the export falls back to the query "q"
+    store.write_overview("#  Q \n\nBody.\n")
+    with client:
+        html = client.get(f"/runs/{store.run_id}/export.html").text
+    import re
+    assert len(re.findall(r"<h1[ >]", html)) == 1
+
+
 def test_claim_report_heading_does_not_repeat_itself():
     from app.research.verify import render_report
     md = render_report("Claim check: MLX vs llama.cpp", [], skipped=[],

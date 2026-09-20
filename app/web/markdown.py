@@ -40,6 +40,19 @@ def strip_leading_h1(md_text: str) -> str:
     return _LEADING_H1_RE.sub("", md_text or "", count=1)
 
 
+def strip_repeated_h1(md_text: str, title: str) -> str:
+    """For exports: drop the overview's H1 only when it repeats the title the
+    export already printed above it. A heading that says something else is
+    kept — the standalone document still needs one."""
+    m = _LEADING_H1_RE.match(md_text or "")
+    if not m:
+        return md_text or ""
+    heading = " ".join(m.group(0).lstrip("#").split()).lower()
+    if heading == " ".join((title or "").split()).lower():
+        return _LEADING_H1_RE.sub("", md_text, count=1)
+    return md_text
+
+
 # A claim check's verdict cell is exactly "✓ supported (9/10)" — written by
 # render_report, never by a fetched page. Markdown is rendered with html=False
 # so the generator cannot emit its own markup; this puts the colour back on
