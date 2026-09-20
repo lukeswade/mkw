@@ -83,6 +83,10 @@ class Orchestrator:
     def start(self) -> None:
         self._worker = asyncio.create_task(self._loop(), name="research-worker")
 
+    def worker_alive(self) -> bool:
+        """False once the loop task has ended for any reason — /health reports it."""
+        return self._worker is not None and not self._worker.done()
+
     async def stop(self) -> None:
         self._shutting_down = True
         if self._worker:

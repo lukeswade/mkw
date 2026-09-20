@@ -55,7 +55,15 @@ _STRONG_UNCITED = 7            # relevance at which "read but unused" is news
 # a deep run's extra sources had nowhere to go. The floor keeps a 6-source run
 # from being padded to fill a quota; the ceiling keeps a 150-source run from
 # trying to write a book.
-_PREVIOUS_OVERVIEW_CHARS = 9_000  # ~3k tokens of the parent overview
+# ~8k tokens of the parent overview. 9,000 chars covered the opening of a
+# typical overview and nothing else, and the delta prompt then asked which
+# earlier conclusions still hold. 24k covers nearly every overview on disk;
+# when it does clip, the clip is marked so the model does not treat the
+# unseen tail as new material.
+_PREVIOUS_OVERVIEW_CHARS = 24_000
+_PREVIOUS_OVERVIEW_CLIP_NOTE = (
+    "\n\n[... earlier overview truncated here — material beyond this point "
+    "was not shown; do not treat it as new ...]")
 # The candidate axis. Below the first number the document can cite every
 # source anyway, so the extraction call would buy nothing; a candidate on a
 # single source is a mention rather than something to assess; and the block
@@ -468,6 +476,8 @@ def _compose_prompt(notes: list[str], *, query: str, title: str, brief: str,
         # Evergreen refreshes and follow-ups lead with what changed — nobody
         # wants to re-read a 90%-identical overview to find the new part.
         clipped = previous_overview[:_PREVIOUS_OVERVIEW_CHARS]
+        if len(previous_overview) > _PREVIOUS_OVERVIEW_CHARS:
+            clipped += _PREVIOUS_OVERVIEW_CLIP_NOTE
         prompt += prompts.SYNTH_DELTA_BLOCK.format(previous_overview=clipped)
     if deliverables:
         # What the asker said about the shape of the answer, and last of the

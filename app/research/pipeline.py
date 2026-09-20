@@ -1592,6 +1592,7 @@ class Pipeline:
                                  reason=f"duplicate of {dup} content",
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
+                state.read += 1  # fetched and judged, like the other exits
                 return
             state.fingerprints.append((fp, domain_of(final_url)))
             detected_date = doc.date or (c.published.date().isoformat()
@@ -1604,6 +1605,7 @@ class Pipeline:
                                          reason=f"outside recency window ({detected_date})",
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
+                        state.read += 1
                         return
                 except ValueError:
                     pass
@@ -1622,6 +1624,7 @@ class Pipeline:
                                  reason="unusable notes output",
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
+                state.read += 1
                 return
             repaired, dropped = verify_quotes(notes, doc.text)
             state.quotes_repaired += repaired

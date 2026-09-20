@@ -481,7 +481,7 @@ async def export_pdf(request: Request, run_id: str):
         overview_html=render_overview(overview_md, len(findings)),
         findings=findings, cards=_finding_cards(store, findings))
     try:
-        pdf = render_pdf(html)
+        pdf = render_pdf(html, title=row["title"] or row["query"])
     except PdfExportError as e:
         raise HTTPException(500, f"PDF export failed: {e}")
     return Response(pdf, media_type="application/pdf", headers={
@@ -612,7 +612,9 @@ async def _delete_run(request: Request, row) -> None:
     cfg = request.app.state.cfg_loader()
     orch = request.app.state.orch
 
-    if row["status"] in ("queued", "running"):
+    # Re-synthesis and matrix jobs keep a completed row's status and live only
+    # in the orchestrator's active map; they write into this directory too.
+    if row["status"] in ("queued", "running") or run_id in orch.active:
         orch.cancel(run_id)
         for _ in range(50):  # give the task ~5s to unwind before we delete
             await asyncio.sleep(0.1)

@@ -360,6 +360,28 @@ class Claim(BaseModel):
 class ClaimsOut(BaseModel):
     claims: list[Claim] = Field(default_factory=list, max_length=80)
 
+    @field_validator("claims", mode="before")
+    @classmethod
+    def _clamp(cls, v):
+        # One over-long or malformed claim used to fail validation and abort
+        # the whole check. Truncate and drop the blanks instead — the same
+        # tolerance NotesOut applies to its facts.
+        if not isinstance(v, list):
+            return []
+        out = []
+        for c in v:
+            if isinstance(c, str):
+                c = {"text": c}
+            if not isinstance(c, dict):
+                continue
+            text = str(c.get("text") or "").strip()
+            if not text:
+                continue
+            c = dict(c)
+            c["text"] = text[:600]
+            out.append(c)
+        return out[:80]
+
 
 class VerdictOut(BaseModel):
     verdict: Literal["supported", "contested", "unsupported",

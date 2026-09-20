@@ -49,6 +49,22 @@ def test_render_puts_dimensions_in_rows_and_marks_gaps():
     formats = next(l for l in lines if l.startswith("| **Model formats**"))
     assert formats.endswith("| — |")
     assert "3 of 4 cells filled" in md
+    assert "a cell the sources shown here did not answer" in md
+
+
+def test_render_matches_cells_to_axes_despite_case_and_spacing():
+    """The model names each axis twice; a stray space or capital used to turn
+    a filled cell into a gap while still counting it as filled."""
+    out = _out(cells=[
+        {"entity": " mlx", "dimension": "decode  Speed", "value": "41 tok/s",
+         "sources": [1], "conflict": False},
+        {"entity": "Nowhere", "dimension": "Decode speed", "value": "orphan",
+         "sources": [], "conflict": False},
+    ])
+    md = render_matrix_md(MatrixOut.model_validate(out), title="T")
+    speed = next(l for l in md.splitlines() if l.startswith("| **Decode speed**"))
+    assert "41 tok/s [1]" in speed
+    assert "1 of 4 cells filled" in md        # the orphan never landed in the grid
 
 
 def test_render_flags_conflicts_and_keeps_citations():

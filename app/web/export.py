@@ -64,26 +64,95 @@ def build_run_html(*, title: str, query: str, meta_line: str,
     return "".join(parts)
 
 
-def render_pdf(html: str) -> bytes:
+_PDF_MARGIN = 42
+_PDF_FOOTER_Y = 26  # baseline above the bottom edge, inside the 56pt bottom margin
+
+
+def _latin(s: str) -> str:
+    # The built-in Helvetica the footer uses covers Latin-1 only.
+    return s.encode("latin-1", "ignore").decode("latin-1")
+
+
+def _outline(headings: list[tuple[int, str, int, float]]) -> list[list]:
+    """PDF bookmarks from the headings Story laid out.
+
+    set_toc insists the first entry is level 1 and no entry is deeper than
+    its predecessor plus one, so H2s under a missing H1 still work."""
+    out: list[list] = []
+    prev = 0
+    for level, text, page, top in headings:
+        text = " ".join((text or "").split())
+        if not text:
+            continue
+        level = 1 if not out else max(1, min(level, prev + 1))
+        out.append([level, text[:120], page, top])
+        prev = level
+    return out
+
+
+def _stamp_footer(doc, title: str) -> None:
+    label = _latin(" ".join((title or "").split()))
+    if len(label) > 90:
+        label = label[:87] + "..."
+    grey = (0.45, 0.45, 0.45)
+    n = len(doc)
+    for i, page in enumerate(doc):
+        r = page.rect
+        y = r.y1 - _PDF_FOOTER_Y
+        if label:
+            page.insert_text((_PDF_MARGIN, y), label, fontsize=8,
+                             fontname="helv", color=grey)
+        num = f"{i + 1} / {n}"
+        w = _pymupdf().get_text_length(num, fontname="helv", fontsize=8)
+        page.insert_text((r.x1 - _PDF_MARGIN - w, y), num, fontsize=8,
+                         fontname="helv", color=grey)
+
+
+def _pymupdf():
     import pymupdf
+    return pymupdf
+
+
+def render_pdf(html: str, *, title: str = "") -> bytes:
+    """Lay the page out, then give it what a document has and a web page
+    does not: a footer with the title and "page n / N", and an outline
+    (bookmarks) built from the headings so a reader can jump to a section."""
+    pymupdf = _pymupdf()
 
     try:
         story = pymupdf.Story(html=html, user_css=_CSS)
         buf = io.BytesIO()
         writer = pymupdf.DocumentWriter(buf)
         mediabox = pymupdf.paper_rect("a4")
-        where = mediabox + (42, 42, -42, -56)
+        where = mediabox + (_PDF_MARGIN, _PDF_MARGIN, -_PDF_MARGIN, -56)
+        headings: list[tuple[int, str, int, float]] = []
+
+        def recorder(elpos) -> None:
+            # opening tag of a heading: (level, text, 1-based page, top y)
+            if (elpos.open_close & 1) and elpos.heading:
+                rect = elpos.rect  # a tuple (x0, y0, x1, y1) in this build
+                top = float(rect[1] if isinstance(rect, (tuple, list)) else rect.y0)
+                headings.append((int(elpos.heading), elpos.text or "",
+                                 elpos.page + 1, top))
+
+        pno = 0
         while True:
             dev = writer.begin_page(mediabox)
             more, _ = story.place(where)
+            story.element_positions(recorder, {"page": pno})
             story.draw(dev)
             writer.end_page()
+            pno += 1
             if not more:
                 break
         writer.close()
         # Story writes duplicate font objects on every page — dedupe and
         # deflate cuts a ~4.6MB document to a fraction of that.
         doc = pymupdf.open(stream=buf.getvalue(), filetype="pdf")
+        _stamp_footer(doc, title)
+        outline = _outline(headings)
+        if outline:
+            doc.set_toc(outline)
         out = doc.tobytes(garbage=4, deflate=True)
         doc.close()
         return out

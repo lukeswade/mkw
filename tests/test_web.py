@@ -57,7 +57,10 @@ def seed_completed_run(cfg, *, evil=False) -> str:
 def test_health_and_index_without_password(data_dir, monkeypatch):
     app, _ = make_app(data_dir, monkeypatch)
     with TestClient(app) as client:
-        assert client.get("/health").json() == {"status": "ok"}
+        body = client.get("/health").json()
+        assert body["status"] == "ok"
+        assert body["active"] == 0 and body["queued"] == 0
+        assert "worker" not in body  # the test app runs no worker, so no claim
         r = client.get("/")
         assert r.status_code == 200
         assert "What should I research?" in r.text
@@ -900,3 +903,44 @@ def test_a_long_question_is_folded_on_the_run_page(data_dir, monkeypatch):
         home = client.get("/partials/recent-runs").text
         assert 'class="run-right"' in home                       # pill + star share the badge row
         assert '<a class="run-title"' in home                    # the title is the link now
+
+
+def test_pdf_export_has_an_outline_and_page_numbers():
+    """A document, not a printed web page: bookmarks from the headings and a
+    footer that says where you are."""
+    import pymupdf
+    from app.web.export import render_pdf
+    html = ("<h1>Title</h1><p>intro</p>"
+            + "".join(f"<h2>Section {i}</h2>" + "<p>lorem ipsum dolor sit amet</p>" * 60
+                      for i in range(4))
+            + "<h3>Deeper</h3><p>x</p>")
+    doc = pymupdf.open(stream=render_pdf(html, title="Naïve run — ✓"), filetype="pdf")
+    toc = doc.get_toc()
+    assert toc[0][:2] == [1, "Title"]
+    assert [t[1] for t in toc if t[0] == 2] == [f"Section {i}" for i in range(4)]
+    assert toc[-1][:2] == [3, "Deeper"]
+    assert toc[2][2] > 1                       # a later section lands on a later page
+    n = len(doc)
+    assert n > 1
+    assert f"1 / {n}" in doc[0].get_text()
+    assert f"{n} / {n}" in doc[-1].get_text()
+    assert "Naïve run" in doc[0].get_text()    # Latin-1 title survives; ✓ dropped
+
+
+def test_health_reports_a_dead_worker(data_dir, monkeypatch):
+    """The deploy gate curls this; a dead worker used to look like a slow queue."""
+    import asyncio
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    app = create_app(enable_worker=True, enable_bot=False)
+    with TestClient(app) as client:
+        assert client.get("/health").json()["worker"] == "alive"
+        orch = app.state.orch
+        loop = client.portal  # anyio portal running the app's loop
+        loop.call(orch._worker.cancel)
+        for _ in range(50):
+            if orch._worker.done():
+                break
+            loop.call(asyncio.sleep, 0.01)
+        r = client.get("/health")
+        assert r.status_code == 503
+        assert r.json()["worker"] == "dead"

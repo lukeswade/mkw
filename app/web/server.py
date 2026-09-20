@@ -14,7 +14,8 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
 from fastapi.staticfiles import StaticFiles
@@ -173,8 +174,21 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
                   lifespan=lifespan)
 
     @app.get("/health")
-    def health() -> dict:
-        return {"status": "ok"}
+    def health(request: Request) -> JSONResponse:
+        """ok, or 503 with worker=dead. The single worker used to be able to
+        die silently while this said ok and every new run sat queued; the
+        deploy gate reads this, so it has to say what the process can do."""
+        body: dict = {"status": "ok"}
+        orch = getattr(request.app.state, "orch", None)
+        if orch is not None:
+            body["active"] = len(orch.active)
+            body["queued"] = orch.queue.qsize()
+            if enable_worker:
+                alive = orch.worker_alive()
+                body["worker"] = "alive" if alive else "dead"
+                if not alive:
+                    body["status"] = "degraded"
+        return JSONResponse(body, status_code=200 if body["status"] == "ok" else 503)
 
     install_auth(app, cfg_loader, signer)
     app.include_router(build_login_router(templates, cfg_loader, signer))

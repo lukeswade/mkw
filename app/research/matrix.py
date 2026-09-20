@@ -85,15 +85,23 @@ def _cites(sources: list[int]) -> str:
     return f"{shown} +{extra}" if extra > 0 else shown
 
 
+def _key(s: str) -> str:
+    return " ".join(str(s or "").split()).lower()
+
+
 def render_matrix_md(out: MatrixOut, *, title: str, dropped: int = 0) -> str:
     """Dimensions as rows, entities as columns.
 
     That way round because a comparison usually has few entities and many
     axes, and a table is easier to read tall than wide.
     """
-    lookup = {(c.entity, c.dimension): c for c in out.cells}
+    # The model names the axes once and the cells again; a stray space or a
+    # capital between the two turned a filled cell into "—". Match on a
+    # normalized key and keep the axis strings for display.
+    lookup = {(_key(c.entity), _key(c.dimension)): c for c in out.cells}
     entities = [e for e in out.entities if e]
     dimensions = [d for d in out.dimensions if d]
+    filled = 0
 
     lines = [f"# {title} — comparison", ""]
     lines.append("| | " + " | ".join(_cell(e) for e in entities) + " |")
@@ -103,10 +111,11 @@ def render_matrix_md(out: MatrixOut, *, title: str, dropped: int = 0) -> str:
     for dim in dimensions:
         row = [f"**{_cell(dim)}**"]
         for ent in entities:
-            c = lookup.get((ent, dim))
+            c = lookup.get((_key(ent), _key(dim)))
             if c is None or not c.value.strip():
                 row.append("—")
                 continue
+            filled += 1
             value = _cell(c.value)
             if c.conflict:
                 conflicted = True
@@ -114,10 +123,9 @@ def render_matrix_md(out: MatrixOut, *, title: str, dropped: int = 0) -> str:
             row.append(f"{value} {_cites(c.sources)}".strip())
         lines.append("| " + " | ".join(row) + " |")
 
-    filled = sum(1 for c in out.cells if c.value.strip())
     total = len(entities) * len(dimensions)
     footnotes = [f"_{filled} of {total} cells filled from the sources; "
-                 f"— marks a gap no source could answer._"]
+                 f"— marks a cell the sources shown here did not answer._"]
     if conflicted:
         footnotes.append("_† sources disagree on this cell._")
     if dropped:
