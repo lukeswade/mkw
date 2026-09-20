@@ -52,12 +52,16 @@ class Finding:
 
 
 def render_facts(facts: list[dict], *, indent: str = "", quotes: bool = True,
-                 limit: int | None = None) -> str:
+                 limit: int | None = None, by_confidence: bool = False) -> str:
     """Markdown bullets for extracted facts.
 
     Shared by the finding file, the gap prompt, and synthesis so a change to
     the Fact shape can't silently leave one consumer printing dict reprs.
+    `by_confidence` orders strongest-first, so a `limit` drops the facts the
+    note-taker was least sure of rather than whichever came last.
     """
+    if by_confidence:
+        facts = sorted(facts, key=lambda f: -int(f.get("confidence") or 0))
     lines: list[str] = []
     for fact in facts[:limit]:
         claim = str(fact.get("claim", "")).strip()

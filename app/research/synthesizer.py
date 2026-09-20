@@ -129,6 +129,15 @@ def looks_like_document(text: str) -> bool:
     return False
 
 
+# How many of a source's extracted facts synthesis is shown, and in what
+# order. The notes prompt asks for up to 8 and 57% of stored findings carry
+# 7-8 (1,688 findings, 2026-09-20); showing 6 in arrival order discards the
+# last two whatever their confidence. Module constants so scripts/resynth_ab.py
+# can flip them per arm.
+_FACTS_PER_SOURCE = 6
+_FACTS_BY_CONFIDENCE = False
+
+
 def _note_block(f: Finding) -> str:
     # The kind of source is stated inline: a governing body's spec and a
     # listicle used to reach synthesis as peers, so a run could quote a drill
@@ -139,7 +148,9 @@ def _note_block(f: Finding) -> str:
     block = f"{f.citation_line()}{kind}\n    {f.url}\n{f.notes_md}\n"
     # Verbatim evidence is the point of extracting quotes — synthesis has to
     # see them or the claims it writes can't be grounded in the source wording.
-    evidence = render_facts(f.key_facts, indent="  ", quotes=True, limit=6)
+    evidence = render_facts(f.key_facts, indent="  ", quotes=True,
+                            limit=_FACTS_PER_SOURCE,
+                            by_confidence=_FACTS_BY_CONFIDENCE)
     if evidence:
         block += f"  Extracted facts and verbatim evidence:\n{evidence}\n"
     return block
