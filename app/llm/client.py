@@ -9,6 +9,7 @@ the main and fast model, and for routing canned responses in tests.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import logging
 from types import SimpleNamespace
@@ -73,6 +74,23 @@ class PromptTooLong(LLMError):
 # High-volume, mechanical calls — these are what the fast model is for.
 _FAST_KINDS = {"notes", "triage", "candidates"}
 
+# Reasoning tokens are billed against the same budget as the answer, so a
+# model left on its thinking default spends the call's whole allowance before
+# it starts writing. Measured 2026-09-22 against Qwen3.6-35B-A3B-oQ4e-mtp:
+# one notes prompt gave the SAME answer in 59 tokens with thinking off and
+# 1,469 with it on (21.9s vs 1.2s), and across a real depth-3 run every call
+# kind generated ~2.5x its old output, synthesis burned its whole 8,000-token
+# ceiling on reasoning, and the report came out at 63% of target length with
+# 20 of 43 sources uncited. Speed was the symptom; the truncated document was
+# the damage.
+#
+# Sent through extra_body because it is not an OpenAI field — oMLX and vLLM
+# forward it to the chat template. Local servers only: clouds reject unknown
+# body fields, and their reasoning is controlled by their own parameters.
+# Set LLM_ENABLE_THINKING=1 to restore the server's default.
+_THINKING_OFF = {"chat_template_kwargs": {"enable_thinking": False}}
+_THINKING_ON_ENV = ("1", "true", "on", "yes")
+
 
 class LLM:
     def __init__(self, cfg: Settings):
@@ -106,9 +124,23 @@ class LLM:
         # the model reported 262,144 positions but the serving profile capped
         # requests at 65,536 and a 66k prompt was refused outright.
         self.context_tokens = int(getattr(cfg, "llm_context_tokens", 0) or 0)
+        # Ask a local server not to think. Auto-disables on a 400, like the
+        # two capability flags above, so a server that has never heard of
+        # chat_template_kwargs costs one retry rather than every call.
+        from app.llm import providers as _providers   # lazy: config imports us
+        self.suppress_thinking = (
+            _providers.is_local(cfg.llm_provider)
+            and os.getenv("LLM_ENABLE_THINKING", "").strip().lower()
+            not in _THINKING_ON_ENV)
 
     def model_for(self, kind: str) -> str:
         return self.fast_model if kind in _FAST_KINDS else self.model
+
+    def _no_thinking(self, kwargs: dict) -> dict:
+        """Add the thinking-off flag to a request, if this server takes it."""
+        if self.suppress_thinking:
+            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **_THINKING_OFF}
+        return kwargs
 
     def _track(self, kind: str, resp) -> None:
         u = self.usage.setdefault(kind, {"calls": 0, "prompt_tokens": 0,
@@ -189,6 +221,7 @@ class LLM:
             kwargs["response_format"] = response_format
         elif json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        self._no_thinking(kwargs)
 
         last_err: Exception | None = None
         for attempt in range(3):
@@ -213,7 +246,16 @@ class LLM:
             except (APIConnectionError, APITimeoutError, RateLimitError) as e:
                 last_err = e
             except APIStatusError as e:
-                if e.status_code == 400 and "response_format" in kwargs:
+                if (e.status_code == 400 and "extra_body" in kwargs
+                        and not _TOO_LONG_RE.search(str(e))):
+                    # This server does not take chat_template_kwargs. Drop it
+                    # and stop sending it, rather than failing every call.
+                    log.warning("%s: server rejected chat_template_kwargs; "
+                                "thinking left at the server default", kind)
+                    self.suppress_thinking = False
+                    kwargs.pop("extra_body")
+                    last_err = e
+                elif e.status_code == 400 and "response_format" in kwargs:
                     fmt = kwargs["response_format"].get("type")
                     if fmt == "json_schema":
                         # server can't constrain to a schema — step down to
@@ -265,6 +307,7 @@ class LLM:
         # in every run, and its cost was a len(text)//3 guess.
         if self.supports_stream_usage:
             kwargs["stream_options"] = {"include_usage": True}
+        self._no_thinking(kwargs)
 
         # No retry once tokens have started flowing — partial output is
         # already on the user's screen. A 400 on the request itself is before
@@ -278,12 +321,20 @@ class LLM:
                 try:
                     stream = await self.client.chat.completions.create(**kwargs)
                 except APIStatusError as e:
-                    if e.status_code == 400 and "stream_options" in kwargs:
+                    # Only one retry is available here, so it drops every
+                    # optional field at once rather than guessing which of
+                    # them the server refused.
+                    optional = [k for k in ("extra_body", "stream_options")
+                                if k in kwargs]
+                    if e.status_code != 400 or not optional:
+                        raise
+                    if "extra_body" in kwargs:
+                        self.suppress_thinking = False
+                        kwargs.pop("extra_body")
+                    if "stream_options" in kwargs:
                         self.supports_stream_usage = False
                         kwargs.pop("stream_options")
-                        stream = await self.client.chat.completions.create(**kwargs)
-                    else:
-                        raise
+                    stream = await self.client.chat.completions.create(**kwargs)
                 async for chunk in stream:
                     if getattr(chunk, "usage", None) is not None:
                         usage = chunk.usage
