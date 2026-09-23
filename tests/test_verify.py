@@ -481,3 +481,47 @@ async def test_a_verdicts_quote_must_exist_in_the_evidence_it_cites():
     repaired = (await judge(Fake("the 2UZ-FE uses iridium spark plugs with a 0.043 gap"), "claim", ev)).quote
     assert repaired == "The 2UZ-FE uses iridium plugs with a 0.043 inch gap."               # paraphrase -> the evidence's own sentence
     assert (await judge(Fake("Replace the coil packs every 30,000 miles"), "claim", ev)).quote == ""       # not in the evidence
+
+
+# ---- what the judge is shown of each page ---------------------------------------
+
+_NAV = "Home | Pricing | Blog | Careers. Subscribe to our newsletter for updates. " * 40
+
+
+def test_the_judge_is_shown_the_passage_about_the_claim_not_the_page_head():
+    """Web evidence reached the judge as each page's first 1,200 chars. On
+    141 real claims that showed the verified evidence 30% of the time; the
+    passage about the claim shows it 77% of the time."""
+    from app.research.verify import _EVIDENCE_CHARS, best_passage
+    evidence = ("In our tests the M4 Pro decoded Qwen3.6-35B-A3B at 67 tokens per "
+                "second, with prefill at 416 tokens per second on a 48GB machine.")
+    page = _NAV + evidence + " " + _NAV
+    assert evidence not in page[:_EVIDENCE_CHARS]
+    shown = best_passage("An M4 Pro runs Qwen3.6-35B-A3B at about 67 tok/s", page)
+    assert evidence in shown
+    assert len(shown) <= _EVIDENCE_CHARS + 4, "one window, plus the ellipsis marks"
+    assert shown.startswith("… ") and shown.endswith(" …"), "marked as an excerpt"
+
+
+def test_short_evidence_is_whole_and_no_overlap_keeps_the_head():
+    from app.research.verify import _EVIDENCE_CHARS, best_passage
+    assert best_passage("anything", "a short library chunk") == "a short library chunk"
+    page = "alpha beta gamma delta. " * 200
+    assert best_passage("quantum chromodynamics", page) == page[:_EVIDENCE_CHARS]
+    assert best_passage("", page) == page[:_EVIDENCE_CHARS]
+
+
+def test_a_rare_term_outweighs_a_common_one():
+    """'plug' is on every line of a spark-plug page; the torque figure is on
+    one. The window that has the figure is the one worth showing."""
+    from app.research.verify import best_passage
+    filler = "Spark plug guide: choosing a plug for your engine. " * 60
+    fact = "Torque the plugs to 13 ft-lbs on an aluminium head."
+    page = filler + fact + " " + filler
+    assert fact in best_passage("Spark plugs should be torqued to 13 ft-lbs", page)
+
+
+def test_render_evidence_without_a_claim_is_unchanged():
+    from app.research.verify import _EVIDENCE_CHARS, render_evidence
+    e = Evidence(n=1, label="x.com — X", url="https://x.com", text="a" * 3000)
+    assert render_evidence([e]) == "[1] x.com — X\n" + "a" * _EVIDENCE_CHARS

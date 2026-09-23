@@ -13,11 +13,15 @@ would be unreadable and mostly unreferenced.
 from __future__ import annotations
 
 import logging
+import math
+import re
+from collections import Counter
 from dataclasses import dataclass, field
 
 from app.llm import prompts
 from app.llm.client import LLM, est_tokens
 from app.models import Claim, ClaimsOut, VerdictOut
+from app.research.dedupe import _STOPWORDS, stem_token
 
 log = logging.getLogger(__name__)
 
@@ -97,9 +101,67 @@ def select_claims(claims: list[Claim], cap: int) -> tuple[list[Claim], list[Clai
     return checked, skipped
 
 
-def render_evidence(items: list[Evidence]) -> str:
+_TERM_RE = re.compile(r"[a-z0-9]+(?:\.[0-9]+)?")
+_YEAR_RE = re.compile(r"(19|20)\d\d")
+_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _terms(text: str) -> set[str]:
+    """Content words (stemmed) and distinctive numbers; years and short
+    words say nothing about which part of a page a claim is about."""
+    out = set()
+    for t in _TERM_RE.findall(re.sub(r"(?<=\d),(?=\d)", "", text.lower())):
+        if t.replace(".", "").isdigit():
+            if len(t) >= 2 and not _YEAR_RE.fullmatch(t):
+                out.add(t)
+        elif len(t) >= 3 and t not in _STOPWORDS:
+            out.add(stem_token(t))
+    return out
+
+
+def best_passage(claim: str, text: str, limit: int = _EVIDENCE_CHARS) -> str:
+    """The `limit`-char window of `text` that has the most to do with `claim`.
+
+    A web page was shown to the judge by its first 1,200 chars: masthead,
+    byline, intro. Measured 2026-09-23 (scripts/eval/page_probe.py quotes):
+    of 341 evidence quotes the note-taker had verified in their pages, 45%
+    sat inside the first 1,200 chars; the median sat at char 1,383, a
+    quarter past char 4,100. Windows start at sentence or line boundaries
+    and are scored on the claim's words and numbers present, rarer ones
+    weighted up, so no model is needed and nothing can fail. No overlap at
+    all keeps the old behaviour: the head.
+    """
+    if len(text) <= limit:
+        return text
+    wanted = _terms(claim)
+    if not wanted:
+        return text[:limit]
+    starts = {0} | {m.end() for m in _BOUNDARY_RE.finditer(text)}
+    starts |= set(range(0, len(text), max(1, limit // 3)))
+    starts = sorted(s for s in starts if s < len(text) - limit // 4)
+    found = [(s, _terms(text[s:s + limit]) & wanted) for s in starts]
+    df = Counter(t for _s, hit in found for t in hit)
+    weight = {t: math.log(1 + len(found) / n) for t, n in df.items()}
+    scored = [(sum(weight[t] for t in hit), s) for s, hit in found]
+    best = max(score for score, _s in scored)
+    if best == 0.0:
+        return text[:limit]
+    # Every window holding the best set of terms ties. The first puts the
+    # matching text at the window's end, the last at its start; the middle
+    # one centres it, so the sentence around it survives on both sides.
+    tied = [s for score, s in scored if score == best]
+    best_s = tied[len(tied) // 2]
+    passage = text[best_s:best_s + limit].strip()
+    return ("… " if best_s else "") + passage + (" …" if best_s + limit < len(text) else "")
+
+
+def render_evidence(items: list[Evidence], claim: str = "") -> str:
+    """Numbered evidence for the judge; with a claim, each long item is shown
+    by its passage about the claim rather than by its first chars."""
     return "\n\n".join(
-        f"[{e.n}] {e.label}\n{e.text[:_EVIDENCE_CHARS]}" for e in items
+        f"[{e.n}] {e.label}\n"
+        + (best_passage(claim, e.text) if claim else e.text[:_EVIDENCE_CHARS])
+        for e in items
     ) or "(no evidence found)"
 
 
@@ -124,7 +186,7 @@ async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
     try:
         out = await llm.chat_json(
             "verify", [{"role": "user", "content": prompts.VERDICT.format(
-                claim=claim, evidence=render_evidence(evidence))}],
+                claim=claim, evidence=render_evidence(evidence, claim))}],
             VerdictOut, max_tokens=900, temperature=0.1)
         out.quote = verbatim_quote(out.quote, evidence)
         return out
