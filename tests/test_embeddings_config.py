@@ -18,6 +18,15 @@ def test_prefixes_match_the_model_family():
     assert prefixes_for("something-unknown") == ("", "")
 
 
+def test_qwen3_embedding_queries_carry_its_instruction():
+    """Qwen measures a 1-5% retrieval drop without the query instruction;
+    documents are embedded bare."""
+    q, d = prefixes_for("mlx-community/Qwen3-Embedding-4B-4bit-DWQ")
+    assert q.startswith("Instruct: ") and q.endswith("\nQuery: ")
+    assert d == ""
+    assert prefixes_for("Qwen3-Embedding-0.6B")[0] == q
+
+
 def test_factory_defaults_to_the_baked_in_model(data_dir):
     cfg = Settings(data_dir=str(data_dir))
     assert isinstance(make_embedder(cfg), Embedder)

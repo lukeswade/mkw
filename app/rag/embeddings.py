@@ -47,6 +47,14 @@ class Embedder:
 
 # ---- remote embeddings (OpenAI-compatible /embeddings) -----------------------
 
+# Qwen3-Embedding is instruction-aware on the query side only (documents go
+# bare); its model card measures a 1-5% retrieval drop without one. One
+# instruction serves every lookup the app makes: Ask, claim checks, the
+# similar-run hint and the planner's prior block. scripts/eval/retrieval_eval.py
+# uses the same string, so its numbers are what the app would do.
+QWEN3_QUERY_INSTRUCT = ("Instruct: Given a research question or a claim, retrieve "
+                        "research notes that answer or verify it\nQuery: ")
+
 # Retrieval models want their own instruction prefixes; using the wrong ones
 # (or none) measurably degrades recall. Keyed by substring of the model id.
 _PREFIXES: tuple[tuple[str, str, str], ...] = (
@@ -55,7 +63,7 @@ _PREFIXES: tuple[tuple[str, str, str], ...] = (
     ("bge", QUERY_PREFIX, ""),
     ("e5", "query: ", "passage: "),
     ("gte", "", ""),
-    ("qwen3-emb", "", ""),
+    ("qwen3-emb", QWEN3_QUERY_INSTRUCT, ""),
 )
 
 
