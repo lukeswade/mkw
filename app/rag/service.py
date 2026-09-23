@@ -35,18 +35,29 @@ ASK_PER_RUN = 3
 PRIOR_PER_RUN = 3
 
 
-def diversify(hits, *, per_run: int, limit: int) -> list:
-    """Best-first, but no run may take more than per_run slots."""
+def diversify(hits, *, per_run: int, limit: int, backfill: bool = False) -> list:
+    """Best-first, but no run may take more than per_run slots.
+
+    With backfill, slots the other runs could not fill go to the capped
+    candidates, best first. The cap is there so one rich run cannot crowd the
+    rest out; when nothing else clears the floor it only threw relevant
+    chunks away. Measured 2026-09-23 on 160 synthetic Ask questions
+    (scripts/eval/retrieval_eval.py): 11 were shown about 3 chunks instead of
+    10, and backfill lifted the share shown their source from 64% to 67%.
+    """
     taken: dict[str, int] = defaultdict(int)
-    out = []
+    out, held = [], []
     for h in hits:
         rid = h.meta.get("run_id", "")
         if taken[rid] >= per_run:
+            held.append(h)
             continue
         taken[rid] += 1
         out.append(h)
         if len(out) >= limit:
-            break
+            return out
+    if backfill:
+        out += held[:limit - len(out)]
     return out
 
 
@@ -201,7 +212,7 @@ class RagService:
         hits = diversify(
             [h for h in self.index.query(emb, n=ASK_MAX_CHUNKS * 3)
              if h.score >= ASK_MIN_SCORE],
-            per_run=ASK_PER_RUN, limit=ASK_MAX_CHUNKS)
+            per_run=ASK_PER_RUN, limit=ASK_MAX_CHUNKS, backfill=True)
         if not hits:
             return {"answer": "The research corpus doesn't cover this yet — "
                               "try running a research on it first.",

@@ -179,3 +179,24 @@ def test_one_rich_run_cannot_fill_the_whole_context():
     assert "B" in runs and "C" in runs, "the thin runs still get a voice"
     assert picked[0].score >= picked[-1].score, "still best-first"
     assert len(picked) <= 10
+
+
+def test_backfill_uses_slots_the_other_runs_could_not_fill():
+    """The cap stops one run crowding out the rest. When there is no rest,
+    it was leaving Ask with 3 chunks of 10 and throwing relevant ones away."""
+    from app.rag.index import Hit
+    from app.rag.service import diversify
+    rich = [Hit(id=f"a{i}", text="", meta={"run_id": "A"}, score=0.9 - i * 0.01)
+            for i in range(12)]
+    thin = [Hit(id="b0", text="", meta={"run_id": "B"}, score=0.70)]
+    capped = diversify(rich + thin, per_run=3, limit=10)
+    filled = diversify(rich + thin, per_run=3, limit=10, backfill=True)
+    assert len(capped) == 4 and len(filled) == 10
+    assert filled[:4] == capped, "the diverse picks come first, unchanged"
+    assert [h.id for h in filled[4:]] == ["a3", "a4", "a5", "a6", "a7", "a8"], \
+        "then the held-back chunks, best first"
+    # when other runs can fill the slots, backfill changes nothing
+    many = [Hit(id=f"{r}{i}", text="", meta={"run_id": r}, score=0.8 - i * 0.01)
+            for r in "BCDE" for i in range(3)]
+    assert diversify(rich + many, per_run=3, limit=10, backfill=True) == \
+        diversify(rich + many, per_run=3, limit=10)
