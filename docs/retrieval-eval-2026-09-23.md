@@ -11,7 +11,7 @@ into the app and no Setting changed: the app still embeds with nomic.
 
 | Item | State (2026-10-07) | Decision owner |
 |---|---|---|
-| Three fixes | **Deployed** (`mkw-app:latest` = `77989d6f5c28`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
+| Three fixes | **Deployed** (image `77989d6f5c28`, now under `54e068b9961b`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
 | Qwen3-Reranker-0.6B | Downloaded and measured: claim checks 74% → 85%, Ask 64% → 69%. **Not wired in.** | Luke (recommended: claim checks first) |
 | Qwen3-Embedding-4B | Downloaded and measured: claim checks 74% → 82%, Ask 64% → 70%; with the reranker 89% and 79%. **Not adopted.** | Luke, once RAM is sorted |
 | Thinking on for synthesis | Tested (A/B below). Not adopted. | Parked |
@@ -91,8 +91,7 @@ page's chunks against the claim, keeping `best_passage` as the fallback
 (unmeasured; `best_passage` already shows the judge the evidence 77% of the
 time); (4) search-result ordering before fetching, the only place it could
 improve research reports; unmeasured, needs a live A/B. A setting
-for it belongs in `app/config.py`, `routes_settings.py` and `settings.html`,
-all of which hold the other session's uncommitted edits: coordinate first.
+for it belongs in `app/config.py`, `routes_settings.py` and `settings.html`.
 
 **If the embedder is adopted:**
 1. Deploy `6ba256f` first (the query instruction), or the switch loses 1-5%.
@@ -105,8 +104,8 @@ all of which hold the other session's uncommitted edits: coordinate first.
    and a read-only repo, reusing retrieval_eval's cached vectors by chunk text.
 3. Flip the model in Settings. The old collection stays for switching back.
 4. Retune cutoffs to the values the eval printed for the 4B: `LINK_MIN_SCORE`
-   0.55 → 0.43 and the similar-run hint (`0.62` in `app/web/routes_runs.py`,
-   which holds the other session's uncommitted edits) → 0.65. The Ask floor
+   0.55 → 0.43 and the similar-run hint (`0.62` in `app/web/routes_runs.py`)
+   → 0.65. The Ask floor
    (`ASK_MIN_SCORE`, 0.35) and claim-check floor (`_LIBRARY_MIN_SCORE` in
    `app/research/verify.py`, 0.45) already sit below the 4B's p10s (0.50,
    0.53); check `PRIOR_MIN_SCORE` the same way.
@@ -236,12 +235,16 @@ it; it would need a prefix row (`task: question answering | query: `,
 
 ## Pitfalls
 
-- **The working tree holds another session's uncommitted `diligence` work.**
-  `docker compose build` bakes it in. Deploy with `scripts/deploy_overlay.sh`.
-  Serving since 2026-10-07: `mkw-app:latest` = `77989d6f5c28`, the
-  `97f83403a06a` overlay (whose `app/` matched `7f87c8f` file for file) plus
-  the three fix files from `6ba256f`, hash-checked. `mkw-app:diligence-wip-20260920`
-  is that session's build; `mkw-app:pre-diligence` is the base.
+- **The serving image is a chain of overlays.** `mkw-app:latest` =
+  `54e068b9961b`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
+  file for file), plus the three fix files from `6ba256f`, plus
+  `app/llm/client.py` from `9447a7d`, each hash-checked; rollback tags
+  `mkw-app:rollback-20261007-*`. Overlays were needed while the tree held
+  the EDGAR session's uncommitted diligence work. That work was discarded on
+  2026-10-07 (kept on the local branch `archive/edgar-diligence-wip-20260920`),
+  so a clean `docker compose build` from main is possible again; it is a
+  deploy, so it is Luke's call. `mkw-app:diligence-wip-20260920` and
+  `mkw-app:pre-diligence` are leftovers from that work.
 - **A wedged Docker VM looks healthy.** On 2026-10-07 `/health` answered
   while the containers had no outbound network: runs failed at their first
   LLM call ("Connection error") and the tunnel dropped (mattkwade.com 530).
@@ -250,8 +253,9 @@ it; it would need a prefix row (`task: question answering | query: `,
 - **Out of RAM looks like a model failure.** oMLX refuses prompts when its
   dynamic ceiling drops below the 35B's needs (see oMLX facts). Compare
   `final_ceiling` with `current_model_memory` in `/v1/models/status`, and
-  check swap, before suspecting code. A response with no `choices` then
-  crashes the client in `app/llm/client.py` (flagged as its own task).
+  check swap, before suspecting code. Since `9447a7d` a refusal reaches the
+  run as `ServerOutOfMemory` or `PromptTooLong`, even when oMLX sends it
+  inside a 200 (JSON-mode keepalive).
 - **Never test an embedder by changing Settings**: the app switches to that
   model's empty collection at once. Use `retrieval_eval.py --embed-model`.
 - **Never re-freeze into `data/eval/2026-09-23/`**: it would overwrite the
@@ -266,7 +270,7 @@ it; it would need a prefix row (`task: question answering | query: `,
   `Qwen3.6-35B-A3B-oQ4e-mtp`. Resolves by loose matching today.
 - `sources_uncited` in meta.json goes stale after a re-synthesis
   (`resynthesize` discards `_mark_honestly`'s count). The fix belongs in
-  `app/research/pipeline.py`, which holds the other session's edits.
+  `app/research/pipeline.py`.
 - For "is X outdated?" research, use all-time recency: the 3-month window
   shut out every primary source for the embeddings run.
 
