@@ -71,6 +71,23 @@ class PromptTooLong(LLMError):
         self.limit = limit
 
 
+# oMLX's prefill memory guard. Checked before _TOO_LONG_RE: its advice ends
+# "...or reduce context length", which reads as a too-long refusal.
+_MEMORY_RE = re.compile(r"memory guard|prefill_memory_(?:exceeded|aborted)", re.I)
+_MEMORY_CODES = ("prefill_memory_exceeded", "prefill_memory_aborted")
+
+
+class ServerOutOfMemory(LLMError):
+    """The server refused the prompt because the machine is short of memory.
+
+    oMLX's prefill memory guard, 2026-10-07: with the Mac out of RAM it
+    refused every call for hours. Shrinking the prompt cannot help (it
+    measured 59 MB of KV against a 1.6 GB shortfall), a retry seconds later
+    is refused again, and it says nothing about which request fields the
+    server takes. So it is terminal, and no field is dropped over it.
+    """
+
+
 # High-volume, mechanical calls — these are what the fast model is for.
 _FAST_KINDS = {"notes", "triage", "candidates"}
 
@@ -141,6 +158,47 @@ class LLM:
         if self.suppress_thinking:
             kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **_THINKING_OFF}
         return kwargs
+
+    def _refusal(self, kind: str, message: str,
+                 code: str | None = None) -> LLMError | None:
+        """The server's refusal of THIS prompt as a typed error, else None.
+
+        A refusal is final for the prompt and says nothing about what the
+        server supports, so callers raise it rather than drop a request field
+        and go again.
+        """
+        if code in _MEMORY_CODES or _MEMORY_RE.search(message):
+            return ServerOutOfMemory(
+                f"LLM call '{kind}' refused: the server is short of memory. {message}")
+        if _TOO_LONG_RE.search(message):
+            # Remember the window the server named so later budgets fit.
+            m = _LIMIT_RE.search(message)
+            limit = int(m.group(1).replace(",", "")) if m else None
+            if limit and (not self.context_tokens or limit < self.context_tokens):
+                self.context_tokens = limit
+            return PromptTooLong(f"LLM call '{kind}' refused as too long: {message}", limit)
+        return None
+
+    def _no_reply(self, kind: str, resp) -> LLMError:
+        """The error for a 200 that carries no choices.
+
+        oMLX keeps a JSON-mode request alive with whitespace before it has a
+        result, so the status line is already 200 when a refusal comes; the
+        refusal can only arrive as an {"error": {...}} body, which the SDK
+        reads as a completion with choices=None. 2026-10-07 that was a
+        memory-guard refusal, and resp.choices[0] failed the run with
+        "'NoneType' object is not subscriptable".
+        """
+        err = getattr(resp, "error", None)
+        if err is None:
+            err = (getattr(resp, "model_extra", None) or {}).get("error")
+        if isinstance(err, dict):
+            message, code = str(err.get("message") or ""), err.get("code")
+        else:
+            message, code = (str(err) if err else ""), None
+        return self._refusal(kind, message, code) or LLMError(
+            f"LLM call '{kind}' got no reply from the server: "
+            f"{message or 'the response had no choices and no error'}")
 
     def _track(self, kind: str, resp) -> None:
         u = self.usage.setdefault(kind, {"calls": 0, "prompt_tokens": 0,
@@ -232,6 +290,8 @@ class LLM:
                         self.call_ceiling)
                 self.total_calls += 1
                 self._track(kind, resp)
+                if not getattr(resp, "choices", None):
+                    raise self._no_reply(kind, resp)
                 choice = resp.choices[0]
                 return (choice.message.content or "",
                         getattr(choice, "finish_reason", "") or "")
@@ -246,8 +306,16 @@ class LLM:
             except (APIConnectionError, APITimeoutError, RateLimitError) as e:
                 last_err = e
             except APIStatusError as e:
-                if (e.status_code == 400 and "extra_body" in kwargs
-                        and not _TOO_LONG_RE.search(str(e))):
+                refusal = (self._refusal(kind, str(e), getattr(e, "code", None))
+                           if e.status_code == 400 else None)
+                if refusal is not None:
+                    # Instant and final for this prompt: no prefill was spent,
+                    # and a retry, with or without the optional fields, would
+                    # be refused again. Before the field fallbacks below, so a
+                    # refusal never costs this run its thinking-off flag or
+                    # its JSON schema.
+                    raise refusal from e
+                if e.status_code == 400 and "extra_body" in kwargs:
                     # This server does not take chat_template_kwargs. Drop it
                     # and stop sending it, rather than failing every call.
                     log.warning("%s: server rejected chat_template_kwargs; "
@@ -273,16 +341,6 @@ class LLM:
                         f"LLM auth failed ({e.status_code}) — check the API key "
                         f"for provider '{self.provider}'."
                     ) from e
-                elif e.status_code == 400 and _TOO_LONG_RE.search(str(e)):
-                    # Instant and deterministic for this prompt: no prefill
-                    # was spent and a retry would be refused again. Remember
-                    # the window the server named so later budgets fit.
-                    m = _LIMIT_RE.search(str(e))
-                    limit = int(m.group(1).replace(",", "")) if m else None
-                    if limit and (not self.context_tokens or limit < self.context_tokens):
-                        self.context_tokens = limit
-                    raise PromptTooLong(
-                        f"LLM call '{kind}' refused as too long: {e}", limit) from e
                 else:
                     raise LLMError(f"LLM request rejected: {e}") from e
             except APIError as e:
@@ -321,6 +379,13 @@ class LLM:
                 try:
                     stream = await self.client.chat.completions.create(**kwargs)
                 except APIStatusError as e:
+                    # A refusal of the prompt is not a field problem: stripping
+                    # the fields would cost the rest of this run its
+                    # thinking-off flag, and the retry is refused anyway.
+                    refusal = (self._refusal(kind, str(e), getattr(e, "code", None))
+                               if e.status_code == 400 else None)
+                    if refusal is not None:
+                        raise refusal from e
                     # Only one retry is available here, so it drops every
                     # optional field at once rather than guessing which of
                     # them the server refused.
