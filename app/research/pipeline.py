@@ -522,6 +522,26 @@ def _under_any(key: str, domains: frozenset[str]) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
+async def _gather_or_cancel(coros) -> None:
+    """Read a round's sources together; the first failure cancels the rest.
+
+    A bad page is a skip, not an error, so a source that raises has failed
+    the whole run (a model server that is down, say), and asyncio.gather
+    alone would leave the other sources fetching and calling the model for
+    a run that is already over.
+    """
+    tasks = [asyncio.ensure_future(c) for c in coros]
+    try:
+        await asyncio.gather(*tasks)
+    except asyncio.CancelledError:
+        raise                       # gather has already cancelled them
+    except Exception:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
 _GENERIC_DOMAINS = frozenset({
     "wikipedia.org", "reddit.com", "youtube.com", "youtu.be", "github.com",
     "amazon.com", "medium.com", "stackexchange.com", "stackoverflow.com",
@@ -1712,7 +1732,7 @@ class Pipeline:
                         engine="reference", published=None, score=0.0,
                         via_query=f"cited by [{idx}] {finding.domain}"))
 
-        await asyncio.gather(*(process(c) for c in candidates))
+        await _gather_or_cancel(process(c) for c in candidates)
 
         if references and not self.cancel_requested:
             budget = min(_REFS_PER_ROUND, _REFS_PER_RUN - state.refs_chased)
@@ -1724,8 +1744,8 @@ class Pipeline:
                     message=(f"chasing {len(chase)} reference(s) cited by "
                              f"kept sources ({state.refs_chased} of "
                              f"{_REFS_PER_RUN} this run)"))
-                await asyncio.gather(
-                    *(process(c, harvest_refs=False) for c in chase))
+                await _gather_or_cancel(
+                    process(c, harvest_refs=False) for c in chase)
             elif budget <= 0:
                 self.bus.publish(
                     run_id, "log",

@@ -71,13 +71,24 @@ class PromptTooLong(LLMError):
         self.limit = limit
 
 
+class ServerUnavailable(LLMError):
+    """The server cannot answer any call right now.
+
+    Unreachable or failing (5xx) after the retries, refusing our key, or out
+    of memory. Unlike a timeout or bad JSON this is not about the prompt:
+    every call fails the same way, so a caller that skips the item and moves
+    on only repeats the failure for each source of a run. Callers stop
+    instead; the run fails with the server's reason and keeps what it read.
+    """
+
+
 # oMLX's prefill memory guard. Checked before _TOO_LONG_RE: its advice ends
 # "...or reduce context length", which reads as a too-long refusal.
 _MEMORY_RE = re.compile(r"memory guard|prefill_memory_(?:exceeded|aborted)", re.I)
 _MEMORY_CODES = ("prefill_memory_exceeded", "prefill_memory_aborted")
 
 
-class ServerOutOfMemory(LLMError):
+class ServerOutOfMemory(ServerUnavailable):
     """The server refused the prompt because the machine is short of memory.
 
     oMLX's prefill memory guard, 2026-10-07: with the Mac out of RAM it
@@ -337,7 +348,7 @@ class LLM:
                 elif e.status_code >= 500:
                     last_err = e
                 elif e.status_code in (401, 403):
-                    raise LLMError(
+                    raise ServerUnavailable(
                         f"LLM auth failed ({e.status_code}) — check the API key "
                         f"for provider '{self.provider}'."
                     ) from e
@@ -347,7 +358,13 @@ class LLM:
                 last_err = e
             if attempt < len(_BACKOFF):
                 await asyncio.sleep(_BACKOFF[attempt])
-        raise LLMError(f"LLM call '{kind}' failed after retries: {last_err}")
+        # Unreachable or failing through every retry is the server, not the
+        # prompt. A 429 that outlasts them is usually a burst, so it stays a
+        # plain failure: skipping one source is the gentler outcome there.
+        down = (isinstance(last_err, APIConnectionError)
+                or (isinstance(last_err, APIStatusError) and last_err.status_code >= 500))
+        raise (ServerUnavailable if down else LLMError)(
+            f"LLM call '{kind}' failed after retries: {last_err}")
 
     async def chat_stream(self, kind: str, messages: list[dict], bus, run_id: str, *,
                           max_tokens: int = 2048, temperature: float = 0.3) -> str:

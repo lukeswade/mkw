@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from app.llm import prompts
 from app.research.dedupe import _content_tokens, stem_token
-from app.llm.client import LLM, LLMError
+from app.llm.client import LLM, LLMError, ServerUnavailable
 from app.llm.json_utils import LLMJsonError
 from app.models import NotesOut
 
@@ -262,6 +262,11 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
         log.info("notes rechecked %s: %d and %d -> %d", url, first.relevance,
                  second.relevance, best.relevance)
         return best
+    except ServerUnavailable:
+        # Not this page's fault: every source would fail the same way, so the
+        # run stops with the server's reason rather than skip its way through
+        # the rest of the round as "unusable notes output".
+        raise
     except (LLMJsonError, LLMError) as e:
         # None => this one source is skipped with a visible reason. Before the
         # call had a ceiling a hung notes call hung the whole round; now it

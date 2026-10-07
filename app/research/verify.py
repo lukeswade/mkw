@@ -19,7 +19,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from app.llm import prompts
-from app.llm.client import LLM, est_tokens
+from app.llm.client import LLM, ServerUnavailable, est_tokens
 from app.models import Claim, ClaimsOut, VerdictOut
 from app.research.dedupe import _STOPWORDS, stem_token
 
@@ -190,6 +190,10 @@ async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
             VerdictOut, max_tokens=900, temperature=0.1)
         out.quote = verbatim_quote(out.quote, evidence)
         return out
+    except ServerUnavailable:
+        # A finished report of "unverifiable" verdicts would hide the outage
+        # behind what looks like a real result; the check fails instead.
+        raise
     except Exception as e:
         log.warning("verdict failed for %r: %s", claim[:60], e)
         return VerdictOut(verdict="unverifiable", confidence=0,

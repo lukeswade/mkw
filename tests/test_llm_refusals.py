@@ -18,7 +18,9 @@ import pytest
 from openai import AsyncOpenAI
 
 from app.config import Settings
-from app.llm.client import LLM, LLMError, PromptTooLong, ServerOutOfMemory
+from app.llm import client as llm_client
+from app.llm.client import (LLM, LLMError, PromptTooLong, ServerOutOfMemory,
+                            ServerUnavailable)
 
 # oMLX 0.7.0's words, from its server log on 2026-10-07.
 _GUARD = ("oMLX prefill memory guard rejected this prompt: Prefill would require "
@@ -151,3 +153,62 @@ async def test_a_long_streamed_prompt_raises_prompt_too_long_itself():
     with pytest.raises(PromptTooLong):
         await llm.chat_stream("synth", _MSGS, _BUS, "run")
     assert llm.suppress_thinking and len(server.requests) == 1
+
+
+# ---- the server itself is down -------------------------------------------------
+# Not about the prompt: every call fails the same way, so callers stop the run
+# instead of skipping the item (see tests/test_server_unavailable.py).
+
+def test_running_out_of_memory_is_the_server_being_unavailable():
+    assert issubclass(ServerOutOfMemory, ServerUnavailable)
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_server_is_unavailable_after_the_retries(monkeypatch):
+    monkeypatch.setattr(llm_client, "_BACKOFF", (0.0, 0.0))
+    attempts = []
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        attempts.append(request)
+        raise httpx.ConnectError("connection refused", request=request)
+
+    with pytest.raises(ServerUnavailable) as caught:
+        await _llm(refuse).chat_raw("notes", _MSGS)
+    assert "failed after retries" in str(caught.value) and len(attempts) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_server_error_that_outlasts_the_retries_is_unavailable(monkeypatch):
+    monkeypatch.setattr(llm_client, "_BACKOFF", (0.0, 0.0))
+    server = _Server(500, json.dumps(_error("the engine crashed")))
+    with pytest.raises(ServerUnavailable):
+        await _llm(server).chat_raw("notes", _MSGS)
+    assert len(server.requests) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_key_is_unavailable():
+    server = _Server(401, json.dumps(_error("invalid API key")))
+    with pytest.raises(ServerUnavailable) as caught:
+        await _llm(server).chat_raw("notes", _MSGS)
+    assert "check the API key" in str(caught.value) and len(server.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_request_the_server_rejects_is_this_calls_problem(monkeypatch):
+    """A 400 about the request is not an outage: the caller may skip the item."""
+    monkeypatch.setattr(llm_client, "_BACKOFF", (0.0, 0.0))
+    server = _Server(400, json.dumps(_error("unknown field: foo")))
+    with pytest.raises(LLMError) as caught:
+        await _llm(server).chat_raw("notes", _MSGS)
+    assert not isinstance(caught.value, ServerUnavailable)
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limit_that_outlasts_the_retries_stays_a_plain_failure(monkeypatch):
+    """A 429 burst should cost one source, not end the run."""
+    monkeypatch.setattr(llm_client, "_BACKOFF", (0.0, 0.0))
+    server = _Server(429, json.dumps(_error("slow down")))
+    with pytest.raises(LLMError) as caught:
+        await _llm(server).chat_raw("notes", _MSGS)
+    assert not isinstance(caught.value, ServerUnavailable)
