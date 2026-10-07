@@ -633,6 +633,29 @@ async def test_a_refusal_for_length_is_typed_and_teaches_the_client_its_window(d
     assert llm.total_calls == 0                  # no retries: the refusal is terminal
 
 
+async def test_a_synthesis_prompt_too_big_for_free_memory_is_digested_and_says_so():
+    """Digesting helps here too (shorter prompts need less memory), but the run
+    page must not blame the context window for what free memory did."""
+    from types import SimpleNamespace
+    from app.llm.client import PromptExceedsFreeMemory
+    from app.research.synthesizer import synthesize
+    from tests.fake_llm import FakeLLM
+    logs: list[str] = []
+    bus = SimpleNamespace(publish=lambda run_id, kind, **kw: logs.append(kw.get("message", "")))
+    llm = FakeLLM({
+        "synth": [PromptExceedsFreeMemory("not enough free memory for a prompt this long"),
+                  "# Digest\n\nSummary [1] [2].",
+                  "# Doc\n\nBody [1] [2] [3] [4] [5] [6] [7] [8] [9] [10].\n"],
+        "candidates": [{"candidates": []}],
+    })
+    out = await synthesize(llm, query="q", title="T", brief="b", recency_desc="any",
+                           today="t", state_md="", findings=_fs({"a": 6, "b": 4}),
+                           facet_of={"a": "a", "b": "b"}, bus=bus, run_id="r")
+    assert out.startswith("# Doc")
+    said = [m for m in logs if "digesting" in m]
+    assert said and "free memory" in said[0] and "context window" not in said[0]
+
+
 async def test_a_refused_synthesis_prompt_is_digested_and_sent_again():
     """A depth-10 run must not fail at the synthesis step after forty minutes
     of research because the budget assumed a larger window than the server

@@ -86,16 +86,46 @@ class ServerUnavailable(LLMError):
 # "...or reduce context length", which reads as a too-long refusal.
 _MEMORY_RE = re.compile(r"memory guard|prefill_memory_(?:exceeded|aborted)", re.I)
 _MEMORY_CODES = ("prefill_memory_exceeded", "prefill_memory_aborted")
+# Its numbers: "(current 22.45 GB + KV+SDPA 958.46 MB) but dynamic ceiling is 23.11 GB"
+_MEMORY_NUMBERS_RE = re.compile(
+    r"\(current ([\d.]+) (GB|MB|KB|B) \+ KV\+SDPA [\d.]+ (?:GB|MB|KB|B)\) "
+    r"but [\w ]+? ceiling is ([\d.]+) (GB|MB|KB|B)")
+_UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}
+
+
+def _memory_exhausted(message: str) -> bool:
+    """True when the server is at or over its memory ceiling already.
+
+    Then no prompt fits. With room left, the refusal is about this prompt's
+    size and a shorter one still runs. Wording that does not parse counts as
+    room left: a run is not stopped on a guess.
+    """
+    m = _MEMORY_NUMBERS_RE.search(message)
+    if not m:
+        return False
+    current = float(m.group(1)) * _UNITS[m.group(2)]
+    ceiling = float(m.group(3)) * _UNITS[m.group(4)]
+    return current >= ceiling
 
 
 class ServerOutOfMemory(ServerUnavailable):
-    """The server refused the prompt because the machine is short of memory.
+    """The server is out of memory: no prompt fits until some is freed.
 
-    oMLX's prefill memory guard, 2026-10-07: with the Mac out of RAM it
-    refused every call for hours. Shrinking the prompt cannot help (it
-    measured 59 MB of KV against a 1.6 GB shortfall), a retry seconds later
-    is refused again, and it says nothing about which request fields the
-    server takes. So it is terminal, and no field is dropped over it.
+    oMLX's prefill memory guard, 2026-10-07 morning: already at 20.96 GB
+    against a 19.38 GB ceiling, it refused every call for hours, even a
+    59 MB one. Shrinking the prompt cannot help, a retry seconds later is
+    refused again, and it says nothing about which request fields the server
+    takes. So it is terminal, and no field is dropped over it.
+    """
+
+
+class PromptExceedsFreeMemory(PromptTooLong):
+    """The server has memory left, but not enough for a prompt this long.
+
+    2026-10-07 afternoon: at 22.45 GB against a 23.11 GB ceiling, oMLX
+    refused a notes prompt needing 958 MB that a shorter page fits under.
+    Final for this prompt only, like a too-long one: skip the page, or
+    shrink and go again.
     """
 
 
@@ -179,8 +209,12 @@ class LLM:
         and go again.
         """
         if code in _MEMORY_CODES or _MEMORY_RE.search(message):
-            return ServerOutOfMemory(
-                f"LLM call '{kind}' refused: the server is short of memory. {message}")
+            if _memory_exhausted(message):
+                return ServerOutOfMemory(
+                    f"LLM call '{kind}' refused: the server is out of memory. {message}")
+            return PromptExceedsFreeMemory(
+                f"LLM call '{kind}' refused: not enough free memory for a prompt "
+                f"this long. {message}")
         if _TOO_LONG_RE.search(message):
             # Remember the window the server named so later budgets fit.
             m = _LIMIT_RE.search(message)

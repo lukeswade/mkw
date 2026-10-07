@@ -6,7 +6,8 @@ import logging
 import re
 
 from app.llm import prompts
-from app.llm.client import LLM, LLMError, PromptTooLong, est_tokens
+from app.llm.client import (LLM, LLMError, PromptExceedsFreeMemory, PromptTooLong,
+                            est_tokens)
 from app.llm.json_utils import LLMJsonError
 from app.models import CandidatesOut, FollowUpsOut, RECENCY_LABELS, source_rank
 from app.research.notes import Finding, render_facts
@@ -568,10 +569,12 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         # than fail a run that just spent half an hour gathering sources.
         log.warning("synthesis prompt refused as too long; digesting: %s", e)
         if bus is not None and run_id:
+            why = ("did not have the free memory for the synthesis prompt"
+                   if isinstance(e, PromptExceedsFreeMemory) else
+                   "refused the synthesis prompt as longer than its context window"
+                   + (f" ({e.limit:,} tokens)" if e.limit else ""))
             bus.publish(run_id, "log", message=(
-                "the server refused the synthesis prompt as longer than its "
-                "context window" + (f" ({e.limit:,} tokens)" if e.limit else "")
-                + " — digesting the notes in batches and trying again"))
+                f"the server {why} — digesting the notes in batches and trying again"))
         blocks = await _map_digest(llm, query, groups)
         prompt = compose(blocks)
         text = await call(prompt)

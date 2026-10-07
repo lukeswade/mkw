@@ -19,8 +19,8 @@ from openai import AsyncOpenAI
 
 from app.config import Settings
 from app.llm import client as llm_client
-from app.llm.client import (LLM, LLMError, PromptTooLong, ServerOutOfMemory,
-                            ServerUnavailable)
+from app.llm.client import (LLM, LLMError, PromptExceedsFreeMemory, PromptTooLong,
+                            ServerOutOfMemory, ServerUnavailable, _memory_exhausted)
 
 # oMLX 0.7.0's words, from its server log on 2026-10-07.
 _GUARD = ("oMLX prefill memory guard rejected this prompt: Prefill would require "
@@ -28,6 +28,12 @@ _GUARD = ("oMLX prefill memory guard rejected this prompt: Prefill would require
           "is 19.38 GB. Close other apps to free RAM (static cap is 44.16 GB but only "
           "617.36 MB is reclaimable right now), raise memory_guard_tier (safe → "
           "balanced → aggressive), or reduce context length.")
+# The afternoon's refusal: room left (22.45 of 23.11 GB), just not 958 MB of it.
+_GUARD_ROOM = ("oMLX prefill memory guard rejected this prompt: Prefill would require "
+               "~23.38 GB peak (current 22.45 GB + KV+SDPA 958.46 MB) but dynamic ceiling "
+               "is 23.11 GB. Close other apps to free RAM (static cap is 44.16 GB but only "
+               "6.67 GB is reclaimable right now), raise memory_guard_tier (safe → balanced "
+               "→ aggressive), or reduce context length.")
 _TOO_LONG = "Prompt too long: 66568 tokens exceeds max context window of 65536 tokens"
 _SCHEMA = {"type": "json_schema",
            "json_schema": {"name": "claims", "schema": {"type": "object"}}}
@@ -75,7 +81,7 @@ async def test_a_refusal_inside_a_200_is_a_clear_error_not_a_type_error():
     llm = _llm(server)
     with pytest.raises(ServerOutOfMemory) as caught:
         await llm.chat_raw("claims", _MSGS, json_mode=True)
-    assert "short of memory" in str(caught.value)
+    assert "out of memory" in str(caught.value)
     assert "Close other apps to free RAM" in str(caught.value)
     assert len(server.requests) == 1     # terminal: no retry, no field dropped
 
@@ -212,3 +218,38 @@ async def test_a_rate_limit_that_outlasts_the_retries_stays_a_plain_failure(monk
     with pytest.raises(LLMError) as caught:
         await _llm(server).chat_raw("notes", _MSGS)
     assert not isinstance(caught.value, ServerUnavailable)
+
+
+# ---- out of memory, or just not enough free for this prompt --------------------
+
+def test_out_of_memory_means_at_or_over_the_ceiling():
+    assert _memory_exhausted(_GUARD)              # 20.96 GB against 19.38 GB
+    assert not _memory_exhausted(_GUARD_ROOM)     # 22.45 GB against 23.11 GB
+    assert not _memory_exhausted(
+        "(current 900.00 MB + KV+SDPA 10.00 MB) but dynamic ceiling is 1.00 GB")
+    assert _memory_exhausted(
+        "(current 1.20 GB + KV+SDPA 5.00 MB) but static ceiling is 1.00 GB")
+    # wording it cannot read is not a reason to stop a run
+    assert not _memory_exhausted(
+        "oMLX memory guard aborted this request mid-prefill: usage crossed the watermark")
+
+
+@pytest.mark.asyncio
+async def test_a_prompt_too_big_for_the_free_memory_is_this_prompts_problem():
+    """With room left a shorter prompt still fits: skip this page, or shrink it."""
+    server = _Server(400, json.dumps(_error(_GUARD_ROOM, "prefill_memory_exceeded")))
+    llm = _llm(server)
+    before = llm.context_tokens
+    with pytest.raises(PromptExceedsFreeMemory) as caught:
+        await llm.chat_raw("notes", _MSGS)
+    assert isinstance(caught.value, PromptTooLong)
+    assert not isinstance(caught.value, ServerUnavailable)
+    assert caught.value.limit is None and llm.context_tokens == before
+    assert len(server.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_same_refusal_inside_a_200_is_read_the_same_way():
+    server = _Server(200, _keepalive(_error(_GUARD_ROOM, "prefill_memory_exceeded")))
+    with pytest.raises(PromptExceedsFreeMemory):
+        await _llm(server).chat_raw("notes", _MSGS, json_mode=True)

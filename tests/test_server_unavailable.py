@@ -20,7 +20,7 @@ import respx
 
 from app.config import Settings
 from app.db import Repo, connect
-from app.llm.client import LLM, LLMError, ServerOutOfMemory
+from app.llm.client import LLM, LLMError, PromptExceedsFreeMemory, ServerOutOfMemory
 from app.models import RunParams
 from app.research import verify
 from app.research.notes import take_notes
@@ -30,7 +30,7 @@ from app.research.progress import ProgressBus
 from tests.fake_llm import FakeLLM
 from tests.test_pipeline_e2e import SX, article, make_cfg, script, sx_payload, sx_result
 
-_OOM = ServerOutOfMemory("LLM call 'notes' refused: the server is short of memory. "
+_OOM = ServerOutOfMemory("LLM call 'notes' refused: the server is out of memory. "
                          "oMLX prefill memory guard rejected this prompt")
 _CLAIM = "EmbeddingGemma has 308 million parameters."
 _EVIDENCE = [verify.Evidence(n=1, label="a page", url="https://example.com/eg",
@@ -114,10 +114,43 @@ async def test_a_run_whose_server_runs_out_of_memory_fails_with_the_reason(data_
 
     row = repo.get_run(run_id)
     assert row["status"] == "failed"
-    assert "short of memory" in row["error"]
+    assert "out of memory" in row["error"]
     assert llm.calls["synth"] == 0
     events = [json.loads(line) for line in
               (cfg.research_dir / run_id / "events.jsonl").read_text().splitlines()
               if line.strip()]
     assert not any(e["type"] == "source_skipped"
                    and e.get("reason") == "unusable notes output" for e in events)
+
+
+@respx.mock
+async def test_a_page_too_big_for_the_free_memory_is_skipped_and_the_run_completes(data_dir):
+    """2026-10-07 afternoon: 0.66 GB of headroom refused one long page. Stopping
+    the run there threw away every page that fit; skipping it is right."""
+    cfg = make_cfg(data_dir)
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [sx_result(f"https://example-{c}.com/article", f"Article {c.upper()}")
+         for c in "abcde"])))
+    for c in "abcde":
+        respx.get(f"https://example-{c}.com/article").mock(
+            return_value=httpx.Response(200, html=article(f"Article {c.upper()}")))
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    notes_ok = s["notes"][0]
+
+    def notes(messages):
+        if "example-c.com" in messages[-1]["content"]:
+            return PromptExceedsFreeMemory(
+                "LLM call 'notes' refused: not enough free memory for a prompt this long.")
+        return notes_ok
+    s["notes"] = [notes]
+
+    repo = Repo(connect(cfg.db_path))
+    llm = FakeLLM(s)
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(), llm_factory=lambda: llm)
+    run_id = orch.enqueue(RunParams(query="solid state batteries", depth=1,
+                                    recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    assert repo.get_run(run_id)["status"] == "completed"
+    assert {f["domain"] for f in repo.findings_for_run(run_id)} == {
+        "example-a.com", "example-b.com", "example-d.com", "example-e.com"}
