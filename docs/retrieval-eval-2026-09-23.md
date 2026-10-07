@@ -11,7 +11,7 @@ into the app and no Setting changed: the app still embeds with nomic.
 
 | Item | State (2026-10-07) | Decision owner |
 |---|---|---|
-| Three fixes | **Deployed** (image `77989d6f5c28`, now under `54e068b9961b`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
+| Three fixes | **Deployed** (image `77989d6f5c28`, now under `b7588a0697e9`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
 | Qwen3-Reranker-0.6B | Downloaded and measured: claim checks 74% → 85%, Ask 64% → 69%. **Not wired in.** | Luke (recommended: claim checks first) |
 | Qwen3-Embedding-4B | Downloaded and measured: claim checks 74% → 82%, Ask 64% → 70%; with the reranker 89% and 79%. **Not adopted.** | Luke, once RAM is sorted |
 | Thinking on for synthesis | Tested (A/B below). Not adopted. | Parked |
@@ -236,9 +236,11 @@ it; it would need a prefix row (`task: question answering | query: `,
 ## Pitfalls
 
 - **The serving image is a chain of overlays.** `mkw-app:latest` =
-  `54e068b9961b`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
+  `b7588a0697e9`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
   file for file), plus the three fix files from `6ba256f`, plus
-  `app/llm/client.py` from `9447a7d`, each hash-checked; rollback tags
+  `app/llm/client.py` from `9447a7d`, plus the five files `3226809` changed
+  (`client.py`, `notes.py`, `verify.py`, `pipeline.py`, `synthesizer.py`),
+  each hash-checked; rollback tags
   `mkw-app:rollback-20261007-*`. Overlays were needed while the tree held
   the EDGAR session's uncommitted diligence work. That work was discarded on
   2026-10-07 (kept on the local branch `archive/edgar-diligence-wip-20260920`),
@@ -254,8 +256,15 @@ it; it would need a prefix row (`task: question answering | query: `,
   dynamic ceiling drops below the 35B's needs (see oMLX facts). Compare
   `final_ceiling` with `current_model_memory` in `/v1/models/status`, and
   check swap, before suspecting code. Since `9447a7d` a refusal reaches the
-  run as `ServerOutOfMemory` or `PromptTooLong`, even when oMLX sends it
-  inside a 200 (JSON-mode keepalive).
+  run typed, even when oMLX sends it inside a 200 (JSON-mode keepalive).
+  Since `3226809` the type follows oMLX's own numbers: at or over its
+  ceiling nothing fits, so a run or claim check stops with the server's
+  reason (`ServerOutOfMemory`, as for an unreachable server or a rejected
+  key); with room left only that prompt was too big, so notes skip the page
+  and synthesis digests (`PromptExceedsFreeMemory`). Before, a run skipped
+  every source and finished "completed" having read nothing. A first version
+  (`79ccc01`) stopped on any memory refusal; its live smoke test died on a
+  958 MB page with 0.66 GB free, and it was rolled back.
 - **Never test an embedder by changing Settings**: the app switches to that
   model's empty collection at once. Use `retrieval_eval.py --embed-model`.
 - **Never re-freeze into `data/eval/2026-09-23/`**: it would overwrite the
