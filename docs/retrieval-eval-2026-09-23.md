@@ -11,7 +11,7 @@ into the app and no Setting changed: the app still embeds with nomic.
 
 | Item | State (2026-10-07) | Decision owner |
 |---|---|---|
-| Three fixes | **Deployed** (image `77989d6f5c28`, now under `f3c2d1525b82`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
+| Three fixes | **Deployed** (image `77989d6f5c28`, now under `ee3e8e43d417`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
 | Qwen3-Reranker-0.6B | **On for all three uses** since 2026-10-07 (`29544d9`, Settings → Reranker): claim checks (measured 74% → 85%); search order and passage picking on trial (measured below). | Luke: watch search order |
 | Qwen3-Embedding-4B | Downloaded and measured: claim checks 74% → 82%, Ask 64% → 70%; with the reranker 89% and 79%. **Not adopted.** | Luke, once RAM is sorted |
 | Thinking on for synthesis | Tested (A/B below). Not adopted. | Parked |
@@ -140,6 +140,12 @@ errors), not relevance: each arm read one page scoring 2/10. Reranking 132
 results took 6.8 s. Promising, not proven: two pairs, and the reranker may
 favour forum threads that time out more often.
 
+Live with search order on: a science-heavy question sent 299 results as 133K
+tokens and spent 49.8 s, because science engines return whole abstracts as
+snippets (the reranker runs at about 2.7K tokens/s). `aafaa0d` sends the
+title and 300 chars of each snippet; the same question then took 8.1 s for
+195 results (27K tokens).
+
 **Passage picking**, `scripts/eval/passage_pick.py`: how often a run's
 verified quote survives a cut, on 59 pages of 10K+ chars.
 
@@ -151,6 +157,10 @@ verified quote survives a cut, on 59 pages of 10K+ chars.
 
 1.5 s per cut at the median (4.8 s at p90), paid only when a page is cut.
 The keyword list is approximated from the run's sub-queries.
+Live, pages over the 56K budget cost more: two pages of about 64K chars
+(32-33 pieces) took about 24 s each to rerank while notes ran on the same
+GPU, and the trial above showed no gain on oversized pages (4 of them).
+Limiting passage picking to the memory-shrink path would save that.
 
 **Claim-check judge, bounded since `153a8d0`.** It called a claim
 "unsupported" when no evidence stated it: "nomic modernbert-embed-base has
@@ -279,10 +289,11 @@ it; it would need a prefix row (`task: question answering | query: `,
 ## Pitfalls
 
 - **The serving image is a chain of overlays.** `mkw-app:latest` =
-  `f3c2d1525b82`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
+  `ee3e8e43d417`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
   file for file), plus the files changed by `6ba256f`, `9447a7d`, `3226809`,
-  `50ae02d`, `29544d9` and `153a8d0`, each hash-checked. After `153a8d0` every
-  one of the 90 app files in the container matched the commit; rollback tags
+  `50ae02d`, `29544d9`, `153a8d0` and `aafaa0d`, each hash-checked. After
+  `aafaa0d` every one of the 90 app files in the container matched the
+  commit; rollback tags
   `mkw-app:rollback-20261007-*`. Overlays were needed while the tree held
   the EDGAR session's uncommitted diligence work. That work was discarded on
   2026-10-07 (kept on the local branch `archive/edgar-diligence-wip-20260920`),
