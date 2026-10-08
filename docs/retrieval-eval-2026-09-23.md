@@ -12,7 +12,7 @@ into the app and no Setting changed: the app still embeds with nomic.
 | Item | State (2026-10-07) | Decision owner |
 |---|---|---|
 | Three fixes | **Deployed** (image `77989d6f5c28`, now under `f411c8a93e8d`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
-| Qwen3-Reranker-0.6B | **Wired in, switched off** (`29544d9`, Settings → Reranker): claim checks (measured 74% → 85%) run on it once a model is named; search order and passage picking are on trial (measured below). | Luke: name the model, pick the switches |
+| Qwen3-Reranker-0.6B | **On for all three uses** since 2026-10-07 (`29544d9`, Settings → Reranker): claim checks (measured 74% → 85%); search order and passage picking on trial (measured below). | Luke: watch search order |
 | Qwen3-Embedding-4B | Downloaded and measured: claim checks 74% → 82%, Ask 64% → 70%; with the reranker 89% and 79%. **Not adopted.** | Luke, once RAM is sorted |
 | Thinking on for synthesis | Tested (A/B below). Not adopted. | Parked |
 | EmbeddingGemma 2 | Released 2026-10-06. oMLX 0.7.0 cannot serve it. | Revisit after an oMLX update |
@@ -151,6 +151,12 @@ verified quote survives a cut, on 59 pages of 10K+ chars.
 
 1.5 s per cut at the median (4.8 s at p90), paid only when a page is cut.
 The keyword list is approximated from the run's sub-queries.
+
+**Claim-check judge, not built.** It calls a claim "unsupported" when no
+evidence states it. 2026-10-07: "nomic modernbert-embed-base has about 149
+million parameters", which is true, came back unsupported (8/10) because
+nothing in the evidence gave the count; the verdict should be unverifiable.
+"Unsupported" should need contradicting evidence, and a second source.
 
 ### Qwen models on the same set (2026-10-07)
 
