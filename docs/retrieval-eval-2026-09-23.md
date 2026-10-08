@@ -11,7 +11,7 @@ into the app and no Setting changed: the app still embeds with nomic.
 
 | Item | State (2026-10-07) | Decision owner |
 |---|---|---|
-| Three fixes | **Deployed** (image `77989d6f5c28`, now under `ee3e8e43d417`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
+| Three fixes | **Deployed** (image `77989d6f5c28`, now under `c53d9fc0617b`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
 | Qwen3-Reranker-0.6B | **On for all three uses** since 2026-10-07 (`29544d9`, Settings → Reranker): claim checks (measured 74% → 85%); search order and passage picking on trial (measured below). | Luke: watch search order |
 | Qwen3-Embedding-4B | Downloaded and measured: claim checks 74% → 82%, Ask 64% → 70%; with the reranker 89% and 79%. **Not adopted.** | Luke, once RAM is sorted |
 | Thinking on for synthesis | Tested (A/B below). Not adopted. | Parked |
@@ -160,7 +160,8 @@ The keyword list is approximated from the run's sub-queries.
 Live, pages over the 56K budget cost more: two pages of about 64K chars
 (32-33 pieces) took about 24 s each to rerank while notes ran on the same
 GPU, and the trial above showed no gain on oversized pages (4 of them).
-Limiting passage picking to the memory-shrink path would save that.
+Since `fed98ba` passage picking runs only when a memory refusal forces a
+shorter read; pages over the budget keep keyword excerpts.
 
 **Claim-check judge, bounded since `153a8d0`.** It called a claim
 "unsupported" when no evidence stated it: "nomic modernbert-embed-base has
@@ -289,11 +290,11 @@ it; it would need a prefix row (`task: question answering | query: `,
 ## Pitfalls
 
 - **The serving image is a chain of overlays.** `mkw-app:latest` =
-  `ee3e8e43d417`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
+  `c53d9fc0617b`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
   file for file), plus the files changed by `6ba256f`, `9447a7d`, `3226809`,
-  `50ae02d`, `29544d9`, `153a8d0` and `aafaa0d`, each hash-checked. After
-  `aafaa0d` every one of the 90 app files in the container matched the
-  commit; rollback tags
+  `50ae02d`, `29544d9`, `153a8d0`, `aafaa0d` and `fed98ba`, each
+  hash-checked. After `fed98ba` every one of the 90 app files in the
+  container matched the commit; rollback tags
   `mkw-app:rollback-20261007-*`. Overlays were needed while the tree held
   the EDGAR session's uncommitted diligence work. That work was discarded on
   2026-10-07 (kept on the local branch `archive/edgar-diligence-wip-20260920`),
