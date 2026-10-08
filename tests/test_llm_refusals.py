@@ -253,3 +253,18 @@ async def test_the_same_refusal_inside_a_200_is_read_the_same_way():
     server = _Server(200, _keepalive(_error(_GUARD_ROOM, "prefill_memory_exceeded")))
     with pytest.raises(PromptExceedsFreeMemory):
         await _llm(server).chat_raw("notes", _MSGS, json_mode=True)
+
+
+def test_a_refusal_with_room_left_says_how_much_of_the_prompt_fit():
+    """22.45 of 23.11 GB used and 958 MB wanted: room for about 70% of it."""
+    err = LLM(Settings(llm_provider="local", llm_model="m",
+                       llm_base_url="http://localhost:8000/v1",
+                       llm_api_key="k"))._refusal("notes", _GUARD_ROOM)
+    assert isinstance(err, PromptExceedsFreeMemory)
+    assert abs(err.fits - 0.705) < 0.01
+    # no numbers, no guess
+    aborted = LLM(Settings(llm_provider="local", llm_model="m",
+                           llm_base_url="http://localhost:8000/v1",
+                           llm_api_key="k"))._refusal(
+        "notes", "oMLX memory guard aborted this request mid-prefill: usage rose")
+    assert isinstance(aborted, PromptExceedsFreeMemory) and aborted.fits is None

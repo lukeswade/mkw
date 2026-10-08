@@ -88,9 +88,17 @@ _MEMORY_RE = re.compile(r"memory guard|prefill_memory_(?:exceeded|aborted)", re.
 _MEMORY_CODES = ("prefill_memory_exceeded", "prefill_memory_aborted")
 # Its numbers: "(current 22.45 GB + KV+SDPA 958.46 MB) but dynamic ceiling is 23.11 GB"
 _MEMORY_NUMBERS_RE = re.compile(
-    r"\(current ([\d.]+) (GB|MB|KB|B) \+ KV\+SDPA [\d.]+ (?:GB|MB|KB|B)\) "
+    r"\(current ([\d.]+) (GB|MB|KB|B) \+ KV\+SDPA ([\d.]+) (GB|MB|KB|B)\) "
     r"but [\w ]+? ceiling is ([\d.]+) (GB|MB|KB|B)")
 _UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}
+
+
+def _memory_numbers(message: str) -> tuple[float, float, float] | None:
+    """(current, this prompt's KV+SDPA, ceiling) in bytes, if the refusal says."""
+    m = _MEMORY_NUMBERS_RE.search(message)
+    if not m:
+        return None
+    return tuple(float(m.group(i)) * _UNITS[m.group(i + 1)] for i in (1, 3, 5))
 
 
 def _memory_exhausted(message: str) -> bool:
@@ -100,12 +108,8 @@ def _memory_exhausted(message: str) -> bool:
     size and a shorter one still runs. Wording that does not parse counts as
     room left: a run is not stopped on a guess.
     """
-    m = _MEMORY_NUMBERS_RE.search(message)
-    if not m:
-        return False
-    current = float(m.group(1)) * _UNITS[m.group(2)]
-    ceiling = float(m.group(3)) * _UNITS[m.group(4)]
-    return current >= ceiling
+    numbers = _memory_numbers(message)
+    return numbers is not None and numbers[0] >= numbers[2]
 
 
 class ServerOutOfMemory(ServerUnavailable):
@@ -125,8 +129,13 @@ class PromptExceedsFreeMemory(PromptTooLong):
     2026-10-07 afternoon: at 22.45 GB against a 23.11 GB ceiling, oMLX
     refused a notes prompt needing 958 MB that a shorter page fits under.
     Final for this prompt only, like a too-long one: skip the page, or
-    shrink and go again.
+    shrink and go again. `fits` is the share of the prompt's memory the
+    server had room for (0.70 there), when it said; None when it did not.
     """
+
+    def __init__(self, message: str, fits: float | None = None):
+        super().__init__(message)
+        self.fits = fits
 
 
 # High-volume, mechanical calls — these are what the fast model is for.
@@ -212,9 +221,12 @@ class LLM:
             if _memory_exhausted(message):
                 return ServerOutOfMemory(
                     f"LLM call '{kind}' refused: the server is out of memory. {message}")
+            numbers = _memory_numbers(message)
+            fits = ((numbers[2] - numbers[0]) / numbers[1]
+                    if numbers and numbers[1] > 0 else None)
             return PromptExceedsFreeMemory(
                 f"LLM call '{kind}' refused: not enough free memory for a prompt "
-                f"this long. {message}")
+                f"this long. {message}", fits)
         if _TOO_LONG_RE.search(message):
             # Remember the window the server named so later budgets fit.
             m = _LIMIT_RE.search(message)

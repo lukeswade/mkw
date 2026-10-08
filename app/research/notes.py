@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from app.llm import prompts
 from app.research.dedupe import _content_tokens, stem_token
-from app.llm.client import LLM, LLMError, ServerUnavailable
+from app.llm.client import LLM, LLMError, PromptExceedsFreeMemory, ServerUnavailable
 from app.llm.json_utils import LLMJsonError
 from app.models import NotesOut
 
@@ -22,6 +22,15 @@ log = logging.getLogger(__name__)
 _INPUT_CHARS = 56_000
 _HEAD_CHARS = 34_000
 _TAIL_CHARS = 6_000
+
+# A page the model server lacks the memory for is read shorter, not skipped.
+# 2026-10-07, with the Mac's RAM tight, oMLX refused 17 of one round's 18
+# pages: each needed ~850 MB it did not have, though it had room for most of
+# each one.
+_SHRINK_TRIES = 2        # shorter reads after a memory refusal
+_SHRINK_FLOOR = 4_000    # chars; less than this is not worth a notes call
+_SHRINK_MARGIN = 0.8     # aim under the room the server reported: the
+                         # instructions around the page do not shrink
 
 # Sources at or above this score are kept. 4 = "real material on part of the
 # brief" under the notes rubric — demanding briefs made the old bar of 5 throw
@@ -81,6 +90,34 @@ def clip_text(text: str) -> str:
         return text
     return (text[:_HEAD_CHARS] + "\n\n[... document truncated ...]\n\n"
             + text[-_TAIL_CHARS:])
+
+
+def _shrunk_budget(chars: int, fits: float | None) -> int:
+    """Characters to send after a memory refusal: the share the server said
+    it had room for, less a margin, or half when it gave no numbers."""
+    share = fits * _SHRINK_MARGIN if fits is not None else 0.5
+    return int(chars * min(share, 0.9))
+
+
+def _shrink(page: str, keywords: list[str] | None, budget: int) -> str:
+    """The page cut to about `budget` characters, keyword passages first.
+
+    Few keyword hits leave room, and a single 2,400-char window would cut a
+    page far below what fits, so the page's opening (what it is about) fills
+    the rest. No hits: head and tail, in clip_text's proportions.
+    """
+    if len(page) <= budget:
+        return page
+    picked = (select_excerpts(page, keywords, window=2400, max_excerpts=24,
+                              max_chars=budget) if keywords else "")
+    if not picked:
+        head = budget * 85 // 100
+        return (page[:head] + "\n\n[... document truncated ...]\n\n"
+                + page[len(page) - (budget - head):])
+    room = budget - len(picked)
+    if room < 2_000:
+        return picked
+    return page[:room] + "\n\n[…]\n\n" + picked
 
 
 HEADER_CHARS = 1000
@@ -219,6 +256,7 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
     the same page scored 2/10 and 7/10 on consecutive runs — and averages the
     two, keeping the notes of the higher-scoring answer.
     """
+    page = text
     if len(text) > _INPUT_CHARS:
         # Too big to feed whole: keyword-focused excerpts if we have
         # keywords, head+tail otherwise.
@@ -233,19 +271,36 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
         source_note += prompts.FACET_SOURCE_NOTE.format(facet=facet)
     base = template or (prompts.NOTES_INSTRUCTIONS_FIRST if order == "instructions_first"
                         else prompts.NOTES)
-    prompt = base.format(
-        source_note=source_note,
-        brief=brief, recency_desc=recency_desc, today=today, url=url,
-        title=title, detected_date=detected_date or "unknown",
-        text=text,
-    )
-    try:
-        first = await llm.chat_json(
-            "notes", [{"role": "user", "content": prompt}],
-            # 350 words of notes plus up to 8 facts with verbatim quotes does
-            # not fit in 1200 tokens; truncation there silently drops sources.
-            NotesOut, max_tokens=2400, temperature=0.2,
+
+    def prompt_for(body: str) -> str:
+        return base.format(
+            source_note=source_note,
+            brief=brief, recency_desc=recency_desc, today=today, url=url,
+            title=title, detected_date=detected_date or "unknown",
+            text=body,
         )
+
+    prompt = prompt_for(text)
+    try:
+        for attempt in range(_SHRINK_TRIES + 1):
+            try:
+                first = await llm.chat_json(
+                    "notes", [{"role": "user", "content": prompt}],
+                    # 350 words of notes plus up to 8 facts with verbatim quotes
+                    # does not fit in 1200 tokens; truncation there silently
+                    # drops sources.
+                    NotesOut, max_tokens=2400, temperature=0.2,
+                )
+                break
+            except PromptExceedsFreeMemory as e:
+                # Room for part of the page, not all of it: read that part.
+                budget = _shrunk_budget(len(text), e.fits)
+                if attempt == _SHRINK_TRIES or budget < _SHRINK_FLOOR:
+                    raise
+                log.info("notes for %s: no memory for %d chars, reading %d",
+                         url, len(text), budget)
+                text = _shrink(page, keywords, budget)
+                prompt = prompt_for(text)
         first = demote_third_party_standard(first, url)
         if not (recheck and 3 <= first.relevance <= 5):
             return first
