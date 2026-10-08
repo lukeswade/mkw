@@ -301,3 +301,34 @@ async def test_a_memory_shrink_keeps_the_rerankers_pieces():
                            reranker=_Prefers("torque"))
     assert out is not None and "torque spec is 15 ft-lb" in seen[1]
     assert len(seen[1]) < len(seen[0]) * 0.5
+
+
+@respx.mock
+async def test_the_search_reranker_reads_a_title_and_the_opening_of_its_snippet(data_dir):
+    """Science engines return whole abstracts as snippets: 299 results came to
+    133K tokens and 49.8 s of reranking on 2026-10-07."""
+    from tests.test_pipeline_e2e import SX, article, make_cfg, script, sx_payload
+    cfg = make_cfg(data_dir)
+    cfg.rerank_model, cfg.rerank_search = "m", True
+    cfg.embedding_base_url = "http://rerank.test/v1"
+    abstract = "Matryoshka embeddings nest coarse-to-fine information. " * 60
+    respx.get(f"{SX}/search").mock(return_value=httpx.Response(200, json=sx_payload(
+        [{"url": f"https://example-{c}.com/article", "title": f"Article {c.upper()}",
+          "content": abstract, "engine": "test", "publishedDate": None}
+         for c in "abcde"])))
+    for c in "abcde":
+        respx.get(f"https://example-{c}.com/article").mock(
+            return_value=httpx.Response(200, html=article(f"Article {c.upper()}")))
+    sent: list[str] = []
+
+    def answer(request):
+        docs = json.loads(request.content)["documents"]
+        sent.extend(docs)
+        return httpx.Response(200, json=_scored([1.0] * len(docs)))
+    respx.post("http://rerank.test/v1/rerank").mock(side_effect=answer)
+    s = script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    _repo, orch, run_id = _run_with(cfg, s)
+    await orch.execute_now(run_id)
+    assert len(abstract) > 3_000 and sent
+    assert all(d.startswith("Article ") and len(d) <= len("Article A\n") + 300
+               for d in sent)

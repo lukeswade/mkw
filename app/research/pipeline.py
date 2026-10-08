@@ -261,6 +261,13 @@ _REFS_PER_RUN = 6
 # remain, the most productive queries so far are re-run on the next result
 # page rather than ending the run. Pages past this are engine filler.
 _FALLBACK_MAX_PAGE = 3
+
+# What the search reranker reads of each result: the title and the opening of
+# its snippet. Science engines return whole abstracts as snippets; on
+# 2026-10-07 one round sent 299 results as 133K tokens and spent 49.8 s
+# reranking (the reranker runs at about 2.7K tokens/s), where 132 short
+# snippets took 6.8 s. A title and 300 chars say what a page is about.
+_RERANK_SNIPPET_CHARS = 300
 # Relevance for a page a claim check fetched and read but no verdict cited.
 # Not zero: zero reads as "judged worthless" when it means "did not settle it".
 _CONSULTED = 3
@@ -1356,7 +1363,9 @@ class Pipeline:
         if self.rerank_search is not None and pairs:
             started = time.monotonic()
             scored = await asyncio.gather(*(
-                self.rerank_search.scores(q, [f"{r.title}\n{r.snippet}" for r in res])
+                self.rerank_search.scores(
+                    q, [f"{r.title}\n{(r.snippet or '')[:_RERANK_SNIPPET_CHARS]}"
+                        for r in res])
                 for q, res in pairs))
             if all(s is not None for s in scored):
                 for (_q, res), scores in zip(pairs, scored):
