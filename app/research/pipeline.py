@@ -24,7 +24,7 @@ import httpx
 from app.config import Settings
 from app.db import Repo, utcnow, row_get
 from app.llm import prompts
-from app.llm.client import LLM
+from app.llm.client import LLM, LLMError, ServerUnavailable
 from app.llm.json_utils import LLMJsonError
 from app.models import BRIEF_DEFAULT_QUERY, VERIFY_CLAIM_CAP, RECENCY_LABELS, TriageOut
 from app.rag.rerank import make_reranker
@@ -1121,14 +1121,28 @@ class Pipeline:
                 self._check_cancel()
                 self.bus.publish(run_id, "phase", phase="gap analysis",
                                  round=round_no)
-                gap = await gap_stage.analyze(
-                    llm, query=query, brief=the_plan.brief,
-                    recency_desc=recency_desc, round_no=round_no, depth=rounds,
-                    breadth=breadth, state_md=state.state_md,
-                    new_findings=kept, searched=state.searched,
-                    authority=getattr(self.cfg, "authority_sites", ""),
-                    variant=getattr(self.cfg, "gap_variant", "default"),
-                    coverage=facet_plan.coverage_lines(state.facets, state.facet_kept))
+                try:
+                    gap = await gap_stage.analyze(
+                        llm, query=query, brief=the_plan.brief,
+                        recency_desc=recency_desc, round_no=round_no, depth=rounds,
+                        breadth=breadth, state_md=state.state_md,
+                        new_findings=kept, searched=state.searched,
+                        authority=getattr(self.cfg, "authority_sites", ""),
+                        variant=getattr(self.cfg, "gap_variant", "default"),
+                        coverage=facet_plan.coverage_lines(state.facets, state.facet_kept))
+                except ServerUnavailable:
+                    raise   # synthesis would hit the same wall; stop with its reason
+                except LLMError as e:
+                    # A refused or runaway gap call ends the research, not the
+                    # run. 2026-10-07 a depth-1 run kept two sources and then
+                    # failed outright when oMLX lacked the memory for the gap
+                    # prompt; what was gathered still makes a report.
+                    log.warning("gap analysis failed for %s: %s", run_id, e)
+                    self.bus.publish(run_id, "log", message=(
+                        f"gap analysis failed ({str(e)[:120]}) — writing the "
+                        f"report from the {len(state.findings)} source(s) gathered"))
+                    stop_reason = "gap analysis failed — report from the sources gathered"
+                    break
                 state.state_md = gap.state_md
                 store.write_round(round_no, self._round_md(
                     round_no, queries, kept, gap.saturated, state))
@@ -1661,6 +1675,7 @@ class Pipeline:
                 except ValueError:
                     pass
             title = doc.title or c.title
+            skip_why: list[str] = []
             notes = await take_notes(
                 llm, brief=brief, recency_desc=recency_desc, today=today,
                 url=final_url, title=title,
@@ -1668,12 +1683,12 @@ class Pipeline:
                 template=state.notes_template, source_kind=source_kind,
                 facet=state.query_facet.get(c.via_query or "", ""),
                 order=str(getattr(self.cfg, "notes_order", "default")),
-                reranker=self.rerank_passages,
+                reranker=self.rerank_passages, why=skip_why,
                 recheck=str(getattr(self.cfg, "notes_recheck", "off")).lower() in ("on", "1", "true", "yes"))
             if notes is None:
                 state.skipped += 1
                 self.bus.publish(run_id, "source_skipped", url=c.url,
-                                 reason="unusable notes output",
+                                 reason=skip_why[0] if skip_why else "unusable notes output",
                                  title=(c.title or "")[:120], engine=c.engine or "",
                                  spared=canonicalize(c.url) in state.spared_urls)
                 state.read += 1

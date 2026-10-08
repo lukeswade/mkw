@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 
 from app.llm import prompts
 from app.research.dedupe import _content_tokens, stem_token
-from app.llm.client import LLM, LLMError, PromptExceedsFreeMemory, ServerUnavailable
+from app.llm.client import (LLM, LLMError, PromptExceedsFreeMemory, PromptTooLong,
+                            ServerUnavailable)
 from app.llm.json_utils import LLMJsonError
 from app.models import NotesOut
 
@@ -275,6 +276,20 @@ def demote_third_party_standard(notes: NotesOut, url: str) -> NotesOut:
     return notes
 
 
+def skip_reason(e: Exception) -> str:
+    """Why a notes call left a page unread, in words for the run's log."""
+    if isinstance(e, PromptExceedsFreeMemory):
+        return "not enough free memory on the model server for this page"
+    if isinstance(e, PromptTooLong):
+        return "page too long for the model's context window"
+    if isinstance(e, LLMJsonError):
+        return "unusable notes output"
+    text = str(e)
+    if "ceiling" in text:
+        return "the notes call ran past its time limit"
+    return f"the notes call failed: {text[:90]}"
+
+
 async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      url: str, title: str, detected_date: str | None,
                      text: str, keywords: list[str] | None = None,
@@ -283,7 +298,8 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      order: str = "default",
                      recheck: bool = False,
                      facet: str = "",
-                     reranker=None) -> NotesOut | None:
+                     reranker=None,
+                     why: list[str] | None = None) -> NotesOut | None:
     """Returns None when the model output is unusable (doc gets skipped).
 
     `order` picks the prompt layout (see prompts.NOTES_INSTRUCTIONS_FIRST);
@@ -293,6 +309,9 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
    
     `reranker` (on trial) picks which parts of a page survive when it has to
     be cut, instead of keyword windows; without scores the old cut stands.
+   
+    `why`, when given, receives the reason a page is skipped, for the run's
+    event log: every skip used to read "unusable notes output".
     """
     page = text
     if len(text) > _INPUT_CHARS:
@@ -370,6 +389,8 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
         # call had a ceiling a hung notes call hung the whole round; now it
         # times out, and a single bad source must not sink a run of good ones.
         log.warning("notes skipped for %s: %s", url, e)
+        if why is not None:
+            why.append(skip_reason(e))
         return None
 
 

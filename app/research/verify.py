@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from app.llm import prompts
 from app.llm.client import LLM, ServerUnavailable, est_tokens
 from app.models import Claim, ClaimsOut, VerdictOut
-from app.research.dedupe import _STOPWORDS, stem_token
+from app.research.dedupe import _STOPWORDS, domain_of, stem_token
 
 log = logging.getLogger(__name__)
 
@@ -181,6 +181,36 @@ def verbatim_quote(quote: str, evidence: list[Evidence]) -> str:
     return repair_quote(quote, _sentences(joined)) or ""
 
 
+def _source_of(e: Evidence) -> str:
+    """One independent source: a web page's domain, or one earlier run."""
+    return domain_of(e.url) if e.url.startswith("http") else e.url
+
+
+def bound_unsupported(out: VerdictOut, evidence: list[Evidence]) -> VerdictOut:
+    """An "unsupported" must rest on a contradiction, from two sources.
+
+    It is the costly verdict: it tells the reader something is false. The
+    prompt already says absence of evidence is not falsehood, and the model
+    still said "unsupported (8/10)" on 2026-10-07 to a true claim no source
+    gave a number for. So the bound is in code: no verbatim contradicting
+    quote, and it was only unconfirmed (unverifiable); a quote from just one
+    source is a doubt to report (contested), not a finding of falsehood.
+    """
+    if out.verdict != "unsupported":
+        return out
+    if not out.quote:
+        out.verdict = "unverifiable"
+        out.reasoning = ("No passage contradicts the claim; the evidence only "
+                         "fails to confirm it. " + out.reasoning)[:900]
+        return out
+    relied = {_source_of(e) for e in evidence if e.n in set(out.sources)}
+    if len(relied) < 2:
+        out.verdict = "contested"
+        out.reasoning = ("Only one source contradicts the claim, with no "
+                         "second to confirm it. " + out.reasoning)[:900]
+    return out
+
+
 async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
     if not evidence:
         return VerdictOut(verdict="unverifiable", confidence=0,
@@ -191,7 +221,7 @@ async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
                 claim=claim, evidence=render_evidence(evidence, claim))}],
             VerdictOut, max_tokens=900, temperature=0.1)
         out.quote = verbatim_quote(out.quote, evidence)
-        return out
+        return bound_unsupported(out, evidence)
     except ServerUnavailable:
         # A finished report of "unverifiable" verdicts would hide the outage
         # behind what looks like a real result; the check fails instead.
