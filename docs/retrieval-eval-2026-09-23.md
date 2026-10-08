@@ -11,7 +11,7 @@ into the app and no Setting changed: the app still embeds with nomic.
 
 | Item | State (2026-10-07) | Decision owner |
 |---|---|---|
-| Three fixes | **Deployed** (image `77989d6f5c28`, now under `b7588a0697e9`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
+| Three fixes | **Deployed** (image `77989d6f5c28`, now under `6456f101dfbe`; rollback `mkw-app:rollback-20261007-110126`), smoke-tested, **merged to main**. | Done |
 | Qwen3-Reranker-0.6B | Downloaded and measured: claim checks 74% → 85%, Ask 64% → 69%. **Not wired in.** | Luke (recommended: claim checks first) |
 | Qwen3-Embedding-4B | Downloaded and measured: claim checks 74% → 82%, Ask 64% → 70%; with the reranker 89% and 79%. **Not adopted.** | Luke, once RAM is sorted |
 | Thinking on for synthesis | Tested (A/B below). Not adopted. | Parked |
@@ -236,11 +236,10 @@ it; it would need a prefix row (`task: question answering | query: `,
 ## Pitfalls
 
 - **The serving image is a chain of overlays.** `mkw-app:latest` =
-  `b7588a0697e9`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
-  file for file), plus the three fix files from `6ba256f`, plus
-  `app/llm/client.py` from `9447a7d`, plus the five files `3226809` changed
-  (`client.py`, `notes.py`, `verify.py`, `pipeline.py`, `synthesizer.py`),
-  each hash-checked; rollback tags
+  `6456f101dfbe`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
+  file for file), plus the files changed by `6ba256f`, `9447a7d`, `3226809`
+  and `50ae02d`, each hash-checked. After `50ae02d` every one of the 89 app
+  files in the container matched the commit, with no extra files; rollback tags
   `mkw-app:rollback-20261007-*`. Overlays were needed while the tree held
   the EDGAR session's uncommitted diligence work. That work was discarded on
   2026-10-07 (kept on the local branch `archive/edgar-diligence-wip-20260920`),
@@ -260,8 +259,9 @@ it; it would need a prefix row (`task: question answering | query: `,
   Since `3226809` the type follows oMLX's own numbers: at or over its
   ceiling nothing fits, so a run or claim check stops with the server's
   reason (`ServerOutOfMemory`, as for an unreachable server or a rejected
-  key); with room left only that prompt was too big, so notes skip the page
-  and synthesis digests (`PromptExceedsFreeMemory`). Before, a run skipped
+  key); with room left only that prompt was too big, so synthesis digests
+  and, since `50ae02d`, notes re-read the page shorter, sized from the share
+  that fit (`PromptExceedsFreeMemory.fits`), before skipping it. Before, a run skipped
   every source and finished "completed" having read nothing. A first version
   (`79ccc01`) stopped on any memory refusal; its live smoke test died on a
   958 MB page with 0.66 GB free, and it was rolled back.
