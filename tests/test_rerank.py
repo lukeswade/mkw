@@ -259,30 +259,49 @@ _BIG = ("padding sentence with nothing in it. " * 1600
         + "more padding after the fact. " * 600)          # ~77K: over the 56K budget
 
 
-async def test_an_oversized_page_is_cut_by_the_reranker():
+class _Spy(_Prefers):
+    """A _Prefers that counts how often it is asked."""
+    def __init__(self, word):
+        super().__init__(word)
+        self.asked = 0
+
+    async def order(self, query, docs):
+        self.asked += 1
+        return await super().order(query, docs)
+
+
+async def test_an_oversized_page_keeps_the_keyword_cut_without_the_reranker():
+    """2026-10-08: about 24 s per 64K page beside the notes model, for no gain
+    in the trial; the reranker is kept for cuts a memory refusal forces."""
     seen: list[str] = []
 
     def capture(messages):
         seen.append(messages[-1]["content"])
         return dict(_NOTES)
+    spy = _Spy("torque")
     await take_notes(FakeLLM({"notes": [capture]}), brief="torque specs",
                      recency_desc="any", today="t", url="u", title="t",
-                     detected_date=None, text=_BIG, keywords=None,
-                     reranker=_Prefers("torque"))
-    assert "torque spec is 15 ft-lb" in seen[0]      # head+tail would have lost it
-    assert len(seen[0]) < len(_BIG)
+                     detected_date=None, text=_BIG, keywords=None, reranker=spy)
+    assert spy.asked == 0
+    assert "[... document truncated ...]" in seen[0]   # clip_text's head and tail
 
 
-async def test_without_scores_the_old_cut_stands():
+async def test_a_memory_shrink_without_scores_keeps_the_keyword_cut():
     seen: list[str] = []
 
-    def capture(messages):
+    def refuse_then_read(messages):
         seen.append(messages[-1]["content"])
+        if len(seen) == 1:
+            return PromptExceedsFreeMemory("not enough free memory", 0.5)
         return dict(_NOTES)
-    await take_notes(FakeLLM({"notes": [capture]}), brief="b", recency_desc="any",
-                     today="t", url="u", title="t", detected_date=None, text=_BIG,
-                     keywords=None, reranker=_Prefers(None))
-    assert "[... document truncated ...]" in seen[0]   # clip_text's head and tail
+    page = ("padding sentence with nothing in it. " * 900
+            + "The torque spec is 15 ft-lb on the 2UZ. " + "more padding. " * 300)
+    out = await take_notes(FakeLLM({"notes": [refuse_then_read]}), brief="torque",
+                           recency_desc="any", today="t", url="u", title="t",
+                           detected_date=None, text=page, keywords=["torque"],
+                           reranker=_Prefers(None))
+    assert out is not None and "torque spec is 15 ft-lb" in seen[1]   # keyword window
+    assert len(seen[1]) < len(seen[0])
 
 
 async def test_a_memory_shrink_keeps_the_rerankers_pieces():

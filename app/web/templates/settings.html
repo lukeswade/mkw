@@ -178,7 +178,7 @@
     </label>
     <label>
       <input type="checkbox" name="rerank_passages" {{ 'checked' if cfg.rerank_passages else '' }}>
-      Rerank passages when a page has to be cut <small>(on trial)</small>
+      Rerank passages when memory forces a page to be read shorter <small>(on trial)</small>
     </label>
     <p class="hint">A reranker reads the question and each passage together and
       scores the pair, which embeddings alone cannot. It runs on the embedding

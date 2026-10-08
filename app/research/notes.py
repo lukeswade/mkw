@@ -307,22 +307,23 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
     the same page scored 2/10 and 7/10 on consecutive runs — and averages the
     two, keeping the notes of the higher-scoring answer.
    
-    `reranker` (on trial) picks which parts of a page survive when it has to
-    be cut, instead of keyword windows; without scores the old cut stands.
+    `reranker` (on trial) picks which parts of a page survive when a memory
+    refusal forces a shorter read, instead of keyword windows; pages over the
+    56K budget keep keyword excerpts, and without scores the old cut stands.
    
     `why`, when given, receives the reason a page is skipped, for the run's
     event log: every skip used to read "unusable notes output".
     """
     page = text
     if len(text) > _INPUT_CHARS:
-        # Too big to feed whole: the reranker's best passages when one is on,
-        # else keyword-focused excerpts if we have keywords, head+tail
-        # otherwise.
-        picked = (await _rerank_cut(page, brief, _INPUT_CHARS, reranker)
-                  if reranker is not None else None)
-        filtered = picked or (select_excerpts(text, keywords, window=2400,
-                                              max_excerpts=24, max_chars=_INPUT_CHARS)
-                              if keywords else "")
+        # Too big to feed whole: keyword-focused excerpts if we have
+        # keywords, head+tail otherwise. Not the reranker: 2026-10-08 it spent
+        # about 24 s on each 64K page (33 pieces, beside the notes model on
+        # the same GPU) where its trial showed no gain; it earns its time on
+        # the deep cuts a memory refusal forces, below.
+        filtered = (select_excerpts(text, keywords, window=2400,
+                                    max_excerpts=24, max_chars=_INPUT_CHARS)
+                    if keywords else "")
         text = filtered or clip_text(text)
 
 
