@@ -122,7 +122,11 @@ async def _one_arm(args, env: dict[str, str]) -> str:
         cfg.ensure_dirs()
         repo = Repo(connect(cfg.db_path))
         bus = ProgressBus()
-        orch = Orchestrator(load_settings, repo, bus, rag=_build_rag(cfg))
+        # --no-library: both arms skip the knowledge layer alike (no related-
+        # run seeding, no prior knowledge) and never write to the vector
+        # index, which the serving app holds open in another process.
+        rag = None if getattr(args, "no_library", False) else _build_rag(cfg)
+        orch = Orchestrator(load_settings, repo, bus, rag=rag)
         run_id = orch.enqueue(_params_from_args(args))
         try:
             await orch.execute_now(run_id)
@@ -255,6 +259,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help="memory off for both arms (default), so neither arm anchors on the other")
     ab_p.add_argument("--env-a", default="", help='comma-separated KEY=VAL overrides for arm A, e.g. "GAP_VARIANT=default"')
     ab_p.add_argument("--env-b", default="", help='overrides for arm B, e.g. "GAP_VARIANT=anchored"')
+    ab_p.add_argument("--no-library", action="store_true",
+                      help="run both arms without the knowledge layer; safe while the app serves")
     ab_p.set_defaults(fn=_cmd_ab, kind="research", brief_id=None, document=None)
 
     runs_p = sub.add_parser("runs", help="list research runs")

@@ -31,6 +31,7 @@ _SHRINK_TRIES = 2        # shorter reads after a memory refusal
 _SHRINK_FLOOR = 4_000    # chars; less than this is not worth a notes call
 _SHRINK_MARGIN = 0.8     # aim under the room the server reported: the
                          # instructions around the page do not shrink
+_PASSAGE_CHARS = 2_000   # a page's pieces, when a reranker picks what to keep
 
 # Sources at or above this score are kept. 4 = "real material on part of the
 # brief" under the notes rubric — demanding briefs made the old bar of 5 throw
@@ -118,6 +119,39 @@ def _shrink(page: str, keywords: list[str] | None, budget: int) -> str:
     if room < 2_000:
         return picked
     return page[:room] + "\n\n[…]\n\n" + picked
+
+
+def _passages(page: str, size: int = _PASSAGE_CHARS) -> list[str]:
+    """The page in consecutive pieces of about `size` chars, each cut at a
+    paragraph, line or sentence end when one falls in its last 40%."""
+    out, start = [], 0
+    while start < len(page):
+        end = min(len(page), start + size)
+        if end < len(page):
+            window = page[start:end]
+            cut = max(window.rfind("\n\n"), window.rfind("\n"), window.rfind(". "))
+            if cut > size * 0.6:
+                end = start + cut + 1
+        piece = page[start:end].strip()
+        if piece:
+            out.append(piece)
+        start = end
+    return out
+
+
+async def _rerank_cut(page: str, query: str, budget: int, reranker) -> str | None:
+    """The page cut to `budget` chars by a reranker: the pieces it scores best
+    against the research brief, kept in page order. None without scores."""
+    pieces = _passages(page)
+    order = await reranker.order(query, pieces)
+    if not order:
+        return None
+    keep, used = [], 0
+    for i in order:
+        if used + len(pieces[i]) <= budget:
+            keep.append(i)
+            used += len(pieces[i])
+    return "\n[…]\n".join(pieces[i] for i in sorted(keep)) or None
 
 
 HEADER_CHARS = 1000
@@ -248,21 +282,28 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      source_kind: str = "",
                      order: str = "default",
                      recheck: bool = False,
-                     facet: str = "") -> NotesOut | None:
+                     facet: str = "",
+                     reranker=None) -> NotesOut | None:
     """Returns None when the model output is unusable (doc gets skipped).
 
     `order` picks the prompt layout (see prompts.NOTES_INSTRUCTIONS_FIRST);
     `recheck` asks a second time when the score lands on the 3-5 borderline —
     the same page scored 2/10 and 7/10 on consecutive runs — and averages the
     two, keeping the notes of the higher-scoring answer.
+   
+    `reranker` (on trial) picks which parts of a page survive when it has to
+    be cut, instead of keyword windows; without scores the old cut stands.
     """
     page = text
     if len(text) > _INPUT_CHARS:
-        # Too big to feed whole: keyword-focused excerpts if we have
-        # keywords, head+tail otherwise.
-        filtered = (select_excerpts(text, keywords, window=2400,
-                                    max_excerpts=24, max_chars=_INPUT_CHARS)
-                    if keywords else "")
+        # Too big to feed whole: the reranker's best passages when one is on,
+        # else keyword-focused excerpts if we have keywords, head+tail
+        # otherwise.
+        picked = (await _rerank_cut(page, brief, _INPUT_CHARS, reranker)
+                  if reranker is not None else None)
+        filtered = picked or (select_excerpts(text, keywords, window=2400,
+                                              max_excerpts=24, max_chars=_INPUT_CHARS)
+                              if keywords else "")
         text = filtered or clip_text(text)
 
 
@@ -299,7 +340,9 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                     raise
                 log.info("notes for %s: no memory for %d chars, reading %d",
                          url, len(text), budget)
-                text = _shrink(page, keywords, budget)
+                text = ((await _rerank_cut(page, brief, budget, reranker)
+                         if reranker is not None else None)
+                        or _shrink(page, keywords, budget))
                 prompt = prompt_for(text)
         first = demote_third_party_standard(first, url)
         if not (recheck and 3 <= first.relevance <= 5):

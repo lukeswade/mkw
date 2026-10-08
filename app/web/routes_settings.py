@@ -21,7 +21,8 @@ router = APIRouter()
 _TEXT_FIELDS = ("llm_provider", "llm_base_url", "llm_model", "fast_model",
                 "telegram_allowed_user_ids", "searxng_url", "lan_user_label",
                 "authority_sites", "feeds", "browser_solver_url",
-                "embedding_model", "embedding_base_url", "display_timezone",
+                "embedding_model", "embedding_base_url", "rerank_model",
+                "display_timezone",
                 "planner_variant", "query_scopes", "gap_variant")
 _SECRET_FORM_FIELDS = ("llm_api_key", "telegram_bot_token", "web_password",
                        "embedding_api_key")
@@ -69,6 +70,8 @@ async def settings_save(request: Request):
     updates["respect_robots"] = form.get("respect_robots") == "on"
     updates["reference_chasing"] = form.get("reference_chasing") == "on"
     updates["browser_impersonation"] = form.get("browser_impersonation") == "on"
+    for f in ("rerank_claims", "rerank_search", "rerank_passages"):
+        updates[f] = form.get(f) == "on"
     if "blocked_domains" in form:
         updates["blocked_domains"] = str(form["blocked_domains"]).strip()
     for f in _SECRET_FORM_FIELDS:

@@ -13,6 +13,7 @@ import asyncio
 import logging
 import math
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,7 @@ from app.llm import prompts
 from app.llm.client import LLM
 from app.llm.json_utils import LLMJsonError
 from app.models import BRIEF_DEFAULT_QUERY, VERIFY_CLAIM_CAP, RECENCY_LABELS, TriageOut
+from app.rag.rerank import make_reranker
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
@@ -641,6 +643,10 @@ class Pipeline:
         self.rag = rag  # knowledge-layer hooks (M3); None → skipped
         self.llm_factory = llm_factory or (lambda: LLM(cfg))
         self.cancel_requested = False
+        # Rerankers per feature; None when off (see Settings rerank_*).
+        self.rerank_claims = make_reranker(cfg, "claims")
+        self.rerank_search = make_reranker(cfg, "search")
+        self.rerank_passages = make_reranker(cfg, "passages")
 
     async def _triage(self, run_id: str, llm, query: str, brief: str,
                       queries: list[str], candidates: list,
@@ -1328,12 +1334,37 @@ class Pipeline:
             raise errors[0] if isinstance(errors[0], SearxngError) else RuntimeError(
                 f"all searches failed: {errors[0]}")
 
+        # Reranker ordering (on trial, Settings rerank_search): each result's
+        # title and snippet scored against the sub-query that found it. The
+        # score replaces word overlap as the last tiebreak in pick(); the tiers
+        # above it stand. All or nothing: half the pool on one scale and half on
+        # the other would order neither.
+        if self.rerank_search is not None and pairs:
+            started = time.monotonic()
+            scored = await asyncio.gather(*(
+                self.rerank_search.scores(q, [f"{r.title}\n{r.snippet}" for r in res])
+                for q, res in pairs))
+            if all(s is not None for s in scored):
+                for (_q, res), scores in zip(pairs, scored):
+                    for r, s in zip(res, scores):
+                        r.rerank_score = s
+                self.bus.publish(run_id, "log", message=(
+                    f"reranked {sum(len(res) for _q, res in pairs)} search results "
+                    f"in {time.monotonic() - started:.1f}s"))
+
         # A run that selected the videos category wants video ranked with the
         # web results, not behind all of them.
         promote = (VIDEO_ENGINES if "video" in (searcher.categories or "")
                    else frozenset())
 
         held_back_pool: list = []   # what the engine share cap set aside this round
+
+        def _relevance(r) -> float:
+            # The reranker's score when this round has one, else word overlap
+            # with the sub-query; both run 0 to 1.
+            score = getattr(r, "rerank_score", None)
+            return score if score is not None else lexical_overlap(
+                r.via_query, f"{r.title} {r.snippet}")
 
         def pick(pool: list, limit: int, *, share: bool = True) -> list:
             # Stable sort keeps round-robin order inside each tier, so every
@@ -1366,7 +1397,7 @@ class Pipeline:
                   refill_order(r.engine, promote, state.engine_read,      # refill: this run's own record
                                state.engine_kept, state.engine_yield)),
                 looks_like_index(r.url),      # roots and indexes last in tier
-                -lexical_overlap(r.via_query, f"{r.title} {r.snippet}")))
+                -_relevance(r)))
             # A question that selected videos wants the videos: the host cap
             # does not apply to video hosts then (channel grouping still does
             # not — every video may stand on its own).
@@ -1637,6 +1668,7 @@ class Pipeline:
                 template=state.notes_template, source_kind=source_kind,
                 facet=state.query_facet.get(c.via_query or "", ""),
                 order=str(getattr(self.cfg, "notes_order", "default")),
+                reranker=self.rerank_passages,
                 recheck=str(getattr(self.cfg, "notes_recheck", "off")).lower() in ("on", "1", "true", "yes"))
             if notes is None:
                 state.skipped += 1
@@ -2251,7 +2283,8 @@ class Pipeline:
     async def _check_one(self, run_id: str, llm, searcher, fetcher,
                          claim) -> "verify.Checked":
         """Library first; the web only when the library cannot settle it."""
-        evidence = await verify.library_evidence(self.rag, claim.text)
+        evidence = await verify.library_evidence(self.rag, claim.text,
+                                                 reranker=self.rerank_claims)
         verdict = await verify.judge(llm, claim.text, evidence)
         if evidence and verify.settled(verdict):
             self.bus.publish(run_id, "log",

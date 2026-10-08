@@ -40,6 +40,8 @@ _LIBRARY_PER_RUN = 3
 # reaches for first. Trimmed before the web evidence is appended.
 _LIBRARY_KEEP_ON_FALLTHROUGH = 3
 _LIBRARY_MIN_SCORE = 0.45
+# What a reranker reorders before the caps: the pool it was measured on.
+_RERANK_POOL = 50
 # A library verdict this confident is accepted without searching the web.
 _LIBRARY_SETTLES_AT = 7
 _WEB_PAGES_PER_CLAIM = 3
@@ -200,7 +202,7 @@ async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
                           reasoning=f"Adjudication failed: {e}")
 
 
-async def library_evidence(rag, claim: str) -> list[Evidence]:
+async def library_evidence(rag, claim: str, reranker=None) -> list[Evidence]:
     """Passages from earlier runs that bear on the claim, spread across sources.
 
     Plain top-N retrieval handed all six slots to one document — the same
@@ -208,22 +210,33 @@ async def library_evidence(rag, claim: str) -> list[Evidence]:
     a point the library actually disputes. Capping per source buys a view of
     the disagreement instead of the loudest match, the same reason a research
     round caps candidates per domain.
+
+    With a reranker, the top 50 above the floor are reordered by it before the
+    caps, as measured: the right source reached the judge for 85% of claims
+    instead of 74%. If it cannot answer, today's order and pool stand.
     """
     if rag is None:
         return []
     try:
-        hits = await rag.semantic_search(claim, limit=_LIBRARY_POOL)
+        # Whole chunks: the 400-char display snippet hid most of each passage
+        # from the judge, and the reranker was measured on whole chunks.
+        hits = await rag.semantic_search(
+            claim, limit=_RERANK_POOL if reranker is not None else _LIBRARY_POOL,
+            text_chars=None)
     except Exception as e:
         log.warning("library lookup failed: %s", e)
         return []
+    hits = [h for h in hits if h.get("score", 0) >= _LIBRARY_MIN_SCORE]
+    if reranker is not None:
+        order = await reranker.order(claim, [h.get("text", "") for h in hits])
+        hits = ([hits[i] for i in order] if order is not None
+                else hits[:_LIBRARY_POOL])
     out: list[Evidence] = []
     per_source: dict[str, int] = {}
     per_run: dict[str, int] = {}
     for h in hits:
         if len(out) >= _LIBRARY_HITS:
             break
-        if h.get("score", 0) < _LIBRARY_MIN_SCORE:
-            continue
         title = h.get("title") or h.get("run_id") or "earlier research"
         run_id = h.get("run_id") or ""
         if per_source.get(title, 0) >= _LIBRARY_PER_SOURCE:

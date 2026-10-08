@@ -69,8 +69,9 @@ class _Rag:
         self.queries: list[str] = []
         self.indexed: list[str] = []
 
-    async def semantic_search(self, query, limit=20):
+    async def semantic_search(self, query, limit=20, text_chars=400):
         self.queries.append(query)
+        self.asked = {"limit": limit, "text_chars": text_chars}
         return self.hits
 
     async def index_run(self, repo, run_id):

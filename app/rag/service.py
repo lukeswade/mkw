@@ -197,11 +197,15 @@ class RagService:
                 repo.add_run_link(run_id, rid, "similar", score)
 
     # ---- library semantic mode ---------------------------------------------------
-    async def semantic_search(self, query: str, limit: int = 20) -> list[dict]:
+    async def semantic_search(self, query: str, limit: int = 20,
+                              text_chars: int | None = 400) -> list[dict]:
+        """Top chunks for the query. `text_chars` clips each chunk for display;
+        None returns it whole, which evidence for a judge or reranker needs."""
         self._refresh()
         emb = await self.embedder.encode_query(query)
         hits = self.index.query(emb, n=limit)
-        return [{"run_id": h.meta.get("run_id", ""), "text": h.text[:400],
+        return [{"run_id": h.meta.get("run_id", ""),
+                 "text": h.text[:text_chars] if text_chars else h.text,
                  "score": h.score, "kind": h.meta.get("kind", ""),
                  "title": h.meta.get("title", "")} for h in hits]
 

@@ -164,6 +164,26 @@
       hosts a stronger retrieval model. Switching models starts a fresh vector
       index; run <code>cli reindex</code> to refill it. Parallel requests only
       help if your server batches (oMLX, vLLM, llama.cpp).</p>
+    <label>Reranker model <small>(blank = off)</small>
+      <input type="text" name="rerank_model" value="{{ cfg.rerank_model }}"
+             placeholder="e.g. Qwen3-Reranker-0.6B-mxfp8">
+    </label>
+    <label>
+      <input type="checkbox" name="rerank_claims" {{ 'checked' if cfg.rerank_claims else '' }}>
+      Rerank your library's evidence for claim checks
+    </label>
+    <label>
+      <input type="checkbox" name="rerank_search" {{ 'checked' if cfg.rerank_search else '' }}>
+      Rerank search results before choosing what to read <small>(on trial)</small>
+    </label>
+    <label>
+      <input type="checkbox" name="rerank_passages" {{ 'checked' if cfg.rerank_passages else '' }}>
+      Rerank passages when a page has to be cut <small>(on trial)</small>
+    </label>
+    <p class="hint">A reranker reads the question and each passage together and
+      scores the pair, which embeddings alone cannot. It runs on the embedding
+      endpoint's <code>/rerank</code>. On this library it raised claim checks
+      shown the right source from 74% to 85%, at about 5 seconds a claim.</p>
     <label>Authority sites <small>(one per line: domain — what it holds)</small>
       <textarea name="authority_sites" rows="3"
                 placeholder="charm.li — full factory service manuals for cars">{{ cfg.authority_sites }}</textarea>
