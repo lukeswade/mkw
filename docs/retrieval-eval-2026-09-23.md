@@ -15,7 +15,8 @@ into the app and no Setting changed: the app still embeds with nomic.
 | Qwen3-Reranker-0.6B | **On for all three uses** since 2026-10-07 (`29544d9`, Settings → Reranker): claim checks (measured 74% → 85%); search order and passage picking on trial (measured below). | Luke: watch search order |
 | Qwen3-Embedding-4B | Downloaded and measured: claim checks 74% → 82%, Ask 64% → 70%; with the reranker 89% and 79%. **Not adopted.** | Luke, once RAM is sorted |
 | Thinking on for synthesis | Tested (A/B below). Not adopted. | Parked |
-| EmbeddingGemma 2 | Released 2026-10-06. oMLX 0.7.0 cannot serve it. | Revisit after an oMLX update |
+| jina-reranker-v3.5 | Measured 2026-10-16 (below): over nomic's pool, claim checks 85% → 91% and Ask 69% → 79% against the Qwen reranker. **Serving since 2026-10-16** (Settings → Reranker model `jina-reranker-v3.5-mlx`) for claims, search and passages. Ask reranking is built on branch `rerank-ask` (Settings switch `rerank_ask`, on by default). Licence CC-BY-NC-4.0. | Luke: deploy `rerank-ask` |
+| EmbeddingGemma 2 | Released 2026-10-06. oMLX 0.7.1 has a patch for it; its benchmarks trail Qwen3-Embedding-0.6B on text. | Not worth measuring |
 | Eval scripts, this doc | Committed. | Done |
 
 ## The branch `retrieval-fixes` (three commits on `7f87c8f`, deployed and merged 2026-10-07)
@@ -194,6 +195,28 @@ embedder's top 50.
   2.38 GB in oMLX. Own run ranked first 89.7% (nomic 92.5%).
 - The predictions held: 4B Ask about 70% (measured 70%) and claim checks
   about 80% (82%); reranker +4 to +8 points (+5 Ask, +11 claim checks).
+
+### jina-reranker-v3.5 on the same set (2026-10-16)
+
+`jinaai/jina-reranker-v3.5-mlx`, Jina's official MLX build, in
+`~/models/jinaai/`. It is a 0.6B listwise reranker; oMLX 0.7.1 serves it
+natively (JinaForRanking, needs `projector.safetensors`). Ran with
+`--rerank-model jina-reranker-v3.5-mlx`. The embedder-only rows matched the
+2026-10-07 baseline exactly, so the rows below compare like for like.
+
+| Setup | Ask | Ask with backfill | Claim check |
+|---|---|---|---|
+| nomic + Qwen3-Reranker-0.6B (serving) | 69% | 71% | 85% |
+| **nomic + jina-reranker-v3.5** | **79%** | **80%** | **91%** |
+| 4B + Qwen3-Reranker-0.6B | 79% | 80% | 89% |
+| Ceiling: the right chunk anywhere in nomic's top 50 | 82% | | 91% |
+
+- **Quality:** jina reaches the claim-check ceiling of nomic's pool and is 3 points short of it on Ask. That matches the 4B-plus-Qwen stack without the 4B's 2.4 GB or its 2-hour reindex.
+- **Latency per query, 50 chunks:** p50 5.7 s and p90 7.3 s, against 4.5 s and 5.2 s for the Qwen reranker. The 35B was loaded but idle.
+- **Search-sized calls** (64 docs, a title and 300 chars each, 10 calls per model): 3.13 s median against 2.21 s.
+- **RAM:** 1.22 GB loaded, against 0.65 GB for the Qwen reranker's mxfp8.
+- **Scores** are cosine-like (−0.1 to 0.6), not 0–1. mkw uses reranker scores only to order things, so nothing needs retuning.
+- **Adopted 2026-10-16:** Settings → Reranker model is `jina-reranker-v3.5-mlx`, and runs pick it up without a restart. Ask reranking lives on branch `rerank-ask`. `RagService.ask` takes the embedding's top `ASK_RERANK_POOL` (50) chunks, applies the floor, then reranks before the per-run cap and backfill, matching the eval's `rerank_soft` arm. Without scores it keeps today's 30 in embedding order. It reads the switch from current settings on each question.
 
 ### Thinking on for synthesis (run 20260923_020339, 20 sources, depth 3)
 
