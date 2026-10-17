@@ -1,8 +1,10 @@
-"""The reranker: one client, four uses, each off until switched on.
+"""The reranker: one client, seven uses, each with its own switch.
 
 Claim checks and Ask are the measured uses (shown the right source on this
 library: claim checks 74% -> 91%, Ask 67% -> 80%, jina-reranker-v3.5,
-2026-10-16). Search ordering and passage picking are on trial.
+2026-10-16). Search ordering, the planner's prior knowledge, the passage the
+claim judge reads and the borderline-relevance recheck are on as well;
+passage picking on memory cuts is on trial.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from app.config import Settings
 from app.rag.index import Hit
 from app.rag.rerank import Reranker, make_reranker
 from app.rag.service import rerank_hits
-from app.research.verify import library_evidence
+from app.research.verify import Evidence, judge, judge_passages, library_evidence, render_evidence
 
 _URL = "http://localhost:8000/v1/rerank"
 
@@ -72,9 +74,9 @@ def test_each_use_is_off_until_a_model_is_named_and_its_switch_is_on():
     assert make_reranker(Settings(**base), "claims") is None
     cfg = Settings(**base, rerank_model="Qwen3-Reranker-0.6B-mxfp8")
     assert make_reranker(cfg, "claims") is not None            # on once a model is named
-    assert make_reranker(cfg, "ask") is not None               # measured: on by default
-    assert make_reranker(cfg, "search") is None                # on trial: off by default
-    assert make_reranker(cfg, "passages") is None
+    for use in ("ask", "search", "prior", "judge", "recheck"):  # on by default
+        assert make_reranker(cfg, use) is not None, use
+    assert make_reranker(cfg, "passages") is None              # on trial: off by default
     assert make_reranker(Settings(**base, rerank_model="m", rerank_ask=False), "ask") is None
     assert make_reranker(cfg, "claims").base_url == "http://llm:8000/v1"
     emb = Settings(**base, rerank_model="m", embedding_base_url="http://emb:9000/v1")
@@ -380,3 +382,62 @@ async def test_the_search_reranker_reads_a_title_and_the_opening_of_its_snippet(
     assert len(abstract) > 3_000 and sent
     assert all(d.startswith("Article ") and len(d) <= len("Article A\n") + 300
                for d in sent)
+
+
+
+# ---- the claim judge's passage ---------------------------------------------------
+
+class _LikesWindowsWith:
+    """A reranker double scoring 1.0 any window holding `word`, else 0."""
+    def __init__(self, word):
+        self.word, self.seen = word, []
+
+    async def scores(self, query, docs):
+        self.seen = list(docs)
+        return [1.0 if self.word in d else 0.0 for d in docs]
+
+
+def _page(n: int) -> Evidence:
+    # The claim's words sit near the head; the passage about it, worded
+    # differently, sits far down the page.
+    filler = "Unrelated filler sentence about weather and sport. " * 60
+    text = ("Battery makers say solid state cells cost more. " + filler
+            + "Yields at the sulfide plant fell to sixty percent in 2025. " + filler)
+    return Evidence(n=n, label=f"site{n}.example — page", url=f"https://site{n}.example", text=text)
+
+
+async def test_the_judge_reads_the_window_the_reranker_ranks_first():
+    claim = "solid state battery cells cost more because yields are low"
+    page = _page(2)
+    short = Evidence(n=1, label="library", url="/runs/x", text="A short library chunk.")
+    picks = await judge_passages(claim, [short, page], _LikesWindowsWith("sulfide plant"))
+    assert set(picks) == {2}, "short items are shown whole, as before"
+    assert "sulfide plant" in picks[2] and len(picks[2]) <= 1_200 + 4
+    rendered = render_evidence([short, page], claim, picks)
+    assert "sulfide plant" in rendered and "A short library chunk." in rendered
+
+
+async def test_without_scores_the_judge_keeps_the_word_overlap_passage():
+    claim = "solid state battery cells cost more because yields are low"
+    page = _page(1)
+    class _NoScores:
+        async def scores(self, q, d):
+            return None
+    assert await judge_passages(claim, [page], _NoScores()) == {}
+    assert render_evidence([page], claim, {}) == render_evidence([page], claim)
+
+
+async def test_the_judge_prompt_carries_the_rerankers_passage():
+    from app.models import VerdictOut
+    claim = "solid state battery cells cost more because yields are low"
+
+    class _LLM:
+        prompt = ""
+        async def chat_json(self, kind, messages, schema, **kw):
+            _LLM.prompt = messages[0]["content"]
+            return VerdictOut(verdict="unverifiable", confidence=0, reasoning="r")
+
+    await judge(_LLM(), claim, [_page(1)], reranker=_LikesWindowsWith("sulfide plant"))
+    assert "sulfide plant" in _LLM.prompt
+    await judge(_LLM(), claim, [_page(1)])
+    assert "sulfide plant" not in _LLM.prompt, "without a reranker: word overlap, as before"

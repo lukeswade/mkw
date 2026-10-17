@@ -244,3 +244,36 @@ async def test_ask_shows_excerpts_in_the_rerankers_order_and_reads_the_switch_li
     await svc.ask(question, repo)
     assert switches == [True, False]
     assert prompts_seen[1].index(best) < prompts_seen[1].index(worst)
+
+
+
+async def test_the_planners_prior_block_follows_the_reranker_but_related_runs_do_not(
+        cfg, monkeypatch):
+    import app.rag.service as service
+    repo = Repo(connect(cfg.db_path))
+    svc = RagService(cfg, llm_factory=lambda: FakeLLM({}))
+    for title in ("Solid State Batteries", "Battery Production Yields"):
+        rid = seed_run(cfg, repo, title.lower(), title, f"{BATTERY_TEXT} Filed under {title}.")
+        await svc.index_run(repo, rid)
+    reverse = _Reverse()
+    built: list[str] = []
+
+    def fake_make_reranker(c, feature):
+        built.append(feature)
+        return reverse
+
+    monkeypatch.setattr(service, "make_reranker", fake_make_reranker)
+    question = "battery electrolyte manufacturing yields"
+    def first_item(block: str) -> str:
+        end = block.find("\n- (from ", 1)
+        return block if end < 0 else block[:end]
+
+    block, related = await svc.prior_knowledge(question)
+    best, worst = reverse.seen[0][:600], reverse.seen[-1][:600]
+    assert len(reverse.seen) >= 2 and best != worst
+    assert worst in first_item(block), "the reranker's pick leads the block"
+    plain, plain_related = await svc.prior_knowledge(question, rerank=False)
+    assert best in first_item(plain), "without it, the embedding's pick leads"
+    assert related == plain_related and related, "related runs stay on embedding scores"
+    assert await svc.related_runs(question) == plain_related
+    assert built == ["prior"], "related_runs and rerank=False never build a reranker"

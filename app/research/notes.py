@@ -34,6 +34,17 @@ _SHRINK_MARGIN = 0.8     # aim under the room the server reported: the
                          # instructions around the page do not shrink
 _PASSAGE_CHARS = 2_000   # a page's pieces, when a reranker picks what to keep
 
+# A reranker settles the borderline-relevance recheck when it is sure, instead
+# of a second notes read: the page's best passage scored against the brief.
+# Cut-offs per reranker, set 2026-10-16 from the eval set's 159 kept pages:
+# against another run's brief none scored above 0.32 (max 0.314); against
+# their own brief none scored below -0.10 (52% of the unrelated pairs did).
+# In between, the second model read decides as before. An unlisted reranker
+# scores on another scale, so it never settles a recheck.
+_RECHECK_CUTS = {"jina-reranker-v3.5": (0.32, -0.10)}
+_RECHECK_SAYS_RELEVANT = 7      # the second opinion it stands in for
+_RECHECK_SAYS_UNRELATED = 2
+
 # Sources at or above this score are kept. 4 = "real material on part of the
 # brief" under the notes rubric — demanding briefs made the old bar of 5 throw
 # away chip datasheets and comparison guides that answered a third of the
@@ -138,6 +149,25 @@ def _passages(page: str, size: int = _PASSAGE_CHARS) -> list[str]:
             out.append(piece)
         start = end
     return out
+
+
+async def _recheck_by_reranker(text: str, brief: str, reranker) -> int | None:
+    """A second opinion on a borderline page from the reranker, on the notes
+    scale, or None when it is not sure (or its scale is not calibrated)."""
+    model = (getattr(reranker, "model", "") or "").lower()
+    cuts = next((c for name, c in _RECHECK_CUTS.items() if name in model), None)
+    pieces = _passages(text)[:64]
+    if cuts is None or not pieces:
+        return None
+    scores = await reranker.scores(brief, pieces)
+    if not scores:
+        return None
+    best = max(scores)
+    if best >= cuts[0]:
+        return _RECHECK_SAYS_RELEVANT
+    if best <= cuts[1]:
+        return _RECHECK_SAYS_UNRELATED
+    return None
 
 
 async def _rerank_cut(page: str, query: str, budget: int, reranker) -> str | None:
@@ -299,6 +329,7 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
                      recheck: bool = False,
                      facet: str = "",
                      reranker=None,
+                     recheck_reranker=None,
                      why: list[str] | None = None) -> NotesOut | None:
     """Returns None when the model output is unusable (doc gets skipped).
 
@@ -307,6 +338,9 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
     the same page scored 2/10 and 7/10 on consecutive runs — and averages the
     two, keeping the notes of the higher-scoring answer.
    
+    `recheck_reranker`, when it is sure, stands in for that second read: one
+    rerank call instead of a whole notes call (see _RECHECK_CUTS).
+
     `reranker` (on trial) picks which parts of a page survive when a memory
     refusal forces a shorter read, instead of keyword windows; pages over the
     56K budget keep keyword excerpts, and without scores the old cut stands.
@@ -367,6 +401,14 @@ async def take_notes(llm: LLM, *, brief: str, recency_desc: str, today: str,
         first = demote_third_party_standard(first, url)
         if not (recheck and 3 <= first.relevance <= 5):
             return first
+        if recheck_reranker is not None:
+            said = await _recheck_by_reranker(text, brief, recheck_reranker)
+            if said is not None:
+                averaged = int((first.relevance + said + 1) // 2)
+                log.info("notes rechecked %s by the reranker: %d and %d -> %d",
+                         url, first.relevance, said, averaged)
+                first.relevance = averaged
+                return first
         try:
             second = await llm.chat_json(
                 "notes", [{"role": "user", "content": prompt}],

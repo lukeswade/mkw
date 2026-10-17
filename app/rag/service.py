@@ -38,6 +38,9 @@ PRIOR_PER_RUN = 3
 # questions: jina-reranker-v3.5 over the embedding's top 50 showed 80% their
 # source (67% without), 2 points under that pool's ceiling, at about 6 s.
 ASK_RERANK_POOL = 50
+# The same for the planner's prior-knowledge block: the reranker reads the
+# embedding's top 50 above the floor, then the per-run cap applies.
+PRIOR_RERANK_POOL = 50
 
 
 async def rerank_hits(hits, query: str, reranker, *, fallback: int) -> list:
@@ -122,26 +125,51 @@ class RagService:
         return LLM(load_settings(self.cfg.data_dir))
 
     # ---- pipeline hook: before planning -------------------------------------
-    async def prior_knowledge(self, query: str, exclude_run: str | None = None
+    async def prior_knowledge(self, query: str, exclude_run: str | None = None,
+                              *, rerank: bool = True
                               ) -> tuple[str, list[tuple[str, float]]]:
+        """The planner's block of earlier findings, and the related runs.
+
+        With a reranker the block is its pick from the embedding's top
+        PRIOR_RERANK_POOL, the floor before it and the per-run cap after, as
+        for Ask. The related runs stay on embedding scores: LINK_MIN_SCORE is
+        calibrated on those. `rerank=False` skips the reranker for callers
+        that only want the related runs."""
         self._refresh()
         if self.index.count() == 0:
             return "", []
         emb = await self.embedder.encode_query(query)
-        hits = diversify(
-            [h for h in self.index.query(emb, n=PRIOR_MAX_CHUNKS * 4)
-             if h.meta.get("run_id") != exclude_run
-             and h.score >= PRIOR_MIN_SCORE],
-            per_run=PRIOR_PER_RUN, limit=PRIOR_MAX_CHUNKS)
+        reranker = None
+        if rerank:
+            try:
+                reranker = make_reranker(load_settings(self.cfg.data_dir), "prior")
+            except Exception:
+                reranker = None
+        top = self.index.query(emb, n=PRIOR_RERANK_POOL if reranker is not None
+                               else PRIOR_MAX_CHUNKS * 4)
+
+        def keep(h) -> bool:
+            return h.meta.get("run_id") != exclude_run and h.score >= PRIOR_MIN_SCORE
+
+        today = [h for h in top[:PRIOR_MAX_CHUNKS * 4] if keep(h)]
+        by_score = diversify(today, per_run=PRIOR_PER_RUN, limit=PRIOR_MAX_CHUNKS)
+        hits = by_score
+        if reranker is not None:
+            hits = diversify(
+                await rerank_hits([h for h in top if keep(h)], query, reranker,
+                                  fallback=len(today)),
+                per_run=PRIOR_PER_RUN, limit=PRIOR_MAX_CHUNKS)
         if not hits:
             return "", []
         lines = []
-        best_per_run: dict[str, float] = defaultdict(float)
         for h in hits:
             run_id = h.meta.get("run_id", "")
             title = h.meta.get("run_title") or run_id
-            best_per_run[run_id] = max(best_per_run[run_id], h.score)
             lines.append(f"- (from “{title}”) {h.text[:600]}")
+        best_per_run: dict[str, float] = defaultdict(float)
+        for h in by_score:
+            run_id = h.meta.get("run_id", "")
+            best_per_run[run_id] = max(best_per_run[run_id], h.score)
         related = sorted(
             ((rid, s) for rid, s in best_per_run.items() if s >= LINK_MIN_SCORE),
             key=lambda t: -t[1])[:LINK_TOP_N]
@@ -151,7 +179,8 @@ class RagService:
                            ) -> list[tuple[str, float]]:
         """Which earlier runs this question resembles — the sourcing signal,
         usable even when the planner is told nothing about them."""
-        _text, related = await self.prior_knowledge(query, exclude_run=exclude_run)
+        _text, related = await self.prior_knowledge(query, exclude_run=exclude_run,
+                                                    rerank=False)
         return related
 
     # ---- pipeline hook: after synthesis ----------------------------------------

@@ -177,8 +177,20 @@
       Rerank your library's excerpts for Ask
     </label>
     <label>
+      <input type="checkbox" name="rerank_prior" {{ 'checked' if cfg.rerank_prior else '' }}>
+      Rerank what your library shows the planner before a run
+    </label>
+    <label>
+      <input type="checkbox" name="rerank_judge" {{ 'checked' if cfg.rerank_judge else '' }}>
+      Rerank which part of each page the claim judge reads
+    </label>
+    <label>
+      <input type="checkbox" name="rerank_recheck" {{ 'checked' if cfg.rerank_recheck else '' }}>
+      Let the reranker settle clear-cut borderline pages instead of a second model read
+    </label>
+    <label>
       <input type="checkbox" name="rerank_search" {{ 'checked' if cfg.rerank_search else '' }}>
-      Rerank search results before choosing what to read <small>(on trial)</small>
+      Rerank search results before choosing what to read
     </label>
     <label>
       <input type="checkbox" name="rerank_passages" {{ 'checked' if cfg.rerank_passages else '' }}>

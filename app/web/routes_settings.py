@@ -70,7 +70,8 @@ async def settings_save(request: Request):
     updates["respect_robots"] = form.get("respect_robots") == "on"
     updates["reference_chasing"] = form.get("reference_chasing") == "on"
     updates["browser_impersonation"] = form.get("browser_impersonation") == "on"
-    for f in ("rerank_claims", "rerank_search", "rerank_passages", "rerank_ask"):
+    for f in ("rerank_claims", "rerank_search", "rerank_passages", "rerank_ask",
+              "rerank_prior", "rerank_judge", "rerank_recheck"):
         updates[f] = form.get(f) == "on"
     if "blocked_domains" in form:
         updates["blocked_domains"] = str(form["blocked_domains"]).strip()

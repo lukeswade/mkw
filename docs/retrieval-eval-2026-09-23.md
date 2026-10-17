@@ -216,6 +216,13 @@ natively (JinaForRanking, needs `projector.safetensors`). Ran with
 - **Search-sized calls** (64 docs, a title and 300 chars each, 10 calls per model): 3.13 s median against 2.21 s.
 - **RAM:** 1.22 GB loaded, against 0.65 GB for the Qwen reranker's mxfp8.
 - **Scores** are cosine-like (−0.1 to 0.6), not 0–1. mkw uses reranker scores only to order things, so nothing needs retuning.
+- **Four more uses (2026-10-16).** Luke asked for them to ship without comparisons, so they are unmeasured. Each has a Settings switch, all on.
+  - **Prior knowledge** (`rerank_prior`): the planner's block of earlier findings is the reranker's pick from the embedding's top 50, as for Ask. Related runs stay on embedding scores (`LINK_MIN_SCORE`), and `related_runs` skips the reranker.
+  - **Judge passages** (`rerank_judge`): for each evidence item over 1,200 chars, word overlap shortlists 8 windows at least 600 chars apart, plus the head. The reranker picks the judge's window, and `best_passage` stands when there are no scores.
+  - **Borderline recheck** (`rerank_recheck`): when a page's first relevance is 3–5, the reranker scores its best 2,000-char piece against the brief. Above 0.32 it counts as a 7, below −0.10 as a 2, and in between the second notes read decides as before.
+    - **Cut-offs:** on the eval set's 159 kept pages, no pair against another run's brief scored above 0.32, and no page against its own brief scored below −0.10.
+    - **Calibration:** `_RECHECK_CUTS` holds the cut-offs per reranker. An unlisted reranker never settles a recheck.
+  - **Search ordering** is out of trial: `rerank_search` is on by default.
 - **Adopted 2026-10-16:** Settings → Reranker model is `jina-reranker-v3.5-mlx`, and runs pick it up without a restart. Ask reranking lives on branch `rerank-ask`. `RagService.ask` takes the embedding's top `ASK_RERANK_POOL` (50) chunks, applies the floor, then reranks before the per-run cap and backfill, matching the eval's `rerank_soft` arm. Without scores it keeps today's 30 in embedding order. It reads the switch from current settings on each question.
 
 ### Thinking on for synthesis (run 20260923_020339, 20 sources, depth 3)

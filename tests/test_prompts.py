@@ -172,6 +172,42 @@ async def test_a_borderline_score_is_rechecked_once_and_averaged(data_dir):
     assert llm.calls == 1 and out.relevance == 7                               # not borderline: no second look
 
 
+async def test_a_sure_reranker_settles_the_recheck_without_a_second_read(data_dir):
+    from app.models import NotesOut
+    from app.research.notes import take_notes
+
+    class Capture:
+        def __init__(self, scores): self.scores = list(scores); self.calls = 0
+        async def chat_json(self, kind, messages, schema, **kw):
+            self.calls += 1
+            return NotesOut(relevance=self.scores.pop(0), summary=f"s{self.calls}", notes_md="n", key_facts=[])
+
+    class Rerank:
+        def __init__(self, model, best): self.model, self.best, self.calls = model, best, 0
+        async def scores(self, query, docs):
+            self.calls += 1
+            return None if self.best is None else [self.best] + [-0.5] * (len(docs) - 1)
+
+    kw = dict(brief="b", recency_desc="all time", today="2026-09-03", url="u", title="t",
+              detected_date=None, text="page text")
+    jina = "jina-reranker-v3.5-mlx"
+    llm, rr = Capture([4, 8]), Rerank(jina, 0.5)                    # sure it is relevant
+    out = await take_notes(llm, recheck=True, recheck_reranker=rr, **kw)
+    assert (llm.calls, rr.calls, out.relevance) == (1, 1, 6)        # 4 and 7 -> 6, one read
+    llm = Capture([5, 8])                                            # sure it is unrelated
+    out = await take_notes(llm, recheck=True, recheck_reranker=Rerank(jina, -0.3), **kw)
+    assert (llm.calls, out.relevance) == (1, 4)                      # 5 and 2 -> 4
+    for unsure in (Rerank(jina, 0.1), Rerank(jina, None)):          # the second read decides
+        llm = Capture([4, 8])
+        out = await take_notes(llm, recheck=True, recheck_reranker=unsure, **kw)
+        assert (llm.calls, out.relevance, out.summary) == (2, 6, "s2")
+    llm, rr = Capture([4, 8]), Rerank("Qwen3-Reranker-0.6B-mxfp8", 0.99)
+    out = await take_notes(llm, recheck=True, recheck_reranker=rr, **kw)
+    assert (llm.calls, rr.calls) == (2, 0), "an uncalibrated scale never settles it"
+    llm, rr = Capture([7, 9]), Rerank(jina, 0.5)
+    out = await take_notes(llm, recheck=True, recheck_reranker=rr, **kw)
+    assert (llm.calls, rr.calls, out.relevance) == (1, 0, 7), "not borderline: no rerank call"
+
 def test_instructions_first_is_the_default_notes_layout(data_dir):
     from app.config import Settings
     assert Settings(data_dir=str(data_dir)).notes_order == "instructions_first"

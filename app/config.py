@@ -46,6 +46,9 @@ ENV_MAP = {
     "rerank_search": "RERANK_SEARCH",
     "rerank_passages": "RERANK_PASSAGES",
     "rerank_ask": "RERANK_ASK",
+    "rerank_prior": "RERANK_PRIOR",
+    "rerank_judge": "RERANK_JUDGE",
+    "rerank_recheck": "RERANK_RECHECK",
     "llm_timeout": "LLM_TIMEOUT",
     "llm_call_ceiling": "LLM_CALL_CEILING",
     "display_timezone": "DISPLAY_TIMEZONE",
@@ -111,6 +114,9 @@ UI_EDITABLE = {
     "rerank_search",
     "rerank_passages",
     "rerank_ask",
+    "rerank_prior",
+    "rerank_judge",
+    "rerank_recheck",
     "browser_impersonation",
     "browser_solver_url",
 }
@@ -171,12 +177,17 @@ class Settings:
     # Measured on this library (docs/retrieval-eval-2026-09-23.md): claim
     # checks shown the right source 74% -> 85% with Qwen3-Reranker-0.6B and
     # 91% with jina-reranker-v3.5; Ask 67% -> 80% with jina, at about 6 s per
-    # 50 passages. Search ordering and passage picking are on trial.
+    # 50 passages. Search ordering, the planner's prior knowledge, the
+    # passage the claim judge reads and the borderline-relevance recheck use
+    # it too; passage picking on memory cuts is on trial.
     rerank_model: str = ""
     rerank_claims: bool = True
-    rerank_search: bool = False
+    rerank_search: bool = True
     rerank_passages: bool = False
     rerank_ask: bool = True
+    rerank_prior: bool = True
+    rerank_judge: bool = True
+    rerank_recheck: bool = True
     llm_timeout: int = 180
     # Hard wall-clock ceiling on a single model call, total, not
     # idle. llm_timeout is the SDK's idle read timeout: it fires only

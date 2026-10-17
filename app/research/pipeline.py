@@ -654,6 +654,8 @@ class Pipeline:
         self.rerank_claims = make_reranker(cfg, "claims")
         self.rerank_search = make_reranker(cfg, "search")
         self.rerank_passages = make_reranker(cfg, "passages")
+        self.rerank_judge = make_reranker(cfg, "judge")
+        self.rerank_recheck = make_reranker(cfg, "recheck")
 
     async def _triage(self, run_id: str, llm, query: str, brief: str,
                       queries: list[str], candidates: list,
@@ -1355,7 +1357,7 @@ class Pipeline:
             raise errors[0] if isinstance(errors[0], SearxngError) else RuntimeError(
                 f"all searches failed: {errors[0]}")
 
-        # Reranker ordering (on trial, Settings rerank_search): each result's
+        # Reranker ordering (Settings rerank_search): each result's
         # title and snippet scored against the sub-query that found it. The
         # score replaces word overlap as the last tiebreak in pick(); the tiers
         # above it stand. All or nothing: half the pool on one scale and half on
@@ -1692,7 +1694,8 @@ class Pipeline:
                 template=state.notes_template, source_kind=source_kind,
                 facet=state.query_facet.get(c.via_query or "", ""),
                 order=str(getattr(self.cfg, "notes_order", "default")),
-                reranker=self.rerank_passages, why=skip_why,
+                reranker=self.rerank_passages, recheck_reranker=self.rerank_recheck,
+                why=skip_why,
                 recheck=str(getattr(self.cfg, "notes_recheck", "off")).lower() in ("on", "1", "true", "yes"))
             if notes is None:
                 state.skipped += 1
@@ -2309,7 +2312,8 @@ class Pipeline:
         """Library first; the web only when the library cannot settle it."""
         evidence = await verify.library_evidence(self.rag, claim.text,
                                                  reranker=self.rerank_claims)
-        verdict = await verify.judge(llm, claim.text, evidence)
+        verdict = await verify.judge(llm, claim.text, evidence,
+                                     reranker=self.rerank_judge)
         if evidence and verify.settled(verdict):
             self.bus.publish(run_id, "log",
                              message=(f"“{claim.text[:70]}” — "
@@ -2321,7 +2325,8 @@ class Pipeline:
         web = await self._web_evidence(searcher, fetcher, llm, claim.text,
                                        start_n=len(kept) + 1)
         combined = verify.renumber(kept + web)
-        verdict = await verify.judge(llm, claim.text, combined)
+        verdict = await verify.judge(llm, claim.text, combined,
+                                     reranker=self.rerank_judge)
         self.bus.publish(run_id, "log",
                          message=(f"“{claim.text[:70]}” — {verdict.verdict} "
                                   f"from {len(web)} web source(s)"))

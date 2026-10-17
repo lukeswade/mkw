@@ -135,34 +135,84 @@ def best_passage(claim: str, text: str, limit: int = _EVIDENCE_CHARS) -> str:
     """
     if len(text) <= limit:
         return text
-    wanted = _terms(claim)
-    if not wanted:
-        return text[:limit]
-    starts = {0} | {m.end() for m in _BOUNDARY_RE.finditer(text)}
-    starts |= set(range(0, len(text), max(1, limit // 3)))
-    starts = sorted(s for s in starts if s < len(text) - limit // 4)
-    found = [(s, _terms(text[s:s + limit]) & wanted) for s in starts]
-    df = Counter(t for _s, hit in found for t in hit)
-    weight = {t: math.log(1 + len(found) / n) for t, n in df.items()}
-    scored = [(sum(weight[t] for t in hit), s) for s, hit in found]
-    best = max(score for score, _s in scored)
+    scored = _window_scores(claim, text, limit)
+    best = max((score for score, _s in scored), default=0.0)
     if best == 0.0:
         return text[:limit]
     # Every window holding the best set of terms ties. The first puts the
     # matching text at the window's end, the last at its start; the middle
     # one centres it, so the sentence around it survives on both sides.
     tied = [s for score, s in scored if score == best]
-    best_s = tied[len(tied) // 2]
-    passage = text[best_s:best_s + limit].strip()
-    return ("… " if best_s else "") + passage + (" …" if best_s + limit < len(text) else "")
+    return _window(text, tied[len(tied) // 2], limit)
 
 
-def render_evidence(items: list[Evidence], claim: str = "") -> str:
+def _window_scores(claim: str, text: str, limit: int) -> list[tuple[float, int]]:
+    """(score, start) for each candidate `limit`-char window of `text`:
+    windows start at sentence or line boundaries, scored on the claim's words
+    and numbers present, rarer ones weighted up. All zero without overlap."""
+    wanted = _terms(claim)
+    starts = {0} | {m.end() for m in _BOUNDARY_RE.finditer(text)}
+    starts |= set(range(0, len(text), max(1, limit // 3)))
+    starts = sorted(s for s in starts if s < len(text) - limit // 4)
+    if not wanted:
+        return [(0.0, s) for s in starts]
+    found = [(s, _terms(text[s:s + limit]) & wanted) for s in starts]
+    df = Counter(t for _s, hit in found for t in hit)
+    weight = {t: math.log(1 + len(found) / n) for t, n in df.items()}
+    return [(sum(weight[t] for t in hit), s) for s, hit in found]
+
+
+def _window(text: str, start: int, limit: int) -> str:
+    passage = text[start:start + limit].strip()
+    return ("… " if start else "") + passage + (" …" if start + limit < len(text) else "")
+
+
+# Windows of each long page the reranker reads for the judge: the word-overlap
+# scorer's best, at least half a window apart, plus the page's head.
+_JUDGE_WINDOWS = 8
+
+
+async def judge_passages(claim: str, items: list[Evidence], reranker) -> dict[int, str]:
+    """For each item too long to show whole, the window the reranker ranks
+    first against the claim, by evidence number. Word overlap shortlists the
+    windows; the reranker reads meaning, so a passage that words the claim
+    differently can win. Empty without scores: best_passage stands."""
+    candidates: list[tuple[int, str]] = []
+    for e in items:
+        if len(e.text) <= _EVIDENCE_CHARS:
+            continue
+        picked: list[int] = []
+        for _score, s in sorted(_window_scores(claim, e.text, _EVIDENCE_CHARS),
+                                key=lambda t: (-t[0], t[1])):
+            if all(abs(s - p) >= _EVIDENCE_CHARS // 2 for p in picked):
+                picked.append(s)
+            if len(picked) >= _JUDGE_WINDOWS:
+                break
+        if 0 not in picked:
+            picked.append(0)
+        candidates += [(e.n, _window(e.text, s, _EVIDENCE_CHARS)) for s in picked]
+    if not candidates or reranker is None:
+        return {}
+    scores = await reranker.scores(claim, [t for _n, t in candidates])
+    if not scores:
+        return {}
+    best: dict[int, tuple[float, str]] = {}
+    for (n, window), score in zip(candidates, scores):
+        if n not in best or score > best[n][0]:
+            best[n] = (score, window)
+    return {n: window for n, (_score, window) in best.items()}
+
+
+def render_evidence(items: list[Evidence], claim: str = "",
+                    passages: dict[int, str] | None = None) -> str:
     """Numbered evidence for the judge; with a claim, each long item is shown
-    by its passage about the claim rather than by its first chars."""
+    by its passage about the claim rather than by its first chars: the
+    reranker's pick from `passages` when there is one, else best_passage."""
+    passages = passages or {}
     return "\n\n".join(
         f"[{e.n}] {e.label}\n"
-        + (best_passage(claim, e.text) if claim else e.text[:_EVIDENCE_CHARS])
+        + (passages.get(e.n) or (best_passage(claim, e.text) if claim
+                                  else e.text[:_EVIDENCE_CHARS]))
         for e in items
     ) or "(no evidence found)"
 
@@ -211,14 +261,21 @@ def bound_unsupported(out: VerdictOut, evidence: list[Evidence]) -> VerdictOut:
     return out
 
 
-async def judge(llm: LLM, claim: str, evidence: list[Evidence]) -> VerdictOut:
+async def judge(llm: LLM, claim: str, evidence: list[Evidence],
+                reranker=None) -> VerdictOut:
     if not evidence:
         return VerdictOut(verdict="unverifiable", confidence=0,
                           reasoning="No evidence was found for this claim.")
+    passages: dict[int, str] = {}
+    if reranker is not None:
+        try:
+            passages = await judge_passages(claim, evidence, reranker)
+        except Exception as e:  # the word-overlap passage still stands
+            log.warning("judge passages via reranker failed: %s", e)
     try:
         out = await llm.chat_json(
             "verify", [{"role": "user", "content": prompts.VERDICT.format(
-                claim=claim, evidence=render_evidence(evidence, claim))}],
+                claim=claim, evidence=render_evidence(evidence, claim, passages))}],
             VerdictOut, max_tokens=900, temperature=0.1)
         out.quote = verbatim_quote(out.quote, evidence)
         return bound_unsupported(out, evidence)

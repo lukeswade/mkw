@@ -486,16 +486,23 @@ def test_the_new_settings_fields_round_trip_and_the_key_is_masked(data_dir, monk
         assert json.loads((cfg.data_path / "settings.json").read_text())["relevance_threshold"] == 10
 
 
-def test_the_ask_rerank_switch_shows_ticked_and_saves_both_ways(data_dir, monkeypatch):
+def test_the_rerank_switches_show_ticked_and_save_both_ways(data_dir, monkeypatch):
     from fastapi.testclient import TestClient
     app, cfg = make_app(data_dir, monkeypatch)
+    switches = ("rerank_ask", "rerank_prior", "rerank_judge", "rerank_recheck", "rerank_search")
     with TestClient(app) as client:
-        assert 'name="rerank_ask" checked' in client.get("/settings").text   # on by default
-        client.post("/settings", data={}, follow_redirects=False)            # unticked
-        assert json.loads((cfg.data_path / "settings.json").read_text())["rerank_ask"] is False
-        assert 'name="rerank_ask" checked' not in client.get("/settings").text
-        client.post("/settings", data={"rerank_ask": "on"}, follow_redirects=False)
-        assert json.loads((cfg.data_path / "settings.json").read_text())["rerank_ask"] is True
+        page = client.get("/settings").text
+        for f in switches:
+            assert f'name="{f}" checked' in page, f                          # on by default
+        assert "Rerank search results before choosing what to read <small>" not in page
+        client.post("/settings", data={}, follow_redirects=False)            # all unticked
+        saved = json.loads((cfg.data_path / "settings.json").read_text())
+        assert all(saved[f] is False for f in switches)
+        page = client.get("/settings").text
+        assert not any(f'name="{f}" checked' in page for f in switches)
+        client.post("/settings", data={f: "on" for f in switches}, follow_redirects=False)
+        saved = json.loads((cfg.data_path / "settings.json").read_text())
+        assert all(saved[f] is True for f in switches)
 
 def test_the_run_page_tells_the_whole_story_in_one_place(data_dir, monkeypatch):
     """Five counters existed — refused engines, candidates dropped before a
