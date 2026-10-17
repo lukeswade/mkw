@@ -15,7 +15,7 @@ into the app and no Setting changed: the app still embeds with nomic.
 | Qwen3-Reranker-0.6B | **On for all three uses** since 2026-10-07 (`29544d9`, Settings → Reranker): claim checks (measured 74% → 85%); search order and passage picking on trial (measured below). | Luke: watch search order |
 | Qwen3-Embedding-4B | Downloaded and measured: claim checks 74% → 82%, Ask 64% → 70%; with the reranker 89% and 79%. **Not adopted.** | Luke, once RAM is sorted |
 | Thinking on for synthesis | Tested (A/B below). Not adopted. | Parked |
-| jina-reranker-v3.5 | Measured 2026-10-16 (below): over nomic's pool, claim checks 85% → 91% and Ask 69% → 79% against the Qwen reranker. **Serving since 2026-10-16** (Settings → Reranker model `jina-reranker-v3.5-mlx`) for claims, search and passages. Ask reranking is built on branch `rerank-ask` (Settings switch `rerank_ask`, on by default). Licence CC-BY-NC-4.0. | Luke: deploy `rerank-ask` |
+| jina-reranker-v3.5 | Measured 2026-10-16 (below): over nomic's pool, claim checks 85% → 91% and Ask 69% → 79% against the Qwen reranker. **Serving since 2026-10-16** (Settings → Reranker model `jina-reranker-v3.5-mlx`) for claims, search and passages. Ask, the planner's prior knowledge, the claim judge's passages and the borderline recheck use it too since `afcfe8b` and `8d22eda`. Those were deployed 2026-10-16 (image `0e4adff55596`, rollback `mkw-app:rollback-20261016-225233`), smoke-tested and merged. Licence CC-BY-NC-4.0. | Done |
 | EmbeddingGemma 2 | Released 2026-10-06. oMLX 0.7.1 has a patch for it; its benchmarks trail Qwen3-Embedding-0.6B on text. | Not worth measuring |
 | Eval scripts, this doc | Committed. | Done |
 
@@ -223,7 +223,7 @@ natively (JinaForRanking, needs `projector.safetensors`). Ran with
     - **Cut-offs:** on the eval set's 159 kept pages, no pair against another run's brief scored above 0.32, and no page against its own brief scored below −0.10.
     - **Calibration:** `_RECHECK_CUTS` holds the cut-offs per reranker. An unlisted reranker never settles a recheck.
   - **Search ordering** is out of trial: `rerank_search` is on by default.
-- **Adopted 2026-10-16:** Settings → Reranker model is `jina-reranker-v3.5-mlx`, and runs pick it up without a restart. Ask reranking lives on branch `rerank-ask`. `RagService.ask` takes the embedding's top `ASK_RERANK_POOL` (50) chunks, applies the floor, then reranks before the per-run cap and backfill, matching the eval's `rerank_soft` arm. Without scores it keeps today's 30 in embedding order. It reads the switch from current settings on each question.
+- **Adopted 2026-10-16:** Settings → Reranker model is `jina-reranker-v3.5-mlx`, and runs pick it up without a restart. Ask reranking shipped in `afcfe8b`. `RagService.ask` takes the embedding's top `ASK_RERANK_POOL` (50) chunks, applies the floor, then reranks before the per-run cap and backfill, matching the eval's `rerank_soft` arm. Without scores it keeps today's 30 in embedding order. It reads the switch from current settings on each question.
 
 ### Thinking on for synthesis (run 20260923_020339, 20 sources, depth 3)
 
@@ -320,7 +320,9 @@ it; it would need a prefix row (`task: question answering | query: `,
 ## Pitfalls
 
 - **The serving image is a chain of overlays.** `mkw-app:latest` =
-  `c53d9fc0617b`: the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
+  `0e4adff55596` (2026-10-16: `8d22eda`'s seven changed app files on
+  `c53d9fc0617b`, hash-checked; rollback `mkw-app:rollback-20261016-225233`).
+  `c53d9fc0617b` was the `97f83403a06a` overlay (whose `app/` matched `7f87c8f`
   file for file), plus the files changed by `6ba256f`, `9447a7d`, `3226809`,
   `50ae02d`, `29544d9`, `153a8d0`, `aafaa0d` and `fed98ba`, each
   hash-checked. After `fed98ba` every one of the 90 app files in the
@@ -381,3 +383,13 @@ it; it would need a prefix row (`task: question answering | query: `,
   `probe-quotes.json`, `mteb-shared-tasks.txt`, `synth-ab/`
 - Models (outside the repo): `~/models/mlx-community/Qwen3-Embedding-4B-4bit-DWQ`
   (2.1 GB) and `~/models/mlx-community/Qwen3-Reranker-0.6B-mxfp8` (0.6 GB).
+
+### Reranker uses smoke-tested live (2026-10-16, image `0e4adff55596`)
+
+- **Ask:** 50 excerpts reranked in 5.6 s, answer in 18 s total.
+- **Depth-1 run** `20261017_035357` (Listwise vs Pointwise Rerankers in RAG):
+  - prior knowledge reranked 50 docs in 8.0 s;
+  - search order covered 209 results in 6.2 s;
+  - two borderline rechecks: one the reranker settled with no second read, one that went to the second read;
+  - 18 sources kept, completed.
+- **Claim check** `20261017_040430` (4 claims): three settled from the library, with the judge's windows reranked in under a second each. The false Kokoro-cloning claim went to the web; the judge's 23 windows from 3 pages took 2.9 s, and it came back "contested".
