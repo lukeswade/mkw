@@ -17,6 +17,7 @@ from app.llm import prompts
 from app.rag.chunking import chunk_markdown
 from app.rag.embeddings import embedder_id, make_embedder
 from app.rag.index import VectorIndex
+from app.rag.rerank import make_reranker
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +34,21 @@ ASK_MAX_CHUNKS = 10
 # pipeline; this is the same rule for the knowledge layer.
 ASK_PER_RUN = 3
 PRIOR_PER_RUN = 3
+# Candidates a reranker reads for Ask, as measured 2026-10-16 on 160 synthetic
+# questions: jina-reranker-v3.5 over the embedding's top 50 showed 80% their
+# source (67% without), 2 points under that pool's ceiling, at about 6 s.
+ASK_RERANK_POOL = 50
+
+
+async def rerank_hits(hits, query: str, reranker, *, fallback: int) -> list:
+    """`hits` in the reranker's order, read as whole chunks. Without a
+    reranker, or when it cannot answer, the first `fallback` in embedding
+    order: today's pool."""
+    if reranker is not None and hits:
+        order = await reranker.order(query, [h.text for h in hits])
+        if order is not None:
+            return [hits[i] for i in order]
+    return hits[:fallback]
 
 
 def diversify(hits, *, per_run: int, limit: int, backfill: bool = False) -> list:
@@ -213,9 +229,18 @@ class RagService:
     async def ask(self, question: str, repo: Repo) -> dict:
         self._refresh()
         emb = await self.embedder.encode_query(question)
+        # Fresh settings: _refresh only swaps cfg when the embedder changes,
+        # and the reranker's model and switch can change on the Settings page.
+        try:
+            reranker = make_reranker(load_settings(self.cfg.data_dir), "ask")
+        except Exception:
+            reranker = None
+        pool = ASK_RERANK_POOL if reranker is not None else ASK_MAX_CHUNKS * 3
+        # The floor applies before reranking and the per-run cap after it,
+        # as measured.
+        hits = [h for h in self.index.query(emb, n=pool) if h.score >= ASK_MIN_SCORE]
         hits = diversify(
-            [h for h in self.index.query(emb, n=ASK_MAX_CHUNKS * 3)
-             if h.score >= ASK_MIN_SCORE],
+            await rerank_hits(hits, question, reranker, fallback=ASK_MAX_CHUNKS * 3),
             per_run=ASK_PER_RUN, limit=ASK_MAX_CHUNKS, backfill=True)
         if not hits:
             return {"answer": "The research corpus doesn't cover this yet — "

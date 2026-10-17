@@ -45,6 +45,7 @@ ENV_MAP = {
     "rerank_claims": "RERANK_CLAIMS",
     "rerank_search": "RERANK_SEARCH",
     "rerank_passages": "RERANK_PASSAGES",
+    "rerank_ask": "RERANK_ASK",
     "llm_timeout": "LLM_TIMEOUT",
     "llm_call_ceiling": "LLM_CALL_CEILING",
     "display_timezone": "DISPLAY_TIMEZONE",
@@ -109,6 +110,7 @@ UI_EDITABLE = {
     "rerank_claims",
     "rerank_search",
     "rerank_passages",
+    "rerank_ask",
     "browser_impersonation",
     "browser_solver_url",
 }
@@ -164,15 +166,17 @@ class Settings:
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     # Reranker: a cross-encoder the model server serves at /rerank (oMLX:
-    # Qwen3-Reranker-0.6B-mxfp8), on the embedding endpoint. Blank = off. It
+    # jina-reranker-v3.5-mlx), on the embedding endpoint. Blank = off. It
     # reads a question and a passage together, which embeddings cannot.
-    # Measured 2026-10-07 on this library: claim checks shown the right source
-    # 74% -> 85%, at about 5 s per 50 passages. Search ordering and passage
-    # picking are on trial until measured (docs/retrieval-eval-2026-09-23.md).
+    # Measured on this library (docs/retrieval-eval-2026-09-23.md): claim
+    # checks shown the right source 74% -> 85% with Qwen3-Reranker-0.6B and
+    # 91% with jina-reranker-v3.5; Ask 67% -> 80% with jina, at about 6 s per
+    # 50 passages. Search ordering and passage picking are on trial.
     rerank_model: str = ""
     rerank_claims: bool = True
     rerank_search: bool = False
     rerank_passages: bool = False
+    rerank_ask: bool = True
     llm_timeout: int = 180
     # Hard wall-clock ceiling on a single model call, total, not
     # idle. llm_timeout is the SDK's idle read timeout: it fires only

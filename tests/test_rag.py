@@ -200,3 +200,47 @@ def test_backfill_uses_slots_the_other_runs_could_not_fill():
             for r in "BCDE" for i in range(3)]
     assert diversify(rich + many, per_run=3, limit=10, backfill=True) == \
         diversify(rich + many, per_run=3, limit=10)
+
+
+class _Reverse:
+    """A reranker double that puts the embedding's last candidate first."""
+    def __init__(self):
+        self.seen: list[str] = []
+
+    async def order(self, query, docs):
+        self.seen = list(docs)
+        return list(range(len(docs) - 1, -1, -1))
+
+
+async def test_ask_shows_excerpts_in_the_rerankers_order_and_reads_the_switch_live(
+        cfg, monkeypatch):
+    import app.rag.service as service
+    from app.config import save_settings
+    repo = Repo(connect(cfg.db_path))
+    prompts_seen: list[str] = []
+    svc = RagService(cfg, llm_factory=lambda: FakeLLM(
+        {"ask": [lambda m: prompts_seen.append(m[0]["content"]) or "ok"]}))
+    for title in ("Solid State Batteries", "Battery Production Yields"):
+        await svc.index_run(repo, seed_run(cfg, repo, title.lower(), title, BATTERY_TEXT))
+    reverse = _Reverse()
+    switches: list[bool] = []
+
+    def fake_make_reranker(c, feature):
+        assert feature == "ask"
+        switches.append(c.rerank_ask)
+        return reverse if c.rerank_ask else None
+
+    monkeypatch.setattr(service, "make_reranker", fake_make_reranker)
+    question = "what blocks solid state battery manufacturing?"
+
+    await svc.ask(question, repo)
+    best, worst = reverse.seen[0], reverse.seen[-1]
+    assert len(reverse.seen) >= 2 and best != worst
+    assert prompts_seen[0].index(worst) < prompts_seen[0].index(best), \
+        "the reranker's pick leads the excerpts, not the embedding's"
+
+    # switched off on the Settings page: no restart, the embedding order is back
+    save_settings(cfg.settings_path, {"rerank_ask": False})
+    await svc.ask(question, repo)
+    assert switches == [True, False]
+    assert prompts_seen[1].index(best) < prompts_seen[1].index(worst)

@@ -1,7 +1,8 @@
-"""The reranker: one client, three uses, each off until switched on.
+"""The reranker: one client, four uses, each off until switched on.
 
-Claim checks are the measured use (74% -> 85% shown the right source on this
-library, 2026-10-07). Search ordering and passage picking are on trial.
+Claim checks and Ask are the measured uses (shown the right source on this
+library: claim checks 74% -> 91%, Ask 67% -> 80%, jina-reranker-v3.5,
+2026-10-16). Search ordering and passage picking are on trial.
 """
 from __future__ import annotations
 
@@ -11,7 +12,9 @@ import httpx
 import respx
 
 from app.config import Settings
+from app.rag.index import Hit
 from app.rag.rerank import Reranker, make_reranker
+from app.rag.service import rerank_hits
 from app.research.verify import library_evidence
 
 _URL = "http://localhost:8000/v1/rerank"
@@ -69,8 +72,10 @@ def test_each_use_is_off_until_a_model_is_named_and_its_switch_is_on():
     assert make_reranker(Settings(**base), "claims") is None
     cfg = Settings(**base, rerank_model="Qwen3-Reranker-0.6B-mxfp8")
     assert make_reranker(cfg, "claims") is not None            # on once a model is named
+    assert make_reranker(cfg, "ask") is not None               # measured: on by default
     assert make_reranker(cfg, "search") is None                # on trial: off by default
     assert make_reranker(cfg, "passages") is None
+    assert make_reranker(Settings(**base, rerank_model="m", rerank_ask=False), "ask") is None
     assert make_reranker(cfg, "claims").base_url == "http://llm:8000/v1"
     emb = Settings(**base, rerank_model="m", embedding_base_url="http://emb:9000/v1")
     assert make_reranker(emb, "claims").base_url == "http://emb:9000/v1"
@@ -137,6 +142,30 @@ async def test_no_reranker_keeps_todays_pool_but_reads_whole_chunks():
     rag = _Rag([_hit(i, f"r{i}", f"t{i}") for i in range(40)])
     await library_evidence(rag, "claim")
     assert rag.asked == {"limit": 24, "text_chars": None}
+
+
+# ---- Ask: the library's excerpts -------------------------------------------------
+
+def _chunks(n: int) -> list[Hit]:
+    return [Hit(id=str(i), text=f"whole chunk {i}", meta={"run_id": f"r{i}"},
+                score=0.9 - i * 0.01) for i in range(n)]
+
+
+async def test_ask_candidates_follow_the_rerankers_order_and_it_reads_whole_chunks():
+    reverse = _Order(lambda docs: list(range(len(docs) - 1, -1, -1)))
+    hits = await rerank_hits(_chunks(50), "q", reverse, fallback=30)
+    assert [h.id for h in hits] == [str(i) for i in range(49, -1, -1)]
+    assert reverse.seen == [f"whole chunk {i}" for i in range(50)]
+
+
+async def test_ask_without_scores_keeps_todays_pool_in_embedding_order():
+    hits = await rerank_hits(_chunks(50), "q", _Order(None), fallback=30)
+    assert [h.id for h in hits] == [str(i) for i in range(30)]
+
+
+async def test_ask_without_a_reranker_is_unchanged():
+    hits = await rerank_hits(_chunks(50), "q", None, fallback=30)
+    assert [h.id for h in hits] == [str(i) for i in range(30)]
 
 
 # ---- search ordering (on trial) -------------------------------------------------
