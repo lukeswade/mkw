@@ -203,12 +203,16 @@ def categories_for_scope(scope: str, allowed: str) -> str | None:
     wanted = [SCOPE_CATEGORIES[t] for t in
               re.split(r"[+,/ ]+", (scope or "").strip().lower()) if t in SCOPE_CATEGORIES]
     allowed_set = set(split_categories(allowed))
-    if not wanted:
-        if "general" not in allowed_set:
-            return None
-        return "general,videos" if "videos" in allowed_set else "general"
     kept = [c for c in dict.fromkeys(wanted) if not allowed_set or c in allowed_set]
-    return ",".join(kept) if kept else None
+    if kept:
+        return ",".join(kept)
+    # No scope, or one the run did not select ("code" on a general,science
+    # run): a web query. The second case used to fall through to every
+    # category the run selected, so a software question went to CORE and
+    # OpenAIRE and three engines timed out on it (2026-10-19).
+    if "general" not in allowed_set:
+        return None
+    return "general,videos" if "videos" in allowed_set else "general"
 
 
 def categories_for(recency: str, base: str = DEFAULT_CATEGORIES) -> str:

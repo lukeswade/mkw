@@ -230,8 +230,14 @@ def test_a_scope_narrows_a_query_to_categories_the_run_selected_never_wider():
     assert c("web", allowed) == "general"
     assert c("web+video", allowed) == "general,videos"
     assert c("video+social", allowed) == "videos,social media"
-    assert c("code", allowed) is None                      # `it` not selected: fall back, don't widen
-    assert c("academic", "general") is None
+    # a scope the run did not select is a web query, not every category the
+    # run selected: "code" on a general,science run went to CORE and OpenAIRE
+    # and three engines timed out on a software question (2026-10-19)
+    assert c("code", allowed) == "general,videos"
+    assert c("code", "general,science") == "general"
+    assert c("academic", "general") == "general"
+    assert c("code", "science,it") == "it"
+    assert c("academic", "it") is None                     # nothing selected fits, and no general
     # no usable scope = a web query, plus video when the run selected it — not every category
     assert c("", allowed) == "general,videos" and c("nonsense", allowed) == "general,videos"
     assert c("", "general,science") == "general"

@@ -32,7 +32,7 @@ from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
 from app.research import feeds, matrix, reddit, verify, youtube
-from app.research.dedupe import (DEFAULT_BLOCKED, VIDEO_HOSTS, canonicalize, domain_of, interleave, is_blocked, is_unreadable, lexical_overlap, looks_like_index, rank_diverse, shares_vocabulary, similarity, source_key, text_fingerprint, vocabulary)
+from app.research.dedupe import (DEFAULT_BLOCKED, VIDEO_HOSTS, canonicalize, domain_of, interleave, is_blocked, is_living_page, is_unreadable, lexical_overlap, looks_like_index, rank_diverse, shares_vocabulary, similarity, source_key, text_fingerprint, vocabulary)
 from app.research.extractor import extract, looks_bot_walled, extract_links
 from app.research.fetcher import Fetcher, SkipReason
 from app.research.notes import (Finding, RELEVANCE_KEEP, finding_markdown, take_notes, verify_quotes)
@@ -1770,6 +1770,11 @@ class Pipeline:
             state.fingerprints.append((fp, domain_of(final_url)))
             detected_date = doc.date or (c.published.date().isoformat()
                                          if c.published else None)
+            if is_living_page(final_url):
+                # A repository or model card: its date is when the project
+                # began, so it neither fails the window nor tells the note-
+                # taker the page is stale (see dedupe.is_living_page).
+                detected_date = None
             if cutoff and detected_date:
                 try:
                     if datetime.fromisoformat(detected_date) < cutoff:

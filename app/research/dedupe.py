@@ -358,6 +358,32 @@ _INDEX_PATH = re.compile(
     r"index\.(?:php|html?))?$", re.IGNORECASE)
 
 
+# Pages a project keeps current: a repository's front page and files, a wiki,
+# a model or dataset card. The date a reader extracts from one is when the
+# project began, not how current the page is: 44 such pages were skipped as
+# "outside recency window" across past runs, among them ggml-org/llama.cpp
+# (2023-03-10), ollama/ollama (2023-06-26) and SYSTRAN/faster-whisper
+# (2023-02-11) — the primary sources for the local-model questions this
+# install asks most. Issues, pull requests, discussions and commits are dated
+# events and keep their dates.
+_LIVING_HOSTS = _REPO_HOSTS | {"huggingface.co"}
+_DATED_PATH = re.compile(
+    r"/(?:issues|pull|pulls|discussions|commit|commits|compare|blog|papers|posts)(?:/|$)",
+    re.IGNORECASE)
+
+
+def is_living_page(url: str) -> bool:
+    """A project page whose extracted date says when the project started."""
+    parts = urlsplit(url)
+    host = domain_of(url)
+    segs = [s for s in (parts.path or "").split("/") if s]
+    if not _under(host, _LIVING_HOSTS) or _DATED_PATH.search(parts.path or ""):
+        return False
+    if host.endswith("huggingface.co") and segs[:1] in (["datasets"], ["spaces"]):
+        segs = segs[1:]
+    return len(segs) >= 2
+
+
 def looks_like_index(url: str) -> bool:
     parts = urlsplit(url)
     if parts.query:
