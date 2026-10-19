@@ -125,3 +125,46 @@ async def test_a_too_long_refusal_is_still_reported_as_too_long():
         await llm.chat_raw("notes", [{"role": "user", "content": "hi"}])
     assert len(server.calls) == 1                     # terminal, not retried
     assert caught.value.limit == 65_536                # the window it named
+
+
+# ---- structured calls do not inherit the server's chat presence penalty ------
+
+@pytest.mark.asyncio
+async def test_structured_calls_to_a_local_server_send_no_presence_penalty():
+    """oMLX applies Qwen3.6's presence_penalty 1.5 to any request that leaves
+    it unset. Splash counts every output token for it, and on 12 pages its
+    notes carried 76-78 evidence quotes at 1.5 against 85-86 at 0 (MLX at
+    1.5: 85-88). Free text keeps the server's setting: nothing measured it."""
+    from pydantic import BaseModel
+
+    class _Out(BaseModel):
+        ok: bool
+
+    llm, server = _llm("local"), _Server()
+    _attach(llm, server)
+    await llm.chat_json("notes", [{"role": "user", "content": "x"}], _Out)
+    await llm.chat("synth", [{"role": "user", "content": "x"}])
+    assert server.calls[0]["presence_penalty"] == 0.0
+    assert "presence_penalty" not in server.calls[1]
+
+    cloud, cloud_server = _llm("deepseek"), _Server()
+    _attach(cloud, cloud_server)
+    await cloud.chat_json("notes", [{"role": "user", "content": "x"}], _Out)
+    assert "presence_penalty" not in cloud_server.calls[0]
+
+
+@pytest.mark.asyncio
+async def test_a_server_that_rejects_presence_penalty_stops_getting_it():
+    from pydantic import BaseModel
+
+    class _Out(BaseModel):
+        ok: bool
+
+    llm, server = _llm("local"), _Server(refuse_first=1)
+    _attach(llm, server)
+    out = await llm.chat_json("notes", [{"role": "user", "content": "x"}], _Out)
+    assert out.ok is True
+    assert "presence_penalty" in server.calls[0]
+    assert "presence_penalty" not in server.calls[1]
+    assert "extra_body" in server.calls[1]          # the thinking flag survives
+    assert llm.neutral_penalty is False

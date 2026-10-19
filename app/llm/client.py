@@ -199,6 +199,16 @@ class LLM:
             _providers.is_local(cfg.llm_provider)
             and os.getenv("LLM_ENABLE_THINKING", "").strip().lower()
             not in _THINKING_ON_ENV)
+        # A local server's per-model sampling defaults apply to every request
+        # that leaves a field unset, and oMLX's Qwen3.6 sets presence_penalty
+        # 1.5 for chat. Its MLX engine counts the last 20 tokens (mlx_lm), a
+        # mild nudge; Splash counts every token of the output so far, as vLLM
+        # does. Measured 2026-10-19 on 12 pages through take_notes: Splash at
+        # 1.5 wrote 76-78 evidence quotes, at 0 it wrote 85-86, as MLX did at
+        # 1.5 (85-88), at the same speed. Structured calls only: the
+        # measurement says nothing about long free text, which keeps the
+        # server's setting. Clouds default to 0, so they are left alone.
+        self.neutral_penalty = _providers.is_local(cfg.llm_provider)
 
     def model_for(self, kind: str) -> str:
         return self.fast_model if kind in _FAST_KINDS else self.model
@@ -305,16 +315,19 @@ class LLM:
     async def chat(self, kind: str, messages: list[dict], *,
                    max_tokens: int = 2048, temperature: float = 0.3,
                    json_mode: bool = False,
-                   response_format: dict | None = None) -> str:
+                   response_format: dict | None = None,
+                   presence_penalty: float | None = None) -> str:
         text, _finish = await self.chat_raw(
             kind, messages, max_tokens=max_tokens, temperature=temperature,
-            json_mode=json_mode, response_format=response_format)
+            json_mode=json_mode, response_format=response_format,
+            presence_penalty=presence_penalty)
         return text
 
     async def chat_raw(self, kind: str, messages: list[dict], *,
                        max_tokens: int = 2048, temperature: float = 0.3,
                        json_mode: bool = False,
-                       response_format: dict | None = None) -> tuple[str, str]:
+                       response_format: dict | None = None,
+                       presence_penalty: float | None = None) -> tuple[str, str]:
         """Return (content, finish_reason).
 
         finish_reason matters: 'length' means the model was cut off mid-answer,
@@ -336,6 +349,8 @@ class LLM:
             kwargs["response_format"] = response_format
         elif json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        if presence_penalty is not None:
+            kwargs["presence_penalty"] = presence_penalty
         self._no_thinking(kwargs)
 
         last_err: Exception | None = None
@@ -372,7 +387,15 @@ class LLM:
                     # refusal never costs this run its thinking-off flag or
                     # its JSON schema.
                     raise refusal from e
-                if e.status_code == 400 and "extra_body" in kwargs:
+                if e.status_code == 400 and "presence_penalty" in kwargs:
+                    # The newest optional field goes first. A server that
+                    # does not take it never gets it again this session.
+                    log.warning("%s: server rejected presence_penalty; "
+                                "leaving it at the server's setting", kind)
+                    self.neutral_penalty = False
+                    kwargs.pop("presence_penalty")
+                    last_err = e
+                elif e.status_code == 400 and "extra_body" in kwargs:
                     # This server does not take chat_template_kwargs. Drop it
                     # and stop sending it, rather than failing every call.
                     log.warning("%s: server rejected chat_template_kwargs; "
@@ -509,12 +532,14 @@ class LLM:
         """
         fmt = response_format_for(schema) if self.supports_json_schema else None
         budget = max_tokens
+        penalty = 0.0 if self.neutral_penalty else None
 
         for attempt in range(2):
             text, finish = await self.chat_raw(
                 kind, messages, max_tokens=budget, temperature=temperature,
                 json_mode=True,
-                response_format=fmt if self.supports_json_schema else None)
+                response_format=fmt if self.supports_json_schema else None,
+                presence_penalty=penalty)
             if finish != "length":
                 break
             if attempt == 0:
@@ -549,7 +574,8 @@ class LLM:
             text2 = await self.chat(
                 kind, repair_messages, max_tokens=budget, temperature=0.0,
                 json_mode=True,
-                response_format=fmt if self.supports_json_schema else None)
+                response_format=fmt if self.supports_json_schema else None,
+                presence_penalty=penalty)
             try:
                 return schema.model_validate(extract_json(text2))
             except (LLMJsonError, ValidationError) as second_err:
