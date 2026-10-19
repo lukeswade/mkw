@@ -15,7 +15,8 @@ class LLMJsonError(Exception):
     pass
 
 
-_THINK_RE = re.compile(r"<think>.*?(</think>|$)", re.DOTALL)
+# A leaked reasoning block opens the reply; anywhere else "<think>" is text.
+_THINK_RE = re.compile(r"^\s*<think>.*?(</think>|$)", re.DOTALL)
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 _TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 
@@ -150,11 +151,20 @@ def extract_json(text: str, *, allow_truncated: bool = False) -> Any:
     """
     if not text or not text.strip():
         raise LLMJsonError("empty response")
-    t = _THINK_RE.sub("", text).strip()
-    m = _FENCE_RE.search(t)
-    if m and m.group(1).strip():
-        t = m.group(1).strip()
+    t = _THINK_RE.sub("", text, count=1).strip()
     starts = [i for i in (t.find("{"), t.find("[")) if i != -1]
+    # A fence wraps the JSON only when it opens before the JSON does. Notes on
+    # a README or a reasoning model carry ``` fences and "<think>" INSIDE
+    # their strings; read as wrappers, they turned a valid reply into "no JSON
+    # object" or cut it off at the tag, and the page was skipped as "unusable
+    # notes output" — 15 pages so far, most of them model comparisons.
+    m = _FENCE_RE.search(t)
+    if m and m.group(1).strip() and (not starts or m.start() < min(starts)):
+        # From the opening fence on: the balanced scan below finds where the
+        # JSON ends, which the fence's own closing marks cannot when the JSON
+        # holds a fence of its own.
+        t = t[m.start(1):].strip()
+        starts = [i for i in (t.find("{"), t.find("[")) if i != -1]
     if not starts:
         raise LLMJsonError("no JSON object in response")
     chunk = _balanced_slice(t, min(starts))
@@ -173,6 +183,12 @@ def extract_json(text: str, *, allow_truncated: bool = False) -> Any:
     for candidate in candidates:
         try:
             return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+        try:
+            # A raw newline or tab inside a string is invalid JSON but not an
+            # unreadable answer: the text is all there.
+            return json.loads(candidate, strict=False)
         except json.JSONDecodeError:
             continue
     raise LLMJsonError("response contained unparseable JSON")

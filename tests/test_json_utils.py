@@ -110,3 +110,32 @@ def test_salvage_is_off_unless_the_caller_saw_a_truncated_response():
     with pytest.raises(LLMJsonError):
         extract_json('{"never": "closes"')
     assert extract_json('{"never": "closes"', allow_truncated=True) == {"never": "closes"}
+
+
+# ---- what a note about a README or a reasoning model carries -------------------
+
+def test_a_code_fence_inside_a_string_is_text_not_a_wrapper():
+    """Notes on a README carry ``` fences in notes_md. Read as the wrapper,
+    a valid reply became "no JSON object in response" and the page was
+    skipped as unusable notes output."""
+    import json as _json
+    reply = _json.dumps({"relevance": 7, "notes_md":
+                         "Install:\n```bash\npip install lightning-whisper-mlx\n```\nThen run."})
+    assert extract_json(reply)["notes_md"].startswith("Install:\n```bash")
+    # a fence that wraps the reply is still unwrapped
+    assert extract_json("Here it is:\n```json\n{\"a\": \"```x```\"}\n```") == {"a": "```x```"}
+
+
+def test_a_think_tag_inside_a_string_is_text():
+    """Pages about reasoning models are this install's daily bread; a note
+    saying "<think>" lost everything after the tag."""
+    import json as _json
+    reply = _json.dumps({"relevance": 8, "notes_md": "Qwen wraps reasoning in <think> tags."})
+    assert extract_json(reply)["notes_md"] == "Qwen wraps reasoning in <think> tags."
+    # a leaked reasoning block at the start is still stripped
+    assert extract_json('<think>{"no": 1}</think>\n{"a": 1}') == {"a": 1}
+
+
+def test_a_raw_newline_inside_a_string_is_read():
+    assert extract_json('{"notes_md": "line one\nline two\tend"}') == {
+        "notes_md": "line one\nline two\tend"}
