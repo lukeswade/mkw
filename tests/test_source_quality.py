@@ -648,6 +648,34 @@ def test_the_fallback_does_not_displace_trafilatura():
     assert doc is not None and "real article paragraph" in doc.text
 
 
+def test_a_page_not_written_in_utf8_is_read_in_its_own_encoding():
+    """Every page used to be decoded as UTF-8 with errors replaced, so an
+    old forum's windows-1252 post lost its degree signs and curly quotes to
+    U+FFFD — in exactly the torque specs and part names a repair question
+    needs."""
+    from app.research.extractor import _decode
+    from app.research.fetcher import Fetched, _charset
+    text = "Torque the plug to 13 ft·lb at 20°C — the “factory” spec, says René."
+    html = f"<html><head><title>T</title></head><body><p>{text}</p></body></html>"
+
+    def page(body, charset=""):
+        return Fetched(url="u", final_url="u", content_type="text/html",
+                       body=body, charset=charset)
+    # labelled by the server, by the page itself, and not at all
+    assert text in _decode(page(html.encode("cp1252"), "windows-1252"))
+    assert text in _decode(page(html.encode("cp1252"), "iso-8859-1"))   # read as browsers read it
+    meta = html.replace("<head>", '<head><meta charset="windows-1252">')
+    assert text in _decode(page(meta.encode("cp1252")))
+    assert text in _decode(page(html.encode("cp1252")))
+    # UTF-8 is still UTF-8, even when the byte cap split its last character
+    assert _decode(page(html.encode("utf-8"))) == html
+    cut = (html + "°").encode("utf-8")[:-1]
+    assert _decode(page(cut)) == html
+    assert _charset("text/html; charset=ISO-8859-1") == "iso-8859-1"
+    assert _charset('text/html;charset="utf-8"') == "utf-8"
+    assert _charset("text/html") == ""
+
+
 def test_a_bot_wall_is_not_reported_as_a_thin_page():
     """Eight forums in one run answered 200 with a ~2.6KB proof-of-work
     challenge. Filed as "no extractable text", that reads as a thin page

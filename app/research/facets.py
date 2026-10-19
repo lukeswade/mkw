@@ -124,18 +124,58 @@ def _facet_name(item: str) -> str:
     return normalize(" ".join(content[:_NAME_WORDS])) if content else ""
 
 
-def enumerated(question: str) -> list[str]:
-    """The asks the question itself lists.
+# A numbered list written inside one line: "Questions: 1. What is ... 2. What
+# is ... 6. Which ...?" A pasted brief often arrives that way, and 2026-10-15
+# one did: six numbered questions on one line, none of them read, and the
+# planner's own five facets folded "Profile B" away — its only query was then
+# credited to "Profile A". The numbers have to run 1, 2, 3 in order, which is
+# what tells a list from prose that happens to contain "2." somewhere.
+_INLINE_NUMBER = re.compile(r"(?:(?<=\s)|^)\(?(\d{1,2})[.)][ \t]+")
+# Where the last inline item ends: its question mark, or the end of its first
+# sentence, or a run of spaces before a capital (how a pasted paragraph break
+# survives a textarea).
+_ITEM_END = re.compile(r"\?|[.!](?=\s+[A-Z])|[ \t]{2,}(?=[A-Z])")
 
-    Two shapes, both of which a person writing a brief actually uses: lines
-    marked with a bullet or a number, and the plain lines that follow a line
-    ending in a colon. A colon block needs three lines before it counts, so
-    ordinary prose after a colon is not mistaken for a list.
+
+def _inline_numbered(line: str) -> list[str]:
+    """The items of a numbered list written inline, or [] when the line
+    holds none. An item ends at the next number; the last one ends with its
+    first sentence, so the prose after the list does not ride along."""
+    run: list[re.Match] = []
+    for m in _INLINE_NUMBER.finditer(line):
+        n = int(m.group(1))
+        if n == len(run) + 1:
+            run.append(m)
+        elif n == 1:
+            run = [m]
+    if len(run) < 2:
+        return []
+    items = []
+    for i, m in enumerate(run):
+        end = run[i + 1].start() if i + 1 < len(run) else len(line)
+        item = line[m.end():end].strip()
+        if i + 1 == len(run) and (stop := _ITEM_END.search(item)):
+            item = item[:stop.end() if stop.group(0) == "?" else stop.start()].strip()
+        if len(item) >= 3:
+            items.append(item[:_MAX_ITEM_CHARS])
+    return items
+
+
+def enumerated_items(question: str) -> list[str]:
+    """The asks the question itself lists, as the asker wrote them.
+
+    Three shapes, all of which a person writing a brief actually uses: lines
+    marked with a bullet or a number, a numbered list run together inside one
+    line, and the plain lines that follow a line ending in a colon. A colon
+    block needs three lines before it counts, so ordinary prose after a colon
+    is not mistaken for a list.
     """
     text = str(question or "").replace("\r\n", "\n").replace("\r", "\n")
     items = [m.group(1).strip() for m in _MARKED_LINE.finditer(text)]
     if len(items) < 2:
         items = []
+    for line in text.split("\n"):
+        items += _inline_numbered(line)
     lines = text.split("\n")
     for i, line in enumerate(lines):
         if not line.rstrip().endswith(":"):
@@ -154,12 +194,39 @@ def enumerated(question: str) -> list[str]:
                 break
         if len(block) >= 3:
             items += block
+    return items
+
+
+def enumerated(question: str) -> list[str]:
+    """The asks the question itself lists, as facet names."""
     out: list[str] = []
-    for item in items:
+    for item in enumerated_items(question):
         name = _facet_name(item)
         if name and name not in out:
             out.append(name)
     return out[:MAX_FACETS]
+
+
+def restates_an_ask(premise: str, items: list[str]) -> bool:
+    """Is this "premise" one of the questions the asker listed, reworded?
+
+    A premise is ground the question stands on and takes for granted. The
+    planner also turns asks into premises: 2026-10-15, "Do community
+    RDNA2/Vulkan forks provide real gains worth taking on stability risk?"
+    came back as the assumption "Community RDNA2 Vulkan forks offer
+    significant performance gains over stock Mesa", and the report opened
+    with a verdict section answering two of its own questions before the
+    TL;DR, then answered them again in their sections. Compared with the
+    asker's full wording, not the clipped facet name: three shared content
+    words, and at least 40% of the premise's."""
+    p = content_words(premise)
+    if len(p) < 3:
+        return False
+    for item in items:
+        shared = p & content_words(item)
+        if len(shared) >= 3 and len(shared) >= 0.4 * len(p):
+            return True
+    return False
 
 
 def _same_facet(a: str, b: str, common: frozenset[str] = frozenset()) -> bool:

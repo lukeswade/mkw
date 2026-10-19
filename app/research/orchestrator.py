@@ -224,9 +224,16 @@ class Orchestrator:
                     await task
                 except (asyncio.CancelledError, Exception):
                     pass
-                self.repo.update_run(run_id, status="interrupted",
-                                     stop_reason="shutdown during run",
-                                     finished_at=utcnow())
+                # Only a run still in flight was interrupted. One that
+                # finished, or that its user cancelled, in the same loop turn
+                # as the shutdown keeps the status it wrote itself: relabelling
+                # a completed run 'interrupted' also took an evergreen parent
+                # out of its refresh schedule for good (review backlog #25).
+                row = self.repo.get_run(run_id)
+                if row is None or row["status"] in ("running", "queued"):
+                    self.repo.update_run(run_id, status="interrupted",
+                                         stop_reason="shutdown during run",
+                                         finished_at=utcnow())
                 raise
             except Exception:
                 log.exception("pipeline for %s escaped its error handling", run_id)

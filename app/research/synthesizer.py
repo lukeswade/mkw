@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 
 from app.llm import prompts
 from app.llm.client import (LLM, LLMError, PromptExceedsFreeMemory, PromptTooLong,
@@ -85,8 +86,26 @@ _RECONCILE_MIN_WORD_RATIO = 0.95   # a revision that shrank the draft is refused
 UNUSED_HEADING = "## Researched but not used"
 # Horizontal whitespace only: `\s*` after the dash once swallowed a newline
 # and read the following line as the reason.
+#
+# The model dresses the line up as markdown more often than not. Three runs
+# (2026-09-14, 09-23, 10-15) wrote "## UNUSED: [50] — duplicates [63] ...",
+# the bare pattern matched none of them, and 45 such lines reached readers as
+# headings at the foot of the report. Worse, their [n] markers then counted as
+# citations, so the pass reported "cited 23 more" when most of those were the
+# lines excusing sources it had NOT cited. A heading, bullet or number marker
+# and bold around the label are all accepted now.
 _UNUSED_LINE = re.compile(
-    r"^[ \t]*UNUSED:[ \t]*\[(\d+)\][ \t]*[—–-]+[ \t]*(.*?)[ \t]*$\n?", re.M)
+    r"^[ \t]*(?:#{1,6}[ \t]*|[-*+][ \t]+|\d{1,3}[.)][ \t]+)?"
+    r"(?:\*\*|__)?UNUSED(?:\*\*|__)?[ \t]*:(?:\*\*|__)?[ \t]*"
+    r"\[(\d+)\][ \t]*(?:[—–:-]+[ \t]*)?(.*?)[ \t]*$\n?", re.M)
+# The closing section the synthesis prompt asks for. The reconciliation pass
+# adds sections for sources the draft had no home for, and it appends them:
+# eight of the fourteen reports written 2026-09-14..10-17 carried their open
+# questions mid-document, with one to six ordinary sections after them.
+_OPEN_QUESTIONS = re.compile(r"^##[ \t]+open questions\b.*$", re.M | re.I)
+_H2 = re.compile(r"^## ", re.M)
+# Sections code appends after the document proper, which stay after it.
+_TAIL_HEADINGS = (UNUSED_HEADING, "## Not researched")
 _WORDS_PER_SOURCE = 50
 _MIN_TARGET_WORDS = 900
 _MAX_TARGET_WORDS = 5_000
@@ -242,7 +261,7 @@ async def name_candidates(llm: LLM, *, query: str, findings: list[Finding]
     except (LLMJsonError, LLMError) as e:
         log.warning("candidate extraction skipped: %s", e)
         return []
-    picked: list[tuple[str, list[int]]] = []
+    picked: list[tuple[str, list[int], str]] = []
     seen: set[str] = set()
     for c in out.candidates:
         ids = [i for i in c.sources if i in known]
@@ -250,9 +269,45 @@ async def name_candidates(llm: LLM, *, query: str, findings: list[Finding]
         if len(ids) < _CANDIDATE_MIN_SOURCES or key in seen:
             continue
         seen.add(key)
-        picked.append((c.name, ids))
+        picked.append((c.name, ids, getattr(c, "kind", "") or ""))
     picked.sort(key=lambda x: -len(x[1]))
-    return picked[:_MAX_CANDIDATES]
+    return group_by_kind(picked[:_MAX_CANDIDATES])
+
+
+def _kind_key(kind: str) -> str:
+    """The head noun of a kind, stemmed: "inference engines" and "engine"
+    are one kind, "language model" and "model" another."""
+    from app.research.facets import _stem
+    words = re.findall(r"[a-z0-9]+", (kind or "").lower())
+    return _stem(words[-1]) if words else ""
+
+
+def group_by_kind(picked: list[tuple[str, list[int], str]]
+                  ) -> list[tuple[str, list[int], str]]:
+    """Candidates grouped by kind, each kind labelled the way most of its
+    members were, groups strongest first.
+
+    Candidates are alternatives only to their own kind. 2026-10-15: a
+    hardware question's table put llama.cpp, Strata, ROCm, Ollama, Open-WebUI
+    and Mesa RADV in rows beside six models, with a column per part of the
+    question, so every tool's row read "N/A" for the model questions and
+    every model's for the engine ones. A candidate with no other of its kind
+    is not an alternative to anything here and leaves the block — unless no
+    kind has two members, in which case the kinds say nothing and the list
+    stands as one group, as it did before kinds were asked for."""
+    groups: dict[str, list[tuple[str, list[int], str]]] = {}
+    for c in picked:
+        groups.setdefault(_kind_key(c[2]), []).append(c)
+    if not any(len(g) >= 2 for g in groups.values()):
+        return [(n, ids, "") for n, ids, _k in picked]
+    out: list[tuple[str, list[int], str]] = []
+    ranked = sorted((g for g in groups.values() if len(g) >= 2),
+                    key=lambda g: -sum(len(ids) for _n, ids, _k in g))
+    for g in ranked:
+        label = Counter(k for _n, _i, k in g if k).most_common(1)
+        label = label[0][0] if label else ""
+        out += [(n, ids, label) for n, ids, _k in g]
+    return out
 
 
 def split_unused(text: str, allowed: set[int]) -> tuple[str, list[tuple[int, str]]]:
@@ -268,6 +323,26 @@ def split_unused(text: str, allowed: set[int]) -> tuple[str, list[tuple[int, str
             seen.add(i)
             unused.append((i, m.group(2).strip()))
     return _UNUSED_LINE.sub("", text).rstrip() + "\n", unused
+
+
+def open_questions_last(md: str) -> str:
+    """The document with its "Open questions" section moved to the end of
+    the body: after every other section, before the ones code appends (the
+    "Researched but not used" and "Not researched" lists). A document without
+    one, or with it already in place, comes back unchanged."""
+    m = _OPEN_QUESTIONS.search(md or "")
+    if m is None:
+        return md
+    nxt = _H2.search(md, m.end())
+    if nxt is None or any(md.startswith(h, nxt.start()) for h in _TAIL_HEADINGS):
+        return md
+    section = md[m.start():nxt.start()].strip()
+    rest = md[:m.start()].rstrip() + "\n\n" + md[nxt.start():].lstrip()
+    tails = [i for i in (rest.find("\n" + h) for h in _TAIL_HEADINGS) if i >= 0]
+    if not tails:
+        return rest.rstrip() + "\n\n" + section + "\n"
+    cut = min(tails)
+    return rest[:cut].rstrip() + "\n\n" + section + "\n\n" + rest[cut:].lstrip()
 
 
 async def reconcile(llm: LLM, *, query: str, draft: str,
@@ -291,7 +366,7 @@ async def reconcile(llm: LLM, *, query: str, draft: str,
                      key=lambda f: (source_rank(f.source_type), -f.relevance))
     missing = missing[:_RECONCILE_MAX_SOURCES]
     if not missing:
-        return draft
+        return open_questions_last(draft)
     if bus is not None and run_id:
         bus.publish(run_id, "log", message=(
             f"reconciling {len(missing)} kept source(s) at relevance "
@@ -304,7 +379,7 @@ async def reconcile(llm: LLM, *, query: str, draft: str,
                               max_tokens=max_out, temperature=0.3)
     except LLMError as e:
         log.warning("reconciliation call failed, keeping draft: %s", e)
-        return draft
+        return open_questions_last(draft)
     body, unused = split_unused(text, {f.idx for f in missing})
     # Measured 2026-09-11: the model placed all twelve sources it was given
     # AND listed eight of them as UNUSED with boilerplate reasons. A claim
@@ -323,7 +398,8 @@ async def reconcile(llm: LLM, *, query: str, draft: str,
         if bus is not None and run_id:
             bus.publish(run_id, "log",
                         message=f"reconciliation rejected ({reason}); keeping the draft")
-        return draft
+        return open_questions_last(draft)
+    body = open_questions_last(body)
     gained = sorted(now - had)
     if bus is not None and run_id:
         bus.publish(run_id, "log", message=(
@@ -465,15 +541,28 @@ def _compose_prompt(notes: list[str], *, query: str, title: str, brief: str,
     # A candidate the document never names has no sentence its sources
     # could be cited in, however long the document is made.
     if len(candidates) >= 2:
-        prompt += prompts.SYNTH_CANDIDATES_BLOCK.format(
-            candidates="\n".join(
-                f"- {name} — {len(ids)} source{'s' if len(ids) != 1 else ''}: "
-                + " ".join(f"[{i}]" for i in ids)
-                for name, ids in candidates))
+        def line(name: str, ids: list[int]) -> str:
+            return (f"- {name} — {len(ids)} source{'s' if len(ids) != 1 else ''}: "
+                    + " ".join(f"[{i}]" for i in ids))
+        kinds = list(dict.fromkeys(c[2] if len(c) > 2 else "" for c in candidates))
+        if len(kinds) > 1:
+            listing = "\n".join(
+                f"{kind or 'other'}:\n" + "\n".join(
+                    line(c[0], c[1]) for c in candidates
+                    if (c[2] if len(c) > 2 else "") == kind)
+                for kind in kinds)
+            tables = prompts.SYNTH_TABLE_PER_KIND
+        else:
+            listing = "\n".join(line(c[0], c[1]) for c in candidates)
+            tables = prompts.SYNTH_TABLE_ONE
+        prompt += prompts.SYNTH_CANDIDATES_BLOCK.format(candidates=listing,
+                                                        tables=tables)
         if bus is not None and run_id:
             bus.publish(run_id, "log", message=(
                 f"{len(candidates)} candidates named across the sources: "
-                + ", ".join(f"{n} ({len(ids)})" for n, ids in candidates)))
+                + ", ".join(f"{c[0]} ({len(c[1])})" for c in candidates)
+                + (f" — compared within {len(kinds)} kinds: "
+                   + ", ".join(k or "other" for k in kinds) if len(kinds) > 1 else "")))
     if premises:
         # The question asserted something checkable. Saying whether it holds
         # comes before answering, because a wrong premise changes the answer.

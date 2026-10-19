@@ -84,6 +84,38 @@ class RunParams(BaseModel):
 
 # ---- structured LLM outputs --------------------------------------------------
 
+def score_10(v, default: int) -> int:
+    """A 0-10 score from a model that sometimes answers on a 0-100 scale.
+
+    The strict schema sent to the server carries no minimum or maximum
+    (schema_utils strips them: decoders cannot enforce them), so the range is
+    held here. Clamping alone read a percentage as a perfect score; a value
+    in (10, 100] is a percentage, and is scaled down before the clamp.
+    2026-10-07..08: the claim judge answered confidence 95 six times, and
+    each one cost a repair round-trip because the field had no validator."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return default
+    if x != x:                       # NaN
+        return default
+    if 10 < x <= 100:
+        x /= 10
+    return max(0, min(10, int(x)))
+
+
+def clip_list(v, n: int):
+    """The first `n` items of a list a model over-filled. Only lists are
+    touched; anything else is left for validation to judge."""
+    return v[:n] if isinstance(v, list) else v
+
+
+def clip_str(v, n: int):
+    """A string field cut to its schema length instead of failing the whole
+    object over one long sentence."""
+    return v[:n] if isinstance(v, str) else v
+
+
 def pair_parallel(data, fields: tuple[str, ...], require: tuple[str, ...]):
     """Filter index-aligned lists as tuples, before per-field validation.
 
@@ -171,6 +203,16 @@ class PlannerOut(BaseModel):
             data, ("subqueries", "query_facets", "query_scopes"),
             ("subqueries",))
 
+    @field_validator("subqueries", mode="before")
+    @classmethod
+    def _cap_queries(cls, v):
+        return clip_list(v, 12)
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def _cap_keywords(cls, v):
+        return clip_list(v, 20)
+
     @field_validator("subqueries")
     @classmethod
     def _clean_queries(cls, v: list[str]) -> list[str]:
@@ -182,7 +224,7 @@ class PlannerOut(BaseModel):
     @field_validator("query_scopes", mode="before")
     @classmethod
     def _clean_scopes(cls, v):
-        return [str(x).strip().lower() for x in (v or []) if x is not None]
+        return [str(x).strip().lower() for x in (v or []) if x is not None][:12]
 
     @field_validator("premises", "premise_queries", mode="before")
     @classmethod
@@ -232,13 +274,17 @@ class Fact(BaseModel):
     evidence_quote: str | None = None
     confidence: int = 5
 
+    @field_validator("claim", mode="before")
+    @classmethod
+    def _clip_claim(cls, v):
+        # One run-on claim used to fail the whole notes object, and with it
+        # the page.
+        return clip_str(v, 500)
+
     @field_validator("confidence", mode="before")
     @classmethod
     def _clamp_confidence(cls, v):
-        try:
-            return max(0, min(10, int(float(v))))
-        except (TypeError, ValueError):
-            return 5
+        return score_10(v, 5)
 
     @field_validator("evidence_quote", mode="before")
     @classmethod
@@ -312,9 +358,10 @@ class NotesOut(BaseModel):
         if v is None or v == "":
             return None
         try:
-            return max(0, min(10, int(float(v))))
+            float(v)
         except (TypeError, ValueError):
             return None
+        return score_10(v, 0)
 
     @field_validator("key_facts", mode="before")
     @classmethod
@@ -334,10 +381,7 @@ class NotesOut(BaseModel):
     @field_validator("relevance", mode="before")
     @classmethod
     def _clamp_relevance(cls, v):
-        try:
-            return max(0, min(10, int(float(v))))
-        except (TypeError, ValueError):
-            return 0
+        return score_10(v, 0)
 
 
 class TriageOut(BaseModel):
@@ -348,6 +392,11 @@ class TriageOut(BaseModel):
     scoring catches — rather than silently discarding good candidates."""
     drop: list[int] = Field(default_factory=list, max_length=64)
 
+    @field_validator("drop", mode="before")
+    @classmethod
+    def _cap(cls, v):
+        return clip_list(v, 64)
+
 
 class Claim(BaseModel):
     text: str = Field(default="", max_length=600)
@@ -355,6 +404,11 @@ class Claim(BaseModel):
     # this decides what gets checked and what is reported as unchecked.
     importance: int = Field(default=5, ge=0, le=10)
     checkable: bool = True
+
+    @field_validator("importance", mode="before")
+    @classmethod
+    def _scale(cls, v):
+        return score_10(v, 5)
 
 
 class ClaimsOut(BaseModel):
@@ -391,9 +445,34 @@ class VerdictOut(BaseModel):
     quote: str = Field(default="", max_length=400)
     sources: list[int] = Field(default_factory=list, max_length=10)
 
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _scale(cls, v):
+        return score_10(v, 0)
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _clip_reasoning(cls, v):
+        return clip_str(v, 900)
+
+    @field_validator("quote", mode="before")
+    @classmethod
+    def _clip_quote(cls, v):
+        return clip_str(v, 400)
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _cap_sources(cls, v):
+        return clip_list(v, 10)
+
 
 class BriefFilterOut(BaseModel):
     keep: list[int] = Field(default_factory=list, max_length=400)
+
+    @field_validator("keep", mode="before")
+    @classmethod
+    def _cap(cls, v):
+        return clip_list(v, 400)
 
 
 class MatrixCell(BaseModel):
@@ -402,6 +481,21 @@ class MatrixCell(BaseModel):
     value: str = Field(default="", max_length=300)
     sources: list[int] = Field(default_factory=list, max_length=12)
     conflict: bool = False
+
+    @field_validator("entity", "dimension", mode="before")
+    @classmethod
+    def _clip_names(cls, v):
+        return clip_str(v, 140)
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def _clip_value(cls, v):
+        return clip_str(v, 300)
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _cap_sources(cls, v):
+        return clip_list(v, 12)
 
 
 class MatrixOut(BaseModel):
@@ -416,6 +510,26 @@ class MatrixOut(BaseModel):
     dimensions: list[str] = Field(default_factory=list, max_length=12)
     cells: list[MatrixCell] = Field(default_factory=list, max_length=160)
     caveats_md: str = ""
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _clip_reason(cls, v):
+        return clip_str(v, 400)
+
+    @field_validator("entities", mode="before")
+    @classmethod
+    def _cap_entities(cls, v):
+        return clip_list(v, 8)
+
+    @field_validator("dimensions", mode="before")
+    @classmethod
+    def _cap_dimensions(cls, v):
+        return clip_list(v, 12)
+
+    @field_validator("cells", mode="before")
+    @classmethod
+    def _cap_cells(cls, v):
+        return clip_list(v, 160)
 
 
 class GapOut(BaseModel):
@@ -438,6 +552,16 @@ class GapOut(BaseModel):
     @classmethod
     def _clean_facet_tags(cls, v):
         return [str(x).strip().lower() for x in (v or []) if x is not None][:12]
+
+    @field_validator("next_queries", mode="before")
+    @classmethod
+    def _cap_queries(cls, v):
+        return clip_list(v, 12)
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def _cap_keywords(cls, v):
+        return clip_list(v, 20)
 
     @field_validator("next_queries")
     @classmethod
@@ -472,6 +596,11 @@ class FollowUp(BaseModel):
 
 class Candidate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
+    # What sort of thing it is ("model", "inference engine"). Candidates are
+    # compared with their own kind: one table that put llama.cpp, Open-WebUI
+    # and Mesa RADV in rows beside Gemma 4 and Qwen had a column of "N/A"
+    # for every tool (2026-10-15).
+    kind: str = Field(default="", max_length=40)
     sources: list[int] = Field(default_factory=list, max_length=40)
 
 
@@ -507,6 +636,7 @@ class CandidatesOut(BaseModel):
                 except (TypeError, ValueError):
                     continue
             out.append({"name": str(c["name"]).strip()[:60],
+                        "kind": " ".join(str(c.get("kind") or "").lower().split())[:40],
                         "sources": sorted(set(clean))[:40]})
         return out[:20]
 

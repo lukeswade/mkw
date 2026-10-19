@@ -179,8 +179,11 @@ engines:
   # rate-limiting.
   - name: boardreader        # forum search, also feeds `social media`
     disabled: true
+  # searchmysite: "access denied" on every query from 2026-09-17 to the
+  # 2026-10-19 review (50 refusals, five strikes on the app's bench), and it
+  # was still being sent the short twin of every long query. Off.
   - name: searchmysite       # independent personal sites, also feeds `blogs`
-    disabled: false
+    disabled: true
   - name: wiby               # small hand-made pages the majors rank last
     disabled: false
   # Measured dead, left off rather than left to burn a slice of every search:

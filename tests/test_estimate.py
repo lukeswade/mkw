@@ -109,6 +109,29 @@ def test_the_band_is_what_runs_at_that_depth_actually_kept(data_dir):
     assert not estimate_run(repo, 3).depth_calibrated
 
 
+def test_the_band_follows_the_run_as_the_pipeline_sizes_it(data_dir):
+    """2026-10-15: a depth-9 run was promised 24-48 sources and 21 minutes;
+    it filled its 74-source cap in four rounds and kept 82 in 50. The old
+    formula took the source cap as the number of pages FETCHED."""
+    from app.research.estimate import simulate
+    from app.research.pipeline import max_docs_for_depth
+    rounds, kept = simulate(9, 0.67, prior=0.87)        # that run's own yields
+    assert rounds == 4 and 74 <= kept <= 90
+    # with no history at the depth, the band sits on the cap, not under half of it
+    est = estimate_run(_repo(data_dir), 9)
+    assert est.sources_low >= 0.8 * max_docs_for_depth(9)
+    # pages that keep less take more rounds to fill the same cap
+    assert simulate(4, 0.4)[0] > simulate(4, 0.9)[0]
+
+
+def test_round_one_in_the_estimate_is_sized_like_the_run(data_dir):
+    """The pipeline sizes round one by the install's measured read yield;
+    the estimate must assume the same, or a depth-1 look is promised twice
+    the pages it will read."""
+    from app.research.estimate import simulate
+    assert simulate(1, 0.87, prior=0.87)[1] < simulate(1, 0.87, prior=None)[1]
+
+
 def test_identical_history_reads_as_one_figure(data_dir):
     repo = _repo(data_dir)
     for i in range(2):

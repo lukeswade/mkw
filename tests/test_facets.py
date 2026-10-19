@@ -126,6 +126,66 @@ def test_prose_after_a_colon_is_not_a_list():
     assert f.enumerated("") == [] and f.enumerated("no lists here at all") == []
 
 
+# Matt's 2026-10-15 brief as it arrived from the web form: the section breaks
+# survived as \r\n, the numbered questions did not.
+_ONE_LINE_LIST = (
+    "Do deep research on the following topic: \r\n\r\nHardware / Constraints: "
+    "- CPU: AMD Ryzen 5 5600X with RAM: 32GB DDR4 - GPU: AMD RX 6700 XT (gfx1030, "
+    "RDNA2), 12GB VRAM - OS: Ubuntu \r\n\r\nUser Questions (core): 1. What is the "
+    "best daily driver (Profile A) setup for coding + technical chat/research on "
+    "this hardware as of Oct 2026? 2. What is the best secondary (Profile B) setup "
+    "for general chat, English prose writing/review/editing, and long-document "
+    "review? 3. What changed since June 2026: new models, llama.cpp/Mesa/Vulkan "
+    "fixes? 4. Do recent MoE releases (Qwen MoE, Gemma 4 26B-A4B) give great "
+    "quality at usable speed on 12GB — including via hybrid GPU+CPU MoE offload "
+    "(--n-cpu-moe)? 5. Do community RDNA2/Vulkan forks provide real gains worth "
+    "taking on stability risk? 6. Which late-Oct to Nov 2026 releases (Qwen 4 "
+    "etc.) are worth waiting for? Decisions from User: - Hybrid GPU+CPU MoE "
+    "offload: in scope, evaluate seriously\r\n")
+
+
+def test_a_numbered_list_written_inside_one_line_is_read():
+    """2026-10-15: six numbered questions on one line, none read; the
+    planner folded Profile B away and its only query was credited to
+    Profile A."""
+    names = f.enumerated(_ONE_LINE_LIST)
+    assert len(names) == 6
+    assert names[0].startswith("best daily driver profile setup coding")
+    assert names[1].startswith("best secondary profile b setup")
+    # the last item ends at its question mark, not in the next section
+    assert names[5] == "late-oct nov 2026 releases qwen 4 etc. worth waiting"
+    # ... or at its first sentence when it has none
+    assert f.enumerated_items(
+        "Use cases: 1. Call Prep 2. Call Briefs 3. Dispute risk and mitigation. "
+        "Help me understand the platform.") == [
+        "Call Prep", "Call Briefs", "Dispute risk and mitigation"]
+
+
+def test_digits_in_prose_are_not_an_inline_list():
+    for text in ("Qwen3.5 beat 2.5 Pro on 3. benchmarks", "only item 1. here",
+                 "see 2. and 3. below", "Step 1. do this and then 3. that"):
+        assert f.enumerated_items(text) == [], text
+    assert f.enumerated_items("Two teams: (1) the 4v4 squad (2) the 6v6 squad") == [
+        "the 4v4 squad", "the 6v6 squad"]
+
+
+def test_a_premise_that_rewords_a_listed_question_is_not_a_premise():
+    """The planner turned two of Matt's questions into "assumptions", and
+    the report answered them twice: once as a verdict ahead of the TL;DR,
+    once in their own sections."""
+    items = f.enumerated_items(_ONE_LINE_LIST)
+    assert f.restates_an_ask("Community RDNA2 Vulkan forks offer significant "
+                             "performance gains over stock Mesa", items)
+    assert f.restates_an_ask("Hybrid GPU+CPU MoE offload provides usable speed "
+                             "on 12GB VRAM with Ryzen 5600X", items)
+    # an assumption the question stands on is still one
+    assert not f.restates_an_ask("the fields we play on are way too small", items)
+    assert not f.restates_an_ask(
+        "the fields we play on are way too small",
+        f.enumerated_items("Two teams: (1) competitive 4v4 u8 (2) pre-k 6v6"))
+    assert not f.restates_an_ask("Community forks are faster", [])
+
+
 def test_a_very_long_list_item_is_cut_on_a_word_boundary():
     item = "- the feasibility of creating a standard base agent that " \
            "evolves and adapts and specializes based on customer tech stack " \
@@ -430,6 +490,100 @@ async def test_the_premise_is_searched_and_answered_before_the_question(data_dir
     assert "the fields we play on are way too small" in synth
     events = (cfg.research_dir / run_id / "events.jsonl").read_text()
     assert "the question assumes" in events
+
+
+@respx.mock
+async def test_the_round_past_the_source_cap_searches_only_the_parts_with_none(data_dir):
+    """2026-10-16, depth 4: round one filled the source cap, one part had no
+    sources, and the extra round ran gap analysis's whole list — 33 pages,
+    32 kept, 14 more minutes — for that one part."""
+    import json
+    cfg = make_cfg(data_dir)
+    seen: list[str] = []
+
+    def handler(req):
+        q = req.url.params.get("q", "")
+        seen.append(q)
+        n = len(seen)
+        if "UL9540" in q:
+            return httpx.Response(200, json=sx_payload(
+                [sx_result(f"https://safe{i}.example.com/p", f"UL9540 safety certification {i}")
+                 for i in range(20)]))
+        if "cost" in q:
+            return httpx.Response(200, json=sx_payload(
+                [sx_result(f"https://c{n}x{i}.example.com/p", f"Battery cost analysis {n} {i}")
+                 for i in range(10)]))
+        return httpx.Response(200, json=sx_payload([]))
+
+    respx.get(f"{SX}/search").mock(side_effect=handler)
+    respx.get(url__regex=r"https://(c\d+x\d+|safe\d+)\.example\.com/p").mock(
+        side_effect=lambda req: httpx.Response(200, html=article(
+            ("Battery safety certification " if "safe" in req.url.host
+             else "Battery cost analysis ") + req.url.host)))
+    sc = _script([{"state_md": "s", "saturated": False,
+                   "next_queries": ["battery cost by region", "battery cost warranty terms",
+                                    "UL9540 home battery fire safety standard"],
+                   "next_query_facets": ["cost", "cost", "safety certification"]},
+                  {"state_md": "s", "saturated": True, "next_queries": []}])
+    sc["planner"][0].update(facets=["cost", "safety certification"],
+                            subqueries=["battery cost per kwh", "battery cost trend",
+                                        "battery cost comparison"],
+                            query_facets=["cost"] * 3)
+    sc["candidates"] = [{"candidates": []}]
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(sc))
+    run_id = orch.enqueue(RunParams(query="home battery cost and safety certification",
+                                    depth=2, recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+
+    events = [json.loads(line) for line in
+              (cfg.research_dir / run_id / "events.jsonl").read_text().splitlines()]
+    starts = [e for e in events if e["type"] == "round_start"]
+    assert len(starts) == 2
+    assert starts[1]["queries"] == ["UL9540 home battery fire safety standard"]
+    searched = [e for e in events if e["type"] == "searched"]
+    assert searched[1]["candidates"] <= 3 * 2 + 2       # the floor, not a full round
+    assert any("searches only the part(s) with no sources" in (e.get("message") or "")
+               for e in events)
+    row = repo.get_run(run_id)
+    assert row["stop_reason"] == "source cap reached"
+
+
+@respx.mock
+async def test_a_premise_that_rewords_a_listed_question_is_not_searched(data_dir):
+    cfg = make_cfg(data_dir)
+    seen: list[str] = []
+
+    def handler(req):
+        seen.append(req.url.params.get("q", ""))
+        return httpx.Response(200, json=sx_payload(
+            [sx_result("https://forks.example.com/p", "forks page")]))
+
+    respx.get(f"{SX}/search").mock(side_effect=handler)
+    respx.get("https://forks.example.com/p").mock(
+        return_value=httpx.Response(200, html=article("All about RDNA2 forks")))
+    sc = _script([{"state_md": "s", "saturated": True, "next_queries": []}])
+    sc["planner"] = [{
+        "title": "RDNA2 stack", "brief": "Pick a local LLM stack.",
+        "facets": ["rdna2 forks"], "subqueries": ["rdna2 vulkan fork llama.cpp"],
+        "query_facets": ["rdna2 forks"], "keywords": ["rdna2"],
+        "premises": ["Community RDNA2 Vulkan forks offer real performance gains"],
+        "premise_queries": ["rdna2 fork benchmark versus stock mesa"],
+    }]
+    repo = Repo(connect(cfg.db_path))
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus(),
+                        llm_factory=lambda: FakeLLM(sc))
+    run_id = orch.enqueue(RunParams(
+        query="Questions: 1. Which model is best on an RX 6700 XT? 2. Do community "
+              "RDNA2/Vulkan forks provide real gains worth the stability risk?",
+        depth=2, recency="all", origin="cli"))
+    await orch.execute_now(run_id)
+    assert not any("versus stock mesa" in q for q in seen), seen
+    events = (cfg.research_dir / run_id / "events.jsonl").read_text()
+    assert "questions the asker listed" in events
+    meta = (cfg.research_dir / run_id / "meta.json").read_text()
+    assert '"premises": []' in meta
 
 
 # ---- the three regressions the first premise run exposed --------------------

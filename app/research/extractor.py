@@ -25,9 +25,52 @@ class Extracted:
     date: str | None  # YYYY-MM-DD
 
 
+_META_CHARSET = re.compile(rb"<meta[^>]{0,200}?charset\s*=\s*[\"']?([A-Za-z0-9._-]+)", re.I)
+
+
 def _decode(fetched: Fetched) -> str:
-    charset = "utf-8"
-    return fetched.body.decode(charset, errors="replace")
+    """The page as text, in the encoding it was actually written in.
+
+    Every page used to be read as UTF-8 with errors replaced, so a
+    windows-1252 forum post — the old forum software this tool reads most —
+    lost its degree signs, curly quotes and accented names to U+FFFD. Strict
+    UTF-8 first: it is most of the web, and a page in a single-byte encoding
+    with any non-ASCII text almost never decodes as valid UTF-8 by accident.
+    Then the server's charset, the page's own <meta> one, and cp1252, which
+    is what pages labelled latin-1 are in practice.
+    """
+    body = fetched.body
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError as e:
+        # The fetcher cuts oversized pages at a byte cap, which can split
+        # the last character: that is still a UTF-8 page.
+        if e.start >= len(body) - 3:
+            try:
+                return body[:e.start].decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+    meta = _META_CHARSET.search(body[:4096])
+    for enc in (getattr(fetched, "charset", ""),
+                meta.group(1).decode("ascii", "ignore") if meta else "",
+                "cp1252"):
+        enc = (enc or "").lower().replace("_", "-")
+        if not enc or enc in ("utf-8", "utf8"):
+            continue
+        try:
+            return body.decode(_AS_BROWSERS_READ.get(enc, enc))
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return body.decode("utf-8", errors="replace")
+
+
+# Labels browsers read as windows-1252 (the WHATWG encoding standard): a page
+# that says latin-1 and has curly quotes is cp1252, and decoding it as true
+# latin-1 turns them into invisible control characters.
+_AS_BROWSERS_READ = {"iso-8859-1": "cp1252", "iso8859-1": "cp1252",
+                     "latin1": "cp1252", "latin-1": "cp1252", "l1": "cp1252",
+                     "us-ascii": "cp1252", "ascii": "cp1252",
+                     "windows-1252": "cp1252"}
 
 
 def _clean_date(value: str | None) -> str | None:

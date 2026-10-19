@@ -101,7 +101,7 @@ Two things that matter when running locally:
 - **Set a fast model.** A run makes one planning call and one synthesis call
   but a dozen or more note-taking calls per round, so almost all the time
   goes into notes. Name a smaller model in the *Fast model* box and it takes
-  the notes, the triage and the first-look screening, leaving the big model
+  the notes and the triage, leaving the big model
   to think:
 
   ```
@@ -137,7 +137,9 @@ results page deeper on the queries that worked instead of quitting.
 **The estimate** under the form — searches, sources, model calls, time and
 cost — is calibrated on *your* finished runs. After a few completed runs at a
 depth it uses that depth's own history (the middle half of it, so one freak
-run does not skew it); before that it falls back to defaults. The form also
+run does not skew it); before that it walks the run round by round the way
+the pipeline sizes it, at the rate your recent reads have actually kept
+sources, and times it at your measured seconds per source. The form also
 warns you if something similar is already in the library.
 
 **Search categories** pick which groups of search engines a run uses:
@@ -295,6 +297,14 @@ Most fields explain themselves on the page. The ones people ask about:
 - **Embedding API key** — recommended **blank**. Only needed when the
   embedding endpoint is a different service from the LLM. The built-in model
   needs none.
+- **Reranker** — optional, blank by default. Name a reranking model your
+  model server answers at `/rerank` (oMLX: `jina-reranker-v3.5-mlx`) and it
+  orders each round's search results, picks the library passages Ask and the
+  claim checks read, chooses the part of a page the claim judge sees, and
+  settles clear-cut borderline relevance rechecks without a second model
+  read. Each use has its own switch. Measured on one library: claim checks
+  shown the right source 74% → 91%, Ask 67% → 80%. When the server cannot
+  answer, every use falls back to its old ordering.
 - **Authority sites** — a short list of "domain — what it holds" for
   goldmines search engines barely index (the shipped example is charm.li, the
   mirror of full factory service manuals). When a topic fits one, the planner

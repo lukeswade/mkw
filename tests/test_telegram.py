@@ -5,6 +5,26 @@ from app.telegram.bot import start_bot, stop_bot
 from app.telegram.handlers import extract_tldr, split_message, status_line
 
 
+def test_a_polling_outage_is_one_log_line_not_hundreds(caplog):
+    """2026-10-06/07: 759 polling failures during a Docker network outage,
+    each a 90-line traceback at ERROR, filled the log and all its backups."""
+    import logging
+    from app.telegram.bot import _POLL_ERROR_EVERY, _PollErrors
+    now = [0.0]
+    errors = _PollErrors(clock=lambda: now[0])
+    with caplog.at_level(logging.WARNING, logger="app.telegram.bot"):
+        for _ in range(50):
+            errors(OSError("All connection attempts failed"))
+            now[0] += 10
+        now[0] = _POLL_ERROR_EVERY + 1
+        errors(OSError("All connection attempts failed"))
+    lines = [r.getMessage() for r in caplog.records]
+    assert len(lines) == 2
+    assert lines[0].startswith("Telegram polling failed: OSError")
+    assert "49 more since the last report" in lines[1]
+    assert all(r.exc_info is None for r in caplog.records)
+
+
 def test_split_message_short():
     assert split_message("hello") == ["hello"]
     assert split_message("") == []

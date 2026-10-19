@@ -254,9 +254,13 @@ class Settings:
     # 403 — CDNs reject unknown clients outright. This tool reads pages a
     # person could open by hand, which is exactly what a browser UA claims.
     # Set USER_AGENT to override (e.g. back to an identifying string).
+    # The same string curl_cffi 0.16's impersonation sends (its default
+    # target is chrome146), so the plain fetch and the escalation present one
+    # browser. It said Chrome 126 for two years, a version bot filters flag
+    # as stale on its own.
     user_agent: str = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/126.0.0.0 Safari/537.36")
+                       "Chrome/146.0.0.0 Safari/537.36")
     # When a fetch is refused with a bot-wall status (403/429/challenge), retry
     # it once presenting a real Chrome TLS fingerprint (curl_cffi). Most CDN
     # blocks key on the TLS handshake, not behavior, so this recovers them

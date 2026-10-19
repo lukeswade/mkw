@@ -219,23 +219,41 @@ def max_llm_calls_for_depth(depth: int) -> int:
     return max(25 + 3 * max_docs_for_depth(depth), 12 + rounds * per_round)
 
 
-def round_limit(breadth: int, remaining_budget: int, read: int, kept: int) -> int:
+# What a round assumes a read page keeps before this run has read eight, when
+# the install has no recent record of its own (see Repo.read_yield).
+_DEFAULT_READ_YIELD = 0.4
+
+
+def round_limit(breadth: int, remaining_budget: int, read: int, kept: int,
+                prior: float | None = None) -> int:
     """How many candidates this round may fetch.
 
     candidates_per_round was doubled when a run kept ~20% of what it read.
     At ~55% a depth-1 round of 28 candidates kept 15 against a budget of 8
     and a depth-3 round kept 29 against 20 — quick looks that read three
     times their budget. The round is trimmed to what the remaining budget
-    can absorb at the yield seen so far (0.4 until eight pages are read),
-    with a floor so a round is never starved.
+    can absorb at the yield seen so far, with a floor so a round is never
+    starved.
+
+    Before eight pages are read "the yield seen so far" is `prior`: what
+    this install's reads have kept over the last fortnight. It was a fixed
+    0.4 while reads were keeping 0.79-0.95 (twelve runs to 2026-10-17, once
+    the reranker ordered the candidates), so a depth-1 look read 22 pages
+    for a budget of 8 and kept 18 in 9 minutes.
+
+    A round taken after the budget is spent — the one extra round for parts
+    of the question with no sources — gets the floor, not a full round: on
+    2026-10-16 that round read 33 pages for one uncovered part and doubled a
+    depth-4 run to 35 minutes.
     """
     full = candidates_per_round(breadth)
+    floor = breadth * 2 + 2
     if remaining_budget <= 0:
-        return full
-    rate = (kept / read) if read >= 8 and kept else 0.4
+        return min(full, floor)
+    rate = (kept / read) if read >= 8 and kept else (prior or _DEFAULT_READ_YIELD)
     rate = min(max(rate, 0.15), 0.9)
     need = math.ceil(remaining_budget / rate) + 2
-    return max(min(full, need), breadth * 2 + 2)
+    return max(min(full, need), floor)
 
 def saturation_patience(depth: int) -> int:
     """Consecutive 'saturated' verdicts needed before a run stops early.
@@ -394,6 +412,12 @@ class _RunState:
     dead_domains: frozenset = frozenset()
     # engine -> kept/read over the last fortnight (Repo.engine_yields).
     engine_yield: dict = field(default_factory=dict)
+    # kept/read over every engine in the same fortnight: what round one sizes
+    # itself by before this run has read anything (see round_limit).
+    read_yield: float | None = None
+    # Set when the source cap was reached with parts of the question still
+    # unsearched: the one extra round is spent on these parts alone.
+    extension_facets: list = field(default_factory=list)
     # Kept sources per diversity key (channel, repo, subreddit, domain) — what
     # a source has earned toward a larger share of later rounds.
     kept_by_source: Counter = field(default_factory=Counter)
@@ -978,6 +1002,7 @@ class Pipeline:
                 variant=getattr(self.cfg, "planner_variant", "default"))
             self.repo.update_run(run_id, title=the_plan.title)
             store.update_meta(title=the_plan.title, brief=the_plan.brief)
+            asked_items = facet_plan.enumerated_items(query)
             asked = facet_plan.enumerated(query)
             state.facets = facet_plan.merge(the_plan.facets, asked)
             state.asked_facets = set(facet_plan.clean_facets(asked))
@@ -990,8 +1015,20 @@ class Pipeline:
             # coverage accounting. It is tagged like one only so the digest
             # groups it, ranks its sources, and notices if the overview drops
             # it (research/synthesizer.funnel_losses).
-            state.premises = list(the_plan.premises)
-            state.premise_queries = list(the_plan.premise_queries)
+            # A question the asker listed is a part of the question, never a
+            # premise of it: see facets.restates_an_ask.
+            kept_premises = [(p, q) for p, q in zip(the_plan.premises,
+                                                    the_plan.premise_queries)
+                             if not facet_plan.restates_an_ask(p, asked_items)]
+            if len(kept_premises) < len(the_plan.premises):
+                restated = [p for p in the_plan.premises
+                            if p not in {k for k, _ in kept_premises}]
+                self.bus.publish(run_id, "log", message=(
+                    f"{len(restated)} assumption(s) the planner named are "
+                    f"questions the asker listed, so they are researched as "
+                    f"parts of the question instead: " + "; ".join(restated)))
+            state.premises = [p for p, _ in kept_premises]
+            state.premise_queries = [q for _, q in kept_premises]
             for prem, pq in zip(state.premises, state.premise_queries):
                 # When the premise covers ground the planner also named as a
                 # part of the question, its sources must credit that part —
@@ -1027,8 +1064,9 @@ class Pipeline:
             # 3. research rounds
             try:
                 state.dead_domains = frozenset(d["domain"] for d in self.repo.dead_domains())
-                state.engine_yield = self.repo.engine_yields(
-                    (datetime.now(timezone.utc) - timedelta(days=14)).isoformat())
+                fortnight = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+                state.engine_yield = self.repo.engine_yields(fortnight)
+                state.read_yield = self.repo.read_yield(fortnight)
             except Exception as e:  # never let bookkeeping stop a run
                 log.debug("dead-domain / engine-yield lookup failed: %s", e)
             state.query_scope.update(zip(the_plan.subqueries, the_plan.query_scopes))
@@ -1042,13 +1080,28 @@ class Pipeline:
             for round_no in range(1, rounds + 1):
                 self._check_cancel()
                 state.rounds_done = round_no
-                # Slots go to the parts of the question with the fewest
-                # sources, and no part may take more than a third of a round
-                # while another has none. Without this a long question runs
-                # every round on whichever facet answered first.
-                queries, starved, spare = facet_plan.allocate(
-                    queries, state.query_facet, state.facet_kept,
-                    state.facets, breadth)
+                extension = bool(state.extension_facets)
+                if extension:
+                    # The one round past the source cap is for the parts with
+                    # no sources, and only them.
+                    queries = await self._extension_queries(
+                        run_id, llm, query, the_plan.brief, state, queries)
+                    starved, spare = [], []
+                    # Its queries are new: page one, whatever page the
+                    # fallback for an empty gap answer had moved on to.
+                    pageno = 1
+                    if not queries:
+                        stop_reason = "source cap reached"
+                        break
+                else:
+                    # Slots go to the parts of the question with the fewest
+                    # sources, and no part may take more than a third of a
+                    # round while another has none. Without this a long
+                    # question runs every round on whichever facet answered
+                    # first.
+                    queries, starved, spare = facet_plan.allocate(
+                        queries, state.query_facet, state.facet_kept,
+                        state.facets, breadth)
                 if starved:
                     want = starved[:max(0, breadth - len(queries))]
                     # A facet name is not a search query: ask the model for
@@ -1077,7 +1130,8 @@ class Pipeline:
                             + f" — searching {len(added)} of them directly"))
                 if len(queries) < breadth and spare:
                     queries = queries + spare[:breadth - len(queries)]
-                if len(queries) < breadth and state.facets and round_no > 1:
+                if (len(queries) < breadth and state.facets and round_no > 1
+                        and not extension):
                     # Gap analysis proposes ~5 queries against a breadth of 7
                     # whatever the wording asks for (measured 2026-09-11:
                     # "up to 7" 4.8, "exactly 7" 4.6), and the near-duplicate
@@ -1105,6 +1159,7 @@ class Pipeline:
                                          breadth, current_keywords,
                                          pageno=pageno)
                 state.searched.extend(queries)
+                state.extension_facets = []
 
                 if len(state.findings) >= max_docs_for_depth(depth):
                     # The cap counts sources, not coverage. 2026-09-10: one
@@ -1112,10 +1167,12 @@ class Pipeline:
                     # before any gap round, and a part of the question that
                     # nothing had answered went out under "Not researched" —
                     # from a run that never got to look for it. Spend one
-                    # more round on the parts with nothing, once.
+                    # more round on the parts with nothing, once — a small
+                    # one, on those parts alone (see _extension_queries).
                     gaps = facet_plan.uncovered(state.facets, state.facet_kept)
                     if gaps and round_no < rounds and not cap_extended:
                         cap_extended = True
+                        state.extension_facets = list(gaps)
                         self.bus.publish(run_id, "log", message=(
                             f"source cap reached, but {len(gaps)} part(s) "
                             f"have no sources yet — taking one more round "
@@ -1291,6 +1348,43 @@ class Pipeline:
                 f"{'y' if len(added) == 1 else 'ies'} on the thinnest part(s): "
                 + ", ".join(want[:len(added)])))
         return added
+
+    async def _extension_queries(self, run_id: str, llm, query: str, brief: str,
+                                 state: "_RunState", proposed: list[str]) -> list[str]:
+        """Queries for the one round taken after the source cap: what gap
+        analysis proposed for the parts with no sources (two each at most),
+        and a written query for each part it proposed nothing for. 2026-10-16
+        that round ran gap analysis's whole list instead — 33 pages, 32 kept,
+        14 minutes — for a single part that had none."""
+        parts = list(state.extension_facets)
+        per: Counter = Counter()
+        chosen: list[str] = []
+        for q in proposed:
+            f = state.query_facet.get(q, "")
+            if f in parts and per[f] < 2 and q not in state.searched:
+                chosen.append(q)
+                per[f] += 1
+        need = [f for f in parts if not per[f]]
+        if need:
+            written = await facet_queries.write(
+                llm, query=query, brief=brief, facets=need,
+                searched=state.searched + chosen)
+            for f in need:
+                offer = written.get(f)
+                options = ([offer[0]] if offer else []) + facet_plan.top_up_queries(
+                    f, state.facet_subject, f in state.asked_facets)
+                for q in options:
+                    if q and q not in chosen and q not in state.searched:
+                        state.query_facet[q] = f
+                        state.query_scope.setdefault(
+                            q, offer[1] if offer and q == offer[0] else "web")
+                        chosen.append(q)
+                        break
+        if chosen:
+            self.bus.publish(run_id, "log", message=(
+                f"the extra round searches only the part(s) with no sources: "
+                f"{len(chosen)} quer{'y' if len(chosen) == 1 else 'ies'}"))
+        return chosen
 
     @staticmethod
     def _productive_queries(state: "_RunState", breadth: int) -> list[str]:
@@ -1505,14 +1599,17 @@ class Pipeline:
                     f"anyway; this stops one premise crowding out the "
                     f"question)"))
         limit_here = round_limit(breadth, max_docs_for_depth(state.depth) - len(state.findings),
-                                 state.read, len(state.findings)) if state.group_by is None \
+                                 state.read, len(state.findings),
+                                 prior=state.read_yield) if state.group_by is None \
             else candidates_per_round(breadth)
         state.last_round_trimmed = limit_here < candidates_per_round(breadth)
-        if state.last_round_trimmed:
+        left = max_docs_for_depth(state.depth) - len(state.findings)
+        if state.last_round_trimmed and state.group_by is None:
             self.bus.publish(run_id, "log", message=(
-                f"round trimmed to {limit_here} candidates: "
-                f"{max(0, max_docs_for_depth(state.depth) - len(state.findings))} source(s) "
-                f"left in this depth's budget"))
+                f"round trimmed to {limit_here} candidates: {left} source(s) "
+                f"left in this depth's budget" if left > 0 else
+                f"round limited to {limit_here} candidates: the depth's budget "
+                f"is spent, so this round is only for the parts with none"))
         candidates = pick(merged, limit_here)
 
         # Starved round: most results were duplicates or already seen. Pull
@@ -1885,9 +1982,11 @@ class Pipeline:
             stop_reason = "search engines unavailable"
             overview = (
                 f"# {the_plan.title}\n\n"
-                f"**This run found nothing because the search engines were "
-                f"unavailable, not because the topic has no sources.**\n\n"
-                f"Every engine SearXNG queried refused the request:\n\n"
+                f"**This run found nothing, and the search engines were "
+                f"reporting errors while it ran — most likely they were "
+                f"unavailable, not that the topic has no sources.**\n\n"
+                f"Every search came back empty, and these engines refused or "
+                f"failed during the run:\n\n"
                 f"{blocked}\n\n"
                 f"This is usually temporary rate-limiting from too many "
                 f"searches in a short window. Wait a few minutes and use "

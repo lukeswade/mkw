@@ -159,3 +159,53 @@ async def test_a_server_out_of_memory_at_the_gap_still_fails_the_run(data_dir):
     row, llm, _events = await _execute(cfg, s)
     assert row["status"] == "failed" and "out of memory" in row["error"]
     assert llm.calls["synth"] == 0
+
+
+# ---- a shutdown does not relabel a run that already ended -------------------------
+
+async def test_a_shutdown_does_not_relabel_a_run_that_already_finished(data_dir, monkeypatch):
+    """Review backlog #25: a run that finished, or was cancelled by its user,
+    in the same loop turn as a shutdown was overwritten 'interrupted' — which
+    also takes an evergreen parent out of its refresh schedule for good."""
+    import asyncio
+    from app.research import orchestrator as orch_mod
+    cfg = make_cfg(data_dir)
+    repo = Repo(connect(cfg.db_path))
+    wrote = asyncio.Event()
+
+    class Finishes:
+        def __init__(self, *a, **k):
+            pass
+
+        async def execute(self, run_id):
+            repo.update_run(run_id, status="completed", stop_reason="done")
+            wrote.set()
+            await asyncio.sleep(3600)      # the race window: done, not yet returned
+
+    monkeypatch.setattr(orch_mod, "Pipeline", Finishes)
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus())
+    orch.start()
+    rid = orch.enqueue(RunParams(query="already done", depth=1, recency="all",
+                                 origin="cli"))
+    await asyncio.wait_for(wrote.wait(), 5)
+    await orch.stop()
+    row = repo.get_run(rid)
+    assert row["status"] == "completed" and row["stop_reason"] == "done"
+
+    # a run genuinely in flight is still marked interrupted
+    started = asyncio.Event()
+
+    class Running(Finishes):
+        async def execute(self, run_id):
+            repo.update_run(run_id, status="running")
+            started.set()
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(orch_mod, "Pipeline", Running)
+    orch = Orchestrator(lambda: cfg, repo, ProgressBus())
+    orch.start()
+    rid = orch.enqueue(RunParams(query="still going", depth=1, recency="all",
+                                 origin="cli"))
+    await asyncio.wait_for(started.wait(), 5)
+    await orch.stop()
+    assert repo.get_run(rid)["status"] == "interrupted"

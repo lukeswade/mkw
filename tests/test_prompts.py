@@ -425,6 +425,40 @@ async def test_candidates_with_enough_sources_are_named_strongest_first():
     assert "BY NAME" in p and "comparison table" in p
 
 
+async def test_candidates_are_compared_within_their_own_kind():
+    """2026-10-15: one table put llama.cpp, Open-WebUI and Mesa RADV in rows
+    beside the models, with a column per part of the question — a column of
+    N/A for every tool. A tool with no other of its kind is not an
+    alternative to anything in the run."""
+    fs = _fs({"profile a": 8, "moe offload": 8})       # 16 sources
+    p = await _prompt_for(fs, candidates=[
+        {"name": "llama.cpp", "kind": "inference engine", "sources": [1, 2, 3, 4]},
+        {"name": "Gemma 4 26B", "kind": "model", "sources": [5, 6, 7]},
+        {"name": "Qwen3.5-9B", "kind": "Models", "sources": [8, 9]},
+        {"name": "Strata", "kind": "engine", "sources": [10, 11]},
+        {"name": "Open-WebUI", "kind": "frontend", "sources": [12, 13, 14]},
+        {"name": "Qwen 4", "kind": "language model", "sources": [15, 16]},
+    ])
+    block = p.split("The sources cover these candidates", 1)[1]
+    assert "Open-WebUI" not in block
+    models = block.index("model:\n")
+    engines = block.index("inference engine:\n")
+    assert models < engines                        # seven model sources against six
+    assert block.index("Gemma 4 26B") > models and block.index("Qwen 4") > models
+    assert engines < block.index("Strata") and engines < block.index("llama.cpp")
+    assert "one comparison table per group" in block
+
+
+def test_kinds_that_say_nothing_leave_one_group():
+    """No kind with two members: the model labelled each candidate its own
+    way, so the labels carry no grouping and every candidate stays."""
+    from app.research.synthesizer import group_by_kind
+    picked = [("A", [1, 2], "database"), ("B", [3, 4], "tool"), ("C", [5, 6], "")]
+    assert group_by_kind(picked) == [("A", [1, 2], ""), ("B", [3, 4], ""),
+                                     ("C", [5, 6], "")]
+    assert group_by_kind([]) == []
+
+
 async def test_one_candidate_is_the_subject_not_an_axis():
     fs = _fs({"interface": 6, "hosting": 4})
     p = await _prompt_for(fs, candidates=[{"name": "Joplin", "sources": [1, 2, 3]}])
@@ -610,6 +644,70 @@ def test_split_unused_tolerates_dash_variants_and_missing_reasons():
     assert unused == [(2, "dup of [1]"), (3, "")]
     assert "UNUSED" not in body
     assert body.endswith("Body [1].\n\nunused: [4] — lowercase is not the form\n")
+
+
+def test_split_unused_reads_the_markdown_dressed_forms():
+    """2026-09-14, 09-23 and 10-15: the model wrote "## UNUSED: [50] — ...",
+    the bare pattern matched none of them, and 45 lines reached readers as
+    headings at the foot of their reports."""
+    from app.research.synthesizer import split_unused
+    text = ("# D\n\nBody [1].\n\n"
+            "## UNUSED: [50] — duplicates [63] in citing Gemma 4 12B VRAM "
+            "requirements and profile suitability\n"
+            "- UNUSED: [2] — same as [1]\n"
+            "**UNUSED:** [3] — same as [1]\n"
+            "1. **UNUSED**: [4] — same as [1]\n"
+            "### UNUSED: [5] duplicates [1]\n")
+    body, unused = split_unused(text, {50, 2, 3, 4, 5})
+    assert [i for i, _ in unused] == [50, 2, 3, 4, 5]
+    assert unused[0][1].startswith("duplicates [63] in citing Gemma 4 12B")
+    assert unused[4] == (5, "duplicates [1]")
+    assert "UNUSED" not in body
+    assert body == "# D\n\nBody [1].\n"
+
+
+async def test_heading_shaped_unused_lines_are_not_counted_as_citations():
+    """Left in the body, an excuse line's own [n] read as a citation: the
+    10-15 run logged "cited 23 more" for a pass that placed a handful."""
+    from app.research.synthesizer import cited_ids
+    draft = "# Doc\n\n## A\n\nClaim [1]. Claim [2].\n"
+    revision = ("# Doc\n\n## A\n\nClaim [1]. Claim [2]. Placed [3].\n\n"
+                "## UNUSED: [4] — duplicates [1] in citing the same figure\n")
+    out, _, _ = await _run_reconcile(draft, revision, _rf(4))
+    assert "## UNUSED" not in out
+    assert cited_ids(out) == {1, 2, 3}
+    assert "[4] Title 4 — duplicates [1] in citing the same figure" in out
+
+
+def test_open_questions_moves_to_the_end_of_the_body():
+    from app.research.synthesizer import UNUSED_HEADING, open_questions_last
+    doc = ("# D\n\n## TL;DR\n\n- a [1]\n\n## Open questions\n\n- what next?\n\n"
+           "## Added later\n\nMore [2].\n\n### Detail\n\nEven more.\n\n"
+           f"{UNUSED_HEADING}\n\n- [3] T\n\n## Not researched\n\n- x\n")
+    out = open_questions_last(doc)
+    order = [l for l in out.splitlines() if l.startswith("## ")]
+    assert order == ["## TL;DR", "## Added later", "## Open questions",
+                     UNUSED_HEADING, "## Not researched"]
+    assert "- what next?" in out.split("## Open questions", 1)[1].split("##", 1)[0]
+    assert "### Detail\n\nEven more." in out
+    # already in place, absent, or followed only by appended lists: unchanged
+    in_place = "# D\n\n## A\n\nx\n\n## Open Questions\n\n- q\n"
+    assert open_questions_last(in_place) == in_place
+    assert open_questions_last("# D\n\n## A\n\nx\n") == "# D\n\n## A\n\nx\n"
+    tail = f"# D\n\n## Open questions\n\n- q\n\n{UNUSED_HEADING}\n\n- [2] T\n"
+    assert open_questions_last(tail) == tail
+
+
+async def test_a_section_the_pass_adds_lands_before_the_open_questions():
+    """2026-10-15: four sections the pass added sat after "Open questions"."""
+    draft = "# Doc\n\n## A\n\nClaim [1]. Claim [2].\n\n## Open questions\n\n- x\n"
+    revision = ("# Doc\n\n## A\n\nClaim [1]. Claim [2].\n\n## Open questions\n\n- x\n\n"
+                "## Installation details\n\nPlaced [3] at length, words words.\n\n"
+                "UNUSED: [4] — duplicates [1]\n")
+    out, _, _ = await _run_reconcile(draft, revision, _rf(4))
+    order = [l for l in out.splitlines() if l.startswith("## ")]
+    assert order == ["## A", "## Installation details", "## Open questions",
+                     "## Researched but not used"]
 
 
 async def test_synthesis_runs_the_pass_and_the_honesty_block_shares_its_heading(tmp_path):

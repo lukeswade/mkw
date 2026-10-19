@@ -408,6 +408,18 @@ class Repo:
             "GROUP BY engine HAVING reads >= ?", (since_iso, min_reads)).fetchall()
         return {r["engine"]: r["kept"] / r["reads"] for r in rows}
 
+    def read_yield(self, since_iso: str, min_reads: int = 30) -> float | None:
+        """kept / pages read across every engine since `since_iso`, or None
+        with fewer than `min_reads` reads: the prior a round sizes itself by
+        before the run has a yield of its own (pipeline.round_limit)."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS reads, SUM(outcome = 'kept') AS kept "
+            "FROM candidate_outcomes WHERE created_at >= ? "
+            "AND outcome IN ('kept', 'rejected', 'fail')", (since_iso,)).fetchone()
+        if row is None or not row["reads"] or row["reads"] < min_reads:
+            return None
+        return (row["kept"] or 0) / row["reads"]
+
     def yield_for_domains(self, domains: list[str]) -> list[sqlite3.Row]:
         if not domains:
             return []

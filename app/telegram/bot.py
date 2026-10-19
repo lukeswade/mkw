@@ -17,6 +17,32 @@ from app.telegram.handlers import register_handlers
 
 log = logging.getLogger(__name__)
 
+# A poll that fails for a network reason is retried by the library on its
+# own. Logged its default way, each failure was a 90-line traceback at ERROR:
+# 759 of them during the 2026-10-06/07 Docker network outage filled the
+# 5 MB log and all three of its backups, pushing out everything else. One line
+# per failure streak instead, then one more every _POLL_ERROR_EVERY seconds
+# while it lasts.
+_POLL_ERROR_EVERY = 600.0
+
+
+class _PollErrors:
+    def __init__(self, clock=None):
+        import time
+        self._clock = clock or time.monotonic
+        self._last = None
+        self._missed = 0
+
+    def __call__(self, error: Exception) -> None:
+        now = self._clock()
+        if self._last is not None and now - self._last < _POLL_ERROR_EVERY:
+            self._missed += 1
+            return
+        more = f" ({self._missed} more since the last report)" if self._missed else ""
+        log.warning("Telegram polling failed: %s: %s%s — the library retries "
+                    "on its own", type(error).__name__, str(error)[:200], more)
+        self._last, self._missed = now, 0
+
 
 async def start_bot(cfg_loader, orch, repo, bus) -> Application | None:
     cfg = cfg_loader()
@@ -36,7 +62,8 @@ async def start_bot(cfg_loader, orch, repo, bus) -> Application | None:
         await app.initialize()
         await app.start()
         await app.updater.start_polling(
-            drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+            drop_pending_updates=True, allowed_updates=Update.ALL_TYPES,
+            error_callback=_PollErrors())
     except Exception as e:
         log.warning("Telegram bot failed to start (%s) — web-only mode. "
                     "409 Conflict means another instance is polling this token.",

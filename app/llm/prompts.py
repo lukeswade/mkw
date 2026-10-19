@@ -464,11 +464,22 @@ choosing among — with this many sources each:
 Assess every one of them BY NAME against the parts of the question above. A \
 candidate with two or more sources is not skipped and is not folded into "other \
 tools": say specifically what its sources establish about it, with their [n], \
-and where it falls short. Include one comparison table with a row per candidate \
-and a column per part of the question, then use the prose to explain the cells \
-that need it. The reader is choosing; a candidate you leave out is a choice you \
-made for them without showing your evidence.
+and where it falls short. {tables} The reader is choosing; a candidate you leave \
+out is a choice you made for them without showing your evidence.
 """
+
+SYNTH_TABLE_ONE = ("Include one comparison table with a row per candidate and a "
+                   "column per part of the question, then use the prose to "
+                   "explain the cells that need it.")
+
+# Candidates of different kinds are not alternatives to one another: a model
+# and the engine that runs it answer different parts of the question.
+SYNTH_TABLE_PER_KIND = ("The candidates are grouped by kind. Include one "
+                        "comparison table per group, a row per candidate in it "
+                        "and a column for each part of the question or criterion "
+                        "the sources actually compare that kind of thing on — "
+                        "never a column that would read \"N/A\" for every row. "
+                        "Use the prose to explain the cells that need it.")
 
 SYNTH_LENGTH_BLOCK = """
 
@@ -516,7 +527,8 @@ that each is drawn on where it adds something specific — a number, a named \
 tool or version, a disagreement with a cited source, a caveat, a use case the \
 draft does not cover — and cite it as [n] in the section where it belongs, \
 extending that section's prose to carry it. Where a source's contribution has \
-no home in the existing sections, add a section.
+no home in the existing sections, add a section — placed before the "Open \
+questions" section, which stays last.
 
 Keep everything the draft already has: every existing [n] citation stays, no \
 section is shortened, no claim is removed. Do not restate a point already made \
@@ -530,7 +542,7 @@ unresolved uncertainty rather than choosing by source kind alone.
 
 A source that genuinely adds nothing beyond a source the draft already cites \
 is not forced in. For each such source, AFTER the document, write exactly one \
-line in this form and nothing else on it:
+plain line (not a heading, not a bullet) in this form and nothing else on it:
 UNUSED: [n] — one sentence naming the cited source it duplicates, as [k], and what they share
 A source you cited anywhere in the document is used; never list it here.
 
@@ -612,6 +624,10 @@ Sources (id, title, domain, one-line summary):
 Produce a JSON object with exactly this key:
 - "candidates": array of objects, each with:
   - "name": the candidate's usual name, as the sources spell it
+  - "kind": what sort of thing it is, in one or two plain words ("model", \
+"inference engine", "GPU driver", "note-taking app", "training method"). \
+Candidates that are alternatives to one another share a kind: use the same \
+words for them.
   - "sources": array of the integer ids of the sources that say something \
 substantive about that candidate (not a passing mention in a list)
 

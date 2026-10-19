@@ -10,9 +10,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from app.research.pipeline import (breadth_for_depth, candidates_per_round,
-                                   max_docs_for_depth,
-                                   max_llm_calls_for_depth, rounds_for_depth)
+import math
+from datetime import datetime, timedelta, timezone
+
+from app.research.pipeline import (breadth_for_depth, max_docs_for_depth,
+                                   max_llm_calls_for_depth, round_limit,
+                                   rounds_for_depth)
 
 # Fallbacks until this install has completed runs to learn from. Seconds per
 # kept source and per LLM call, measured against a mid-size cloud model.
@@ -29,6 +32,36 @@ HISTORY_RUNS = 40
 # this week it takes 22. When the last two weeks hold enough runs, they are
 # the history; older runs only fill in when they do not.
 HISTORY_DAYS = 14
+# Of the candidates a round may take, the share actually read: triage drops
+# some before any fetch and its refill puts some back. 15 rounds of five runs
+# (2026-09-23..10-17) read 0.75-0.95 of their limit.
+READ_SHARE = 0.8
+
+
+def simulate(depth: int, read_yield: float, prior: float | None = None) -> tuple[int, float]:
+    """(rounds, sources kept) for a run of this depth, walked round by round
+    with the pipeline's own sizing (pipeline.round_limit) until the source
+    cap stops it. `read_yield` is what a read page keeps; `prior` is what
+    round one will assume before it has read anything.
+
+    The formula this replaces took the source cap as the number of pages
+    FETCHED and kept a fraction of that, so the band sat at a third to a
+    half of the cap while runs filled it: on 2026-10-15 a depth-9 run was
+    promised 24-48 sources and 21 minutes, and kept 82 in 50.
+    """
+    breadth, rounds = breadth_for_depth(depth), rounds_for_depth(depth)
+    cap = max_docs_for_depth(depth)
+    kept = read = 0.0
+    done = 0
+    for done in range(1, rounds + 1):
+        limit = round_limit(breadth, cap - math.floor(kept), int(read),
+                            int(kept), prior=prior)
+        reads = limit * READ_SHARE
+        read += reads
+        kept += reads * read_yield
+        if kept >= cap:
+            break
+    return done, kept
 
 
 @dataclass
@@ -78,6 +111,7 @@ class _History:
     samples: int                      # runs with usable timing
     keep_rate: float | None           # median kept/(kept+skipped), or None
     kept_at_depth: list[int] = field(default_factory=list)
+    read_yield: float | None = None   # kept / pages read, the last fortnight
 
 
 def _median(xs: list[float]) -> float | None:
@@ -108,8 +142,13 @@ def _history(repo, depth: int) -> _History:
         " WHERE status = 'completed' AND stats_json IS NOT NULL"
         "   AND kind = 'research' AND depth > 0"
         " ORDER BY created_at DESC LIMIT ?", (HISTORY_RUNS,)).fetchall()
-    from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)).isoformat()
+    read_yield = None
+    if hasattr(repo, "read_yield"):
+        try:
+            read_yield = repo.read_yield(cutoff)
+        except Exception:  # noqa: BLE001 — an estimate never fails a page
+            read_yield = None
 
     def _recent(r) -> bool:
         return bool(r["started_at"]) and r["started_at"] >= cutoff
@@ -153,6 +192,7 @@ def _history(repo, depth: int) -> _History:
         samples=len(secs),
         keep_rate=_median(rates) if len(rates) >= MIN_SAMPLES else None,
         kept_at_depth=at_depth,
+        read_yield=read_yield,
     )
 
 
@@ -176,13 +216,13 @@ def estimate_run(repo, depth: int) -> Estimate:
         sources_low = max(1, min(cap, _percentile(xs, 25)))
         sources_high = max(sources_low, min(cap, _percentile(xs, 75)))
     else:
-        # No history at this depth: the formula, with the measured keep rate
-        # once there is one. The caps are ceilings a typical run never
-        # reaches, so the band sits well below them.
-        fetched = min(cap, candidates_per_round(breadth) * rounds)
-        likely = int(fetched * keep_rate)
-        sources_low = max(2, int(likely * 0.5))
-        sources_high = max(sources_low + 1, min(cap, likely))
+        # No history at this depth: the run walked round by round as the
+        # pipeline sizes it, at what this install's reads keep (else the
+        # measured keep rate, else the default).
+        _rounds, likely = simulate(depth, hist.read_yield or keep_rate,
+                                   prior=hist.read_yield)
+        sources_low = max(2, int(likely * 0.85))
+        sources_high = max(sources_low + 1, math.ceil(likely * 1.1))
     llm_calls = min(max_llm_calls_for_depth(depth),
                     3 + rounds * 2 + sources_high)
 

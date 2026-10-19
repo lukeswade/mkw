@@ -78,6 +78,14 @@ class Fetched:
     content_type: str
     body: bytes
     via: str = "http" # transport that produced it: http | impersonated | browser
+    # The charset the server named in Content-Type, if any. The extractor
+    # needs it for the pages that are not UTF-8 (see extractor._decode).
+    charset: str = ""
+
+
+def _charset(content_type: str | None) -> str:
+    m = re.search(r"charset\s*=\s*[\"']?([A-Za-z0-9._-]+)", content_type or "", re.I)
+    return m.group(1).lower() if m else ""
 
 
 class SkipReason(Exception):
@@ -209,6 +217,7 @@ class Fetcher:
                         raise SkipReason(f"http {resp.status_code}")
                     status = resp.status_code
                     ctype = (resp.headers.get("content-type") or "text/html").split(";")[0].strip().lower()
+                    charset = _charset(resp.headers.get("content-type"))
                     if not any(ctype.startswith(t) for t in allowed):
                         raise SkipReason(f"content-type {ctype}")
                     chunks: list[bytes] = []
@@ -241,7 +250,8 @@ class Fetcher:
             # wall that re-challenges is not solvable this way and must not
             # become a loop.
             return await self._polite_get(url, extra_types, _pow_retry=True)
-        return Fetched(url=url, final_url=final_url, content_type=ctype, body=body)
+        return Fetched(url=url, final_url=final_url, content_type=ctype, body=body,
+                       charset=charset)
 
     # ---- public -----------------------------------------------------------------
     async def fetch(self, url: str,
@@ -341,8 +351,17 @@ class Fetcher:
         ctype = (resp.headers.get("content-type") or "text/html").split(";")[0].strip().lower()
         if not any(ctype.startswith(t) for t in allowed):
             raise SkipReason(f"content-type {ctype}")
-        return Fetched(url=url, final_url=url, content_type=ctype,
-                       body=resp.content[:MAX_BYTES], via="impersonated")
+        # Same limits as the plain path: a PDF cut at the HTML cap is
+        # unreadable, so it gets the PDF cap or is refused.
+        if ctype == "application/pdf":
+            if len(resp.content) > MAX_PDF_BYTES:
+                raise SkipReason("pdf too large")
+            body = resp.content
+        else:
+            body = resp.content[:MAX_BYTES]
+        return Fetched(url=url, final_url=url, content_type=ctype, body=body,
+                       via="impersonated",
+                       charset=_charset(resp.headers.get("content-type")))
 
     async def render(self, url: str) -> Fetched:
         """Render one page in the browser solver, regardless of status.
@@ -380,4 +399,4 @@ class Fetcher:
         return Fetched(url=url, final_url=solution.get("url") or url,
                        content_type="text/html",
                        body=solution["response"].encode()[:MAX_BYTES],
-                       via="browser")
+                       via="browser", charset="utf-8")

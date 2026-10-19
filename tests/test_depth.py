@@ -187,5 +187,24 @@ def test_a_round_is_trimmed_to_what_the_budget_can_absorb_but_never_starved():
     assert round_limit(3, remaining_budget=8, read=0, kept=0) == max(3 * 2 + 2, 22)   # 8 / 0.4 + 2 = 22
     assert round_limit(3, remaining_budget=8, read=20, kept=14) == max(8, 14)         # observed 70% yield -> 8/0.7+2
     assert round_limit(6, remaining_budget=40, read=0, kept=0) == candidates_per_round(6)   # plenty of budget: untouched
-    assert round_limit(3, remaining_budget=0, read=10, kept=10) == full            # budget met: the cap check ends the run
     assert round_limit(3, remaining_budget=1, read=30, kept=27) == 3 * 2 + 2       # floor
+    assert full > 3 * 2 + 2
+
+
+def test_round_one_is_sized_by_what_this_install_keeps():
+    """2026-10-17: reads were keeping 0.79-0.95 and round one still assumed
+    0.4, so a depth-1 look read 22 pages for a budget of 8 and kept 18."""
+    from app.research.pipeline import round_limit
+    assert round_limit(3, remaining_budget=8, read=0, kept=0, prior=0.87) == 12   # ceil(8/0.87) + 2
+    assert round_limit(3, remaining_budget=8, read=0, kept=0, prior=None) == 22       # no record: the old 0.4
+    # the run's own yield takes over once it has one
+    assert round_limit(3, remaining_budget=8, read=20, kept=14, prior=0.95) == 14
+
+
+def test_the_round_past_the_source_cap_is_a_small_one():
+    """2026-10-16: the extra round for one uncovered part read 33 pages and
+    doubled a depth-4 run to 35 minutes."""
+    from app.research.pipeline import round_limit, candidates_per_round
+    assert round_limit(4, remaining_budget=0, read=33, kept=28) == 4 * 2 + 2
+    assert round_limit(4, remaining_budget=-4, read=33, kept=32) == 4 * 2 + 2
+    assert round_limit(4, remaining_budget=0, read=33, kept=28) < candidates_per_round(4)

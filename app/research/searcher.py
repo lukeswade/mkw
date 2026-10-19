@@ -241,7 +241,9 @@ class SearxngError(Exception):
 # A long query is therefore also sent to them alone, shortened to its first
 # few content words. None of them rate-limits, so the extra request costs
 # nothing against the address the majors are already judging.
-SMALL_INDEX_ENGINES = frozenset({"searchmysite", "wiby"})   # boardreader retired 2026-09-04: parsing error on every search
+# boardreader retired 2026-09-04 (parsing error on every search); searchmysite
+# 2026-10-19 ("access denied" on every query for a month).
+SMALL_INDEX_ENGINES = frozenset({"wiby"})
 _SHORT_WORDS = 3
 _SHORT_TRIGGER = 5          # queries this long or longer get a short twin
 _QUERY_STOPWORDS = frozenset(
