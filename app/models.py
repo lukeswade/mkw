@@ -6,6 +6,7 @@ repair round-trip, so we only fail on genuinely unusable output.
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -464,6 +465,46 @@ class VerdictOut(BaseModel):
     @classmethod
     def _cap_sources(cls, v):
         return clip_list(v, 10)
+
+
+class CiteCheckOut(BaseModel):
+    """One sentence of a finished report, checked against its sources.
+
+    Unknown actions fall back to "keep": a verdict the code cannot act on
+    must leave the sentence as the synthesis wrote it."""
+    action: Literal["keep", "recite", "rewrite"] = "keep"
+    cite: list[int] = Field(default_factory=list, max_length=8)
+    revised: str = Field(default="", max_length=2000)
+    reason: str = Field(default="", max_length=300)
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _known_action(cls, v):
+        v = str(v or "").strip().lower()
+        return v if v in ("keep", "recite", "rewrite") else "keep"
+
+    @field_validator("cite", mode="before")
+    @classmethod
+    def _ids(cls, v):
+        # "[33]" and "33" both mean source 33
+        if not isinstance(v, list):
+            return v
+        out = []
+        for x in v:
+            digits = re.sub(r"\D", "", str(x))
+            if digits:
+                out.append(int(digits))
+        return out[:8]
+
+    @field_validator("revised", mode="before")
+    @classmethod
+    def _clip_revised(cls, v):
+        return clip_str(v, 2000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _clip_reason(cls, v):
+        return clip_str(v, 300)
 
 
 class BriefFilterOut(BaseModel):

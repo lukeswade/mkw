@@ -433,6 +433,16 @@ What happens between a query and a source:
    draft the strong sources it left uncited and asks for each to be placed
    where it adds something specific; the revision is kept only if it lost
    nothing the draft had.
+7. **Citation check** — every cited sentence with a figure or a numbered
+   name (a version, a model, a part number) is matched against the notes of
+   the sources it cites. Where a figure is missing from them, the model may
+   move the citation to the kept source that states it or correct the
+   sentence from the notes, and the fix is applied only if it passes the same
+   check (a figure's unit included) and keeps a citation. Questions, "Open
+   questions", statements about what is unknown and figures from your own
+   question are left alone. Measured on eight stored reports: about one cited
+   sentence with figures in twelve was flagged, and every applied fix was
+   right on review. Switch it off under **Settings → Search**.
 
 **What the document admits about itself.** A confident report about nothing
 reads exactly like a confident report about something, so the overview is

@@ -10,6 +10,7 @@ in-flight work, never what's already on disk.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import re
@@ -31,6 +32,7 @@ from app.rag.rerank import make_reranker
 from app.research import gap as gap_stage
 from app.research import planner as planner_stage
 from app.research import synthesizer
+from app.research import citecheck
 from app.research import feeds, matrix, reddit, verify, youtube
 from app.research.dedupe import (DEFAULT_BLOCKED, VIDEO_HOSTS, canonicalize, domain_of, interleave, is_blocked, is_living_page, is_unreadable, lexical_overlap, looks_like_index, rank_diverse, shares_vocabulary, similarity, source_key, text_fingerprint, vocabulary)
 from app.research.extractor import extract, looks_bot_walled, extract_links
@@ -1953,6 +1955,7 @@ class Pipeline:
                          f"run returns something rather than nothing"))
         findings = state.findings
         store.write_sources(synthesizer.render_sources_md(findings))
+        citations = None
 
         if findings:
             self.bus.publish(run_id, "phase", phase="synthesis",
@@ -1975,6 +1978,11 @@ class Pipeline:
             if removed:
                 self.bus.publish(run_id, "log",
                                  message=f"stripped invalid citations: {sorted(removed)}")
+            if self.cfg.citation_check:
+                overview, checked = await citecheck.check(
+                    llm, overview, findings, query=query,
+                    bus=self.bus, run_id=run_id)
+                citations = checked.counts()
             overview, state.sources_uncited = self._mark_honestly(
                 run_id, overview, findings, state.query_facet, unanswered,
                 state.facet_offtopic)
@@ -2047,6 +2055,9 @@ class Pipeline:
             "pow_solved": getattr(fetcher, "pow_solved", 0),
             "quotes_unverified": state.quotes_dropped,
             "quotes_repaired": state.quotes_repaired,
+            # What the citation check found and fixed (citecheck.CiteCheck);
+            # None when it was off or there was nothing to synthesize.
+            "citation_check": citations,
             # What a healthy run of this depth would have kept, so the page
             # can tell a thin run from a normal one without re-deriving it.
             "sources_expected": max_docs_for_depth(state.depth),
@@ -2247,6 +2258,11 @@ class Pipeline:
         if removed:
             self.bus.publish(run_id, "log",
                              message=f"stripped invalid citations: {sorted(removed)}")
+        checked = None
+        if self.cfg.citation_check:
+            overview, checked = await citecheck.check(
+                llm, overview, findings, query=query,
+                bus=self.bus, run_id=run_id)
         # A run is thin for good: re-synthesizing it does not find better
         # sources, so the banner the original carried belongs on this one too.
         try:
@@ -2274,6 +2290,10 @@ class Pipeline:
         self.repo.update_run(run_id, has_matrix=1 if store.has_comparison() else 0)
         store.update_meta(followups=[f.model_dump() for f in fu.items],
                           resynthesized_at=utcnow())
+        if checked is not None:
+            stats = json.loads(row_get(row, "stats_json") or "{}")
+            stats["citation_check"] = checked.counts()
+            self.repo.set_stats(run_id, stats)
         self.repo.fts_delete_run(run_id)
         self.repo.fts_add(run_id, "overview", title, overview)
         for f in findings:

@@ -557,6 +557,49 @@ Uncited source notes:
 {notes_block}
 """
 
+CITE_CHECK = """You are checking one sentence of a research report against the \
+sources it cites.
+
+Research question (the asker's own setup is stated here; mentioning it needs \
+no source):
+{query}
+
+The sentence:
+{sentence}
+
+The passage it sits in, for context only:
+{context}
+
+These figures or numbered names in the sentence appear nowhere in the notes of \
+the sources it cites: {absent}
+
+Notes of the cited sources:
+{evidence}
+{others}
+Decide what the sentence should be, and produce a JSON object with exactly \
+these keys:
+- "action": one of
+  - "keep" — the sentence is right as written: the figure is another spelling, \
+rounding or unit of one the notes state for the same thing, a simple sum or \
+conversion of stated figures, or part of the asker's own setup
+  - "recite" — the sentence is right, but the figures come from other sources \
+listed above: put the number of every source that supports the sentence in "cite"
+  - "rewrite" — the sentence misstates the notes: a figure attached to the \
+wrong model, product, device or condition, a figure the notes do not give, or \
+a number changed
+- "cite": the source numbers for "recite", otherwise []
+- "revised": for "rewrite" only, the corrected sentence. Say what the notes \
+say, keep its citation markers and its markdown, change only what is wrong, add \
+nothing the notes do not state, and drop a figure no source gives rather than \
+guess one. Otherwise "".
+- "reason": one short sentence
+
+A model's or product's alternative names and version spellings are the same \
+subject: never rewrite a sentence over naming alone.
+
+Respond with only the JSON object."""
+
+
 SYNTH_PARTIAL = """You are compressing a subset of research notes for a later \
 synthesis stage.
 

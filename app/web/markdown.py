@@ -12,6 +12,7 @@ from markdown_it import MarkdownIt
 from markupsafe import Markup, escape
 
 from app.db import FTS_MARK_CLOSE, FTS_MARK_OPEN
+from app.research.storage import group_ids
 
 _md = MarkdownIt("gfm-like", options_update={"html": False, "linkify": True})
 # Only link real URLs, never bare domain-ish words: research text is full of
@@ -22,7 +23,8 @@ _md.linkify.set({"fuzzy_link": False, "fuzzy_email": False})
 # [3] → [\[3\]](#src-3), skipping [3](...) markdown links and [x][y] refs
 # (?!\() keeps real markdown links [3](url) intact. No (?!\[) — that used to
 # skip every citation in an adjacent run like [1][8][9] except the last one.
-_CITE_RE = re.compile(r"\[(\d{1,3})\](?!\()")
+# A grouped marker, [2, 25], links each number and keeps its brackets.
+_CITE_RE = re.compile(r"\[(\d{1,3}(?:\s*[,;]\s*\d{1,3})*)\](?!\()")
 
 
 # A document's own H1 at the very top, which the run page's header already shows.
@@ -133,9 +135,15 @@ def highlight_snippet(snippet: str) -> Markup:
 
 def render_overview(md_text: str, n_sources: int) -> str:
     def linkify_cite(m: re.Match) -> str:
-        n = int(m.group(1))
-        if 1 <= n <= n_sources:
-            return f"[\\[{n}\\]](#src-{n})"
-        return m.group(0)
+        ids = group_ids(m.group(1))
+        if len(ids) == 1:
+            n = ids[0]
+            if 1 <= n <= n_sources:
+                return f"[\\[{n}\\]](#src-{n})"
+            return m.group(0)
+        if not any(1 <= n <= n_sources for n in ids):
+            return m.group(0)
+        return "\\[" + ", ".join(f"[{n}](#src-{n})" if 1 <= n <= n_sources
+                                 else str(n) for n in ids) + "\\]"
 
     return render(_CITE_RE.sub(linkify_cite, md_text or ""))

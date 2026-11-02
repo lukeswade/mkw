@@ -12,6 +12,7 @@ from app.llm.client import (LLM, LLMError, PromptExceedsFreeMemory, PromptTooLon
 from app.llm.json_utils import LLMJsonError
 from app.models import CandidatesOut, FollowUpsOut, RECENCY_LABELS, source_rank
 from app.research.notes import Finding, render_facts
+from app.research.storage import citation_ids
 
 log = logging.getLogger(__name__)
 
@@ -429,7 +430,7 @@ def cited_ids(overview: str) -> set[int]:
     document did NOT use."""
     cut = overview.find(UNUSED_HEADING)
     body = overview if cut < 0 else overview[:cut]
-    return {int(n) for n in re.findall(r"\[(\d+)\]", body)}
+    return set(citation_ids(body))
 
 
 def _checked_reason(why: str, idx: int, cited: set[int]) -> str:
@@ -438,7 +439,7 @@ def _checked_reason(why: str, idx: int, cited: set[int]) -> str:
     by [25]" — the model excused a source by pointing at itself, and in
     another run pointed at nothing. A reason the reader cannot check is
     worse than none."""
-    refs = {int(n) for n in re.findall(r"\[(\d+)\]", why)}
+    refs = set(citation_ids(why))
     if refs and idx not in refs and refs <= cited:
         return why
     return ""

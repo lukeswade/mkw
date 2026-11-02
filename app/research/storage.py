@@ -18,7 +18,23 @@ SERVABLE_RE = re.compile(
     r"|findings/\d{3}_[a-z0-9-]*\.md|rounds/round-\d{2}\.md)$"
 )
 
-_CITATION_RE = re.compile(r"\[(\d{1,3})\]")
+# A citation marker: [3], or several sources in one bracket, [2, 25] or [4; 9].
+# Synthesis writes the grouped form too (263 of them across the first 115
+# reports), and readers of only the single form counted [25] in "[2, 25]" as
+# uncited: Matt's 10-15 report listed it under "Researched but not used"
+# beside the sentence that cites it.
+CITATION_GROUP_RE = re.compile(r"\[(\d{1,3}(?:\s*[,;]\s*\d{1,3})*)\]")
+
+
+def group_ids(group: str) -> list[int]:
+    """The ids inside one bracket's contents, "2, 25" → [2, 25]."""
+    return [int(x) for x in re.split(r"\s*[,;]\s*", group.strip())]
+
+
+def citation_ids(text: str) -> list[int]:
+    """Every source id cited in `text`, in order of appearance."""
+    return [n for m in CITATION_GROUP_RE.finditer(text or "")
+            for n in group_ids(m.group(1))]
 
 
 def slugify(text: str, max_len: int = 40) -> str:
@@ -35,17 +51,20 @@ def atomic_write_text(path: Path, text: str) -> None:
 
 
 def validate_citations(md: str, n_sources: int) -> tuple[str, set[int]]:
-    """Strip citation markers pointing beyond the bibliography ([7] when n=5)."""
+    """Strip citation markers pointing beyond the bibliography ([7] when n=5).
+
+    Inside a grouped marker only the bad ids go: [3, 7] becomes [3]."""
     removed: set[int] = set()
 
     def repl(m: re.Match) -> str:
-        k = int(m.group(1))
-        if 1 <= k <= n_sources:
+        ids = group_ids(m.group(1))
+        good = [k for k in ids if 1 <= k <= n_sources]
+        removed.update(k for k in ids if not 1 <= k <= n_sources)
+        if len(good) == len(ids):
             return m.group(0)
-        removed.add(k)
-        return ""
+        return f"[{', '.join(map(str, good))}]" if good else ""
 
-    return _CITATION_RE.sub(repl, md), removed
+    return CITATION_GROUP_RE.sub(repl, md), removed
 
 
 # A markdown table: a header row, then the separator row of dashes and

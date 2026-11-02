@@ -134,6 +134,16 @@
       read 73 chased pages and kept 3. When on it is capped at 4 references a
       round and 6 a run, so it can add a hard-to-search source without
       spending the run.</p>
+    <label>
+      <input type="checkbox" name="citation_check" {{ 'checked' if cfg.citation_check else '' }}>
+      Check cited figures against their sources
+    </label>
+    <p class="hint">After the overview is written, every cited sentence with a
+      figure or a numbered name is matched against the notes of the sources it
+      cites. Where a figure is missing, the model moves the citation to the
+      source that states it or corrects the sentence, and a fix is applied only
+      if it passes the same check. About one cited figure in ten was wrong
+      before this. Adds a minute or two to a large run.</p>
     <label>Blocked domains <small>(comma-separated, never fetched)</small>
       <input type="text" name="blocked_domains" value="{{ cfg.blocked_domains }}"
              placeholder="e.g. pinterest.com, quora.com">

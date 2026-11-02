@@ -63,6 +63,7 @@ ENV_MAP = {
     "search_concurrency": "SEARCH_CONCURRENCY",
     "relevance_threshold": "RELEVANCE_THRESHOLD",
     "reference_chasing": "REFERENCE_CHASING",
+    "citation_check": "CITATION_CHECK",
     "blocked_domains": "BLOCKED_DOMAINS",
     "authority_sites": "AUTHORITY_SITES",
     "feeds": "FEEDS",
@@ -100,6 +101,7 @@ UI_EDITABLE = {
     "brave_monthly_quota",
     "brave_cycle_day",
     "reference_chasing",
+    "citation_check",
     "blocked_domains",
     "authority_sites",
     "feeds",
@@ -233,6 +235,12 @@ class Settings:
     # near-misses. When on it is capped per round and per run (pipeline
     # _REFS_PER_ROUND / _REFS_PER_RUN), so a bad topic cannot spend a run on it.
     reference_chasing: bool = False
+    # Check each figure a finished report cites against the evidence of the
+    # source it cites, and fix the citation or the sentence when they
+    # disagree (research/citecheck.py). Measured 2026-11-01: about one
+    # numeric cited sentence in ten misstated its source. Costs a model call
+    # per mismatched sentence only, capped per report.
+    citation_check: bool = True
     # Comma-separated domains never worth fetching for you (e.g. pinterest.com)
     blocked_domains: str = ""
     # Curated sites holding authoritative primary documents, offered to the
