@@ -13,6 +13,8 @@ services:
       - ./data:/data
       - ./app:/srv/app/app
       - ./tests:/srv/app/tests
+      # tests/test_report_eval.py loads scripts/eval/report_eval.py by path
+      - ./scripts:/srv/app/scripts:ro
       - ./pyproject.toml:/srv/app/pyproject.toml:ro
     command: ["uvicorn", "app.web.server:create_app", "--factory", "--host", "0.0.0.0", "--port", "8090", "--reload"]
     healthcheck:

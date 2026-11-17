@@ -13,6 +13,7 @@ files. The frozen eval set lives in `data/eval/2026-09-23/` (gitignored).
 | `page_probe.py` | container | Page lengths against the notes budget, where evidence quotes sit in their pages, and fetching the eval claims' source pages for `passage_score.py`. |
 | `synth_ab.py` | container | Re-synthesizes one run from its stored sources with thinking off and on, read-only. |
 | `mteb_compare.py` | host | Same-task MTEB retrieval scores for several embedders, from the published per-task results. |
+| `report_eval.py` (via `report_eval.sh`) | dev container, working-tree code | Whether a change to how reports are written made them better: eight frozen runs re-written and scored for known errors, unmatched figures, repeats, lost parts and (with the model) contradicted facts. Set and results in `data/eval/reports-2026-11-15/`; see `docs/report-eval-2026-11-15.md`. |
 
 ```bash
 # baseline (nomic), reproduces results-baseline.json
@@ -25,4 +26,7 @@ docker compose exec -T app python - --rerank-model Qwen3-Reranker-0.6B-mxfp8 < s
 PYTHONPATH=. .venv/bin/python scripts/eval/passage_score.py
 # thinking A/B on one run: off,on,off,on
 docker compose exec -T app python - <run_id> off,on,off,on < scripts/eval/synth_ab.py > synth.jsonl
+# report quality: score the stored reports, then an arm written by the code in the tree
+scripts/eval/report_eval.sh score
+scripts/eval/report_eval.sh resynth my-change && scripts/eval/report_eval.sh score my-change --judge
 ```
