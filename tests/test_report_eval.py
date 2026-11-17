@@ -83,6 +83,20 @@ def test_table_separators_and_headings_are_not_blocks():
     assert found[-1].headings == "A > B"
 
 
+def test_a_nested_bullet_and_a_bold_label_carry_their_subject_down():
+    # "Performance: ~24 tok/s" was about the model named one bullet up
+    md = ("## Coding\n\n3.  **Qwen3-Coder 30B-A3B (MoE):**\n"
+          "    *   **Performance:** ~22-24 tok/s on a Ryzen 5600X [81].\n"
+          "4.  **Qwen3.5-9B:**\n    *   **Performance:** 40 tok/s [1].\n\n"
+          "**Alternative: Gemma 4 12B**\nIt runs fully on the GPU at 30 tok/s [2].\n\n"
+          "### Next\n\nUnrelated paragraph.\n")
+    by = {b.text: b.headings for b in ev.blocks(md)}
+    assert "Qwen3-Coder" in by["*   **Performance:** ~22-24 tok/s on a Ryzen 5600X [81]."]
+    assert "Qwen3-Coder" not in by["*   **Performance:** 40 tok/s [1]."]       # its own parent only
+    assert by["It runs fully on the GPU at 30 tok/s [2]."].endswith("Alternative: Gemma 4 12B")
+    assert by["Unrelated paragraph."] == "Coding > Next"                        # a heading ends both
+
+
 # --- known errors ---------------------------------------------------------------
 
 def test_an_error_is_read_with_the_headings_above_it():

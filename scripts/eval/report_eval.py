@@ -106,7 +106,8 @@ def blocks(md: str) -> list[Block]:
     says nothing wrong until it is read under "Add-on targets", so a block
     always carries the headings above it."""
     out: list[Block] = []
-    h2 = h3 = ""
+    h2 = h3 = label = ""
+    items: list[tuple[int, str]] = []      # open list items: (indent, text)
     fence = False
     for line in body_of(md).splitlines():
         s = line.strip()
@@ -121,8 +122,25 @@ def blocks(md: str) -> list[Block]:
                 h2, h3 = title, ""
             elif level >= 3:
                 h3 = title
+            label, items = "", []
             continue
-        out.append(Block(h2, " > ".join(h for h in (h2, h3) if h), s))
+        # A line that is only bold is a heading in all but markup:
+        # "**Alternative: Qwen3-Coder 30B-A3B (MoE)**" names the subject of
+        # the paragraph under it.
+        if re.fullmatch(r"\*\*[^*\n]{3,140}\*\*:?", s):
+            label, items = s.strip("*:"), []
+            continue
+        # A nested bullet is read under its parent: "Performance: ~24 tok/s"
+        # is about whatever the bullet above it names.
+        parents: list[str] = []
+        if re.match(r"(?:[-*+]|\d{1,3}[.)])\s+", s):
+            indent = len(line) - len(line.lstrip())
+            items = [(i, t) for i, t in items if i < indent]
+            parents = [t[:160] for _, t in items]
+            items.append((indent, s))
+        else:
+            items = []
+        out.append(Block(h2, " > ".join(h for h in (h2, h3, label, *parents) if h), s))
     return out
 
 

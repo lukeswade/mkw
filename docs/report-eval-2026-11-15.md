@@ -132,6 +132,60 @@ All eight reports rewritten by the code at `06fdedd`, one run each.
 - Four of this arm's timings are inflated, because fact-sheet trials shared
   the model while it ran.
 
+## The fact sheet (arm `ledger`, 2026-11-16)
+
+The same eight rewritten with `fact_ledger` on (`da5f7e0`), one run each.
+
+| | Stored reports | `current` | `ledger` |
+|---|---|---|---|
+| Substantive known errors present | 8/8 | 4/8 | 2/8 |
+| Citation known errors present | 6/6 | 0/6 | 0/6 |
+| Unmatched figures | 24/287 | 3/247 | 7/275 |
+| Repeats | 17 | 7 | 2 |
+| Sources cited | 327/450 | 336/450 | 323/450 |
+| Words | 23,024 | 23,552 | 20,729 |
+| Time to rewrite all eight | – | 40.6 min | 49.7 min |
+
+By report, substantive errors `current` → `ledger`:
+
+| Report | `current` | `ledger` | What changed |
+|---|---|---|---|
+| Finance | 2 | 0 | New Jersey Urology is now something U.S. Urology Partners acquired. The stale forecast and One GI are no longer mentioned at all. |
+| Qwen on M4 Pro | 1 | 0 | The MTP doubling is credited to Qwen3.6, as its source says. |
+| GPU stack | 1 | 1 | Both credit a speed to Qwen3-Coder that no source gives: `current` from the RTX 3080 Ti source, `ledger` from an RX 6700 XT source about another model. |
+| Time-Sert | 0 | 1 | "The insert should sit slightly below the surface (approx. 6mm)": the tap's depth again. Not in `current`. |
+| Speech-to-text | 0 | 0 | |
+
+What this does and does not show:
+
+- Four errors to two, on one run per arm. A rewrite of the same report makes
+  different mistakes each time (the Time-Sert error came and went), so this
+  is suggestive, not established. A second run of each arm would say more.
+- The gain is where the fact sheet was aimed: who owns what, and which
+  model a result belongs to when both are named things with their own
+  entries. It did nothing for a figure credited to a model that has no
+  figures at all.
+- It costs time and coverage: 22% longer over the set (the four pairs with
+  clean timings: +21% to +63%), 12% fewer words, and 13 fewer sources
+  cited. Unmatched figures rose from 3 to 7.
+- Unknown: whether a fact-sheet line caused the Time-Sert error. Its checks
+  test a line's figures and sources, not which thing a figure describes,
+  and the arm does not keep the fact sheet it wrote.
+- The judge's column for this arm is 3/8: two on the finance report that
+  are wrong on reading ("General Atlantic-backed" taken as contradicting
+  "General Atlantic invested"), and the Time-Sert one, which is right. It
+  was run before the GPU fact below was corrected.
+
+**A known error was corrected after this arm.** The GPU report's fact was
+"the ~24 tok/s figure is an RTX 3080 Ti measurement of Qwen3.6", screened as
+any passage with 24 tok/s and the RX 6700 XT. Two other kept sources do
+report about 24 tok/s on an RX 6700 XT, for other models, so that screen
+flagged correct sentences and missed the same figure credited to Qwen3-Coder
+from a different source. The fact is now "no source gives a speed for
+Qwen3-Coder 30B-A3B" (`qwen3-coder-has-no-measured-speed`), and the scorer
+reads a nested bullet under its parent and a paragraph under a bold-only
+line above it. All three arms above were rescored with it.
+
 ## How far to trust the judge
 
 - **Contradicted facts: usable.** It agreed with 7 of the 8 hand-verified
@@ -168,7 +222,10 @@ All eight reports rewritten by the code at `06fdedd`, one run each.
 
 ## Next
 
-1. `resynth current`, then `score current --judge`: the baseline for the
-   code as it is now.
-2. Build the change (one table of facts per named company, sections written
-   from it, a consistency pass), `resynth` it under a new label, and compare.
+1. A second run of `current` and `ledger` (about 90 minutes unattended), to
+   see how much of 4 → 2 is the fact sheet and how much is chance.
+2. Have `resynth` keep the fact sheet it wrote beside each report, so an
+   error can be traced to a line or cleared of it.
+3. The error it does not touch: a figure credited to a thing the sources
+   give no figure for. That needs a check on the subject of each cited
+   figure, in the citation pass.
