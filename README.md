@@ -305,6 +305,12 @@ Most fields explain themselves on the page. The ones people ask about:
   read. Each use has its own switch. Measured on one library: claim checks
   shown the right source 74% → 91%, Ask 67% → 80%. When the server cannot
   answer, every use falls back to its old ordering.
+- **Unload the model after idle** — seconds, 0 (the default) for never. A
+  local server keeps a pinned model in memory until it is told to unload
+  it; with this set, the app asks the server to unload its model that long
+  after its last model call, once no run is active or queued, and the next
+  run loads it again (about half a minute). It only unloads a model it used
+  itself, and asks a server that has no unload route once and no more.
 - **Authority sites** — a short list of "domain — what it holds" for
   goldmines search engines barely index (the shipped example is charm.li, the
   mirror of full factory service manuals). When a topic fits one, the planner

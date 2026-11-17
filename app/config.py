@@ -37,6 +37,7 @@ ENV_MAP = {
     "data_dir": "DATA_DIR",
     "fetch_concurrency": "FETCH_CONCURRENCY",
     "llm_concurrency": "LLM_CONCURRENCY",
+    "model_idle_unload_seconds": "MODEL_IDLE_UNLOAD_SECONDS",
     "llm_context_tokens": "LLM_CONTEXT_TOKENS",
     "embedding_model": "EMBEDDING_MODEL",
     "embedding_base_url": "EMBEDDING_BASE_URL",
@@ -107,6 +108,7 @@ UI_EDITABLE = {
     "feeds",
     "respect_robots",
     "llm_concurrency",
+    "model_idle_unload_seconds",
     "llm_context_tokens",
     "embedding_model",
     "embedding_base_url",
@@ -159,6 +161,10 @@ class Settings:
     data_dir: str = "./data"
     fetch_concurrency: int = 8
     llm_concurrency: int = 4
+    # Ask a local model server to unload the model this many seconds after
+    # the app last used it, when nothing is running or queued (llm/idle.py).
+    # 0 = never: a pinned model then stays in memory until someone unloads it.
+    model_idle_unload_seconds: int = 0
     # The context window the SERVER enforces, in real tokens — not what the
     # model's config claims. 2026-09-11: Qwen3.6 reports 262,144 positions,
     # the oMLX profile serving it capped requests at 65,536, and a prompt over

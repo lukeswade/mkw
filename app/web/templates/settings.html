@@ -167,6 +167,14 @@
         <input type="number" name="llm_concurrency" min="1" max="16"
                value="{{ cfg.llm_concurrency }}">
       </label>
+      <label>Unload the model after idle <small>(seconds, 0 = never)</small>
+        <input type="number" name="model_idle_unload_seconds" min="0" max="86400"
+               value="{{ cfg.model_idle_unload_seconds }}">
+        <small class="field-help">Local servers only. This long after the last model
+          call, with no run active or queued, the app asks the server to unload the
+          model and free its memory. The next run loads it again, which takes
+          about half a minute.</small>
+      </label>
     </div>
     <p class="hint">Semantic library search, Ask, and similar-run detection run
       on embeddings. Naming a model sends them to an OpenAI-compatible

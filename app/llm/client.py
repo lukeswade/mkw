@@ -26,6 +26,7 @@ from openai import (
 from pydantic import BaseModel, ValidationError
 
 from app.config import Settings
+from app.llm import idle
 from app.llm.json_utils import LLMJsonError, extract_json
 from app.llm.schema_utils import response_format_for
 
@@ -357,9 +358,10 @@ class LLM:
         for attempt in range(3):
             try:
                 async with self._sem:
-                    resp = await asyncio.wait_for(
-                        self.client.chat.completions.create(**kwargs),
-                        self.call_ceiling)
+                    with idle.calling():
+                        resp = await asyncio.wait_for(
+                            self.client.chat.completions.create(**kwargs),
+                            self.call_ceiling)
                 self.total_calls += 1
                 self._track(kind, resp)
                 if not getattr(resp, "choices", None):
@@ -499,7 +501,8 @@ class LLM:
         try:
             # A total ceiling here too: a thinking model can stream reasoning
             # without end, and the idle read timeout never fires while it does.
-            await asyncio.wait_for(_pump(), self.call_ceiling)
+            with idle.calling():
+                await asyncio.wait_for(_pump(), self.call_ceiling)
             self.total_calls += 1
             final_text = "".join(full_text)
             if usage is None:

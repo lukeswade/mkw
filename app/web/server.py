@@ -31,6 +31,7 @@ from app.models import (KIND_HELP, KIND_LABEL, RECENCY_CHOICES,
 from app.research.orchestrator import Orchestrator
 from app.research.progress import ProgressBus
 from app.web.auth import build_login_router, install_auth, load_signer
+from app.llm import idle
 from app.refresh_worker import refresh_loop
 
 log = logging.getLogger(__name__)
@@ -138,10 +139,15 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
 
         orch.recover()
         refresh_task = None
+        idle_task = None
         if enable_worker:
             orch.start()
             refresh_task = asyncio.create_task(
                 refresh_loop(orch, repo), name="evergreen-refresh")
+            idle_task = asyncio.create_task(
+                idle.watch(cfg_loader,
+                           lambda: bool(orch.active) or orch.queue.qsize() > 0),
+                name="model-idle-unload")
 
         bot = None
         if enable_bot:
@@ -160,12 +166,14 @@ def create_app(cfg: Settings | None = None, enable_worker: bool = True,
             if bot is not None:
                 from app.telegram.bot import stop_bot
                 await stop_bot(bot)
-            if refresh_task is not None:
-                refresh_task.cancel()
+            for task in (refresh_task, idle_task):
+                if task is None:
+                    continue
+                task.cancel()
                 # await it, or the task is garbage-collected mid-cancel and
                 # python logs "Task was destroyed but it is pending"
                 with contextlib.suppress(asyncio.CancelledError):
-                    await refresh_task
+                    await task
             if enable_worker:
                 await orch.stop()
             conn.close()
