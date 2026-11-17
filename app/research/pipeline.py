@@ -1970,7 +1970,8 @@ class Pipeline:
                 uncovered_facets=unanswered,
                 facet_of=state.query_facet,
                 premises=state.premises,
-                deliverables=state.deliverables)
+                deliverables=state.deliverables,
+                fact_ledger=self.cfg.fact_ledger)
             if thin:
                 overview = _THIN_BANNER + overview
                 stop_reason = f"{stop_reason} (no strong matches)"
@@ -2247,7 +2248,8 @@ class Pipeline:
             premises=premises,
             deliverables=deliverables,
             # never replace a run's existing overview with a placeholder
-            placeholder_on_failure=False)
+            placeholder_on_failure=False,
+            fact_ledger=self.cfg.fact_ledger)
         if not synthesizer.looks_like_document(overview):
             self.bus.publish(run_id, "log",
                              message=("re-synthesis still produced reasoning "

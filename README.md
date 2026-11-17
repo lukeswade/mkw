@@ -311,6 +311,14 @@ Most fields explain themselves on the page. The ones people ask about:
   after its last model call, once no run is active or queued, and the next
   run loads it again (about half a minute). It only unloads a model it used
   itself, and asks a server that has no unload route once and no more.
+- **Reconcile the facts about each named thing before writing** — off by
+  default, and still being measured (`docs/report-eval-2026-11-15.md`).
+  Before the overview is written, everything the sources say about each
+  company, product or model they name is read side by side and reduced to
+  a few lines: who owns it, its status, its figures and the setup each was
+  measured on. A line is kept only if it names its subject and every
+  figure in it is stated by the sources it cites; the overview is told to
+  hold to those lines in every section. About 18 short model calls a run.
 - **Authority sites** — a short list of "domain — what it holds" for
   goldmines search engines barely index (the shipped example is charm.li, the
   mirror of full factory service manuals). When a topic fits one, the planner

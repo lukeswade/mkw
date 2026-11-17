@@ -507,6 +507,71 @@ class CiteCheckOut(BaseModel):
         return clip_str(v, 300)
 
 
+class LedgerName(BaseModel):
+    name: str = Field(default="", max_length=80)
+    aliases: list[str] = Field(default_factory=list, max_length=6)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _clip_name(cls, v):
+        return clip_str(v, 80)
+
+    @field_validator("aliases", mode="before")
+    @classmethod
+    def _clean_aliases(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [str(a)[:80] for a in v if str(a).strip()][:6]
+
+
+class LedgerNamesOut(BaseModel):
+    """Names picked from a list mined in code (research/ledger.py); a name
+    that is not on that list is discarded there."""
+    names: list[LedgerName] = Field(default_factory=list, max_length=30)
+
+    @field_validator("names", mode="before")
+    @classmethod
+    def _usable(cls, v):
+        if not isinstance(v, list):
+            return []
+        # a bare string is a name with no aliases
+        items = [{"name": x} if isinstance(x, str) else x for x in v]
+        return [x for x in items if isinstance(x, dict) and str(x.get("name") or "").strip()][:30]
+
+
+class LedgerLine(BaseModel):
+    text: str = Field(default="", max_length=600)
+    sources: list[int] = Field(default_factory=list, max_length=12)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _clip_text(cls, v):
+        return clip_str(v, 600)
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _ids(cls, v):
+        if not isinstance(v, list):
+            return []
+        out = []
+        for x in v:
+            digits = re.sub(r"\D", "", str(x))
+            if digits:
+                out.append(int(digits))
+        return out[:12]
+
+
+class LedgerProfileOut(BaseModel):
+    lines: list[LedgerLine] = Field(default_factory=list, max_length=12)
+
+    @field_validator("lines", mode="before")
+    @classmethod
+    def _usable(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [x for x in v if isinstance(x, dict)][:12]
+
+
 class BriefFilterOut(BaseModel):
     keep: list[int] = Field(default_factory=list, max_length=400)
 

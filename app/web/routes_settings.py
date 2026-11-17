@@ -71,6 +71,7 @@ async def settings_save(request: Request):
     updates["respect_robots"] = form.get("respect_robots") == "on"
     updates["reference_chasing"] = form.get("reference_chasing") == "on"
     updates["citation_check"] = form.get("citation_check") == "on"
+    updates["fact_ledger"] = form.get("fact_ledger") == "on"
     updates["browser_impersonation"] = form.get("browser_impersonation") == "on"
     for f in ("rerank_claims", "rerank_search", "rerank_passages", "rerank_ask",
               "rerank_prior", "rerank_judge", "rerank_recheck"):

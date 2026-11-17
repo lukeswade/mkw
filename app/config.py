@@ -65,6 +65,7 @@ ENV_MAP = {
     "relevance_threshold": "RELEVANCE_THRESHOLD",
     "reference_chasing": "REFERENCE_CHASING",
     "citation_check": "CITATION_CHECK",
+    "fact_ledger": "FACT_LEDGER",
     "blocked_domains": "BLOCKED_DOMAINS",
     "authority_sites": "AUTHORITY_SITES",
     "feeds": "FEEDS",
@@ -103,6 +104,7 @@ UI_EDITABLE = {
     "brave_cycle_day",
     "reference_chasing",
     "citation_check",
+    "fact_ledger",
     "blocked_domains",
     "authority_sites",
     "feeds",
@@ -247,6 +249,11 @@ class Settings:
     # numeric cited sentence in ten misstated its source. Costs a model call
     # per mismatched sentence only, capped per report.
     citation_check: bool = True
+    # Before the report is written, reconcile what the sources say about
+    # each named thing into a few checked lines the document must hold to
+    # (research/ledger.py). Off until the report eval shows it helps
+    # (docs/report-eval-2026-11-15.md); a dozen short model calls a run.
+    fact_ledger: bool = False
     # Comma-separated domains never worth fetching for you (e.g. pinterest.com)
     blocked_domains: str = ""
     # Curated sites holding authoritative primary documents, offered to the

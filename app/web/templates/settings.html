@@ -144,6 +144,16 @@
       source that states it or corrects the sentence, and a fix is applied only
       if it passes the same check. About one cited figure in ten was wrong
       before this. Adds a minute or two to a large run.</p>
+    <label>
+      <input type="checkbox" name="fact_ledger" {{ 'checked' if cfg.fact_ledger else '' }}>
+      Reconcile the facts about each named thing before writing
+    </label>
+    <p class="hint">Before the overview is written, everything the sources say
+      about each company, product or model they name is read side by side and
+      reduced to a few checked lines: who owns it, its status, its figures and
+      the setup each was measured on. The overview is told to hold to them in
+      every section. Off while it is being measured against the report test
+      set. Adds about a dozen short model calls to a run.</p>
     <label>Blocked domains <small>(comma-separated, never fetched)</small>
       <input type="text" name="blocked_domains" value="{{ cfg.blocked_domains }}"
              placeholder="e.g. pinterest.com, quora.com">

@@ -557,6 +557,78 @@ Uncited source notes:
 {notes_block}
 """
 
+# The fact sheet (research/ledger.py). The names offered are mined from the
+# notes in code, so the model chooses; it cannot add one.
+LEDGER_NAMES = """A research run kept sources for this question:
+{query}
+
+These names appear in the notes of two or more of its sources (the number of \
+sources in brackets):
+{names}
+
+Return every name on the list that is a specific company, organisation, \
+product, model, tool or standard that this research is about, is choosing \
+among, or that owns, backs, acquires or competes with one of those. Keep all \
+of them, however many there are, including the asker's own organisation.
+Leave out places, regulators and laws, people, dates, metrics, and general \
+terms or abbreviations for concepts.
+
+Produce a JSON object with one key, "names": an array of objects, each with
+- "name": the name exactly as listed above
+- "aliases": other listed spellings of the same thing, or []
+
+Respond with only the JSON object."""
+
+LEDGER_PROFILE = """You are preparing one entry of a fact sheet that a research \
+report will be written from.
+
+Research question: {query}
+Today: {today}
+
+Everything the kept sources say about "{name}"{alias}. One statement per line, \
+each with its source's number, title and date:
+{evidence}
+
+Write up to {limit} lines stating what these sources establish about {name}. \
+Cover what the sources say of: what it is; who owns, backs or acquired it and \
+when; its current status; what it owns or includes; its key figures.
+- One fact per line, each one sentence of at most 30 words that names {name}.
+- A figure keeps the setup, test, date or condition it was measured under \
+("on an RTX 3080 Ti", "on clean English speech", "as of 2023"). A forecast \
+keeps the year it was made.
+- Where sources disagree, follow the newer or the more direct one, and say in \
+the same line what the other says. Never give {name} a figure that a source \
+states for something else.
+- Only what the lines above state. Nothing from your own knowledge.
+
+Produce a JSON object with one key, "lines": an array of objects, each with
+- "text": the line, without citation markers
+- "sources": the numbers of the sources it rests on
+
+Respond with only the JSON object."""
+
+SYNTH_LEDGER_BLOCK = """
+
+Before writing, every source that mentions each of the named things below was \
+read side by side. This is what they establish, with the sources for each \
+line; where sources disagreed, the line says which is followed.
+
+{ledger}
+
+Hold to these lines in every section, list and table:
+- Do not give one of these things an owner, backer, status, date or figure \
+that disagrees with its lines, and do not give it two different values in two \
+places.
+- A thing that a line says is owned or was acquired by another is not \
+independent, and is not available as a separate choice.
+- A figure stays with the thing and the setup its line gives. Do not move it \
+to another model, product, device or test, and do not compare figures from \
+different tests as if they were one scale.
+- A forecast made for a year that has passed is history, not an outlook.
+Cite the sources shown on the line you rely on.
+"""
+
+
 CITE_CHECK = """You are checking one sentence of a research report against the \
 sources it cites.
 

@@ -348,7 +348,7 @@ def open_questions_last(md: str) -> str:
 
 async def reconcile(llm: LLM, *, query: str, draft: str,
                     findings: list[Finding], max_out: int,
-                    bus=None, run_id: str = "") -> str:
+                    bus=None, run_id: str = "", ledger_block: str = "") -> str:
     """A second pass that places the strong sources the draft left uncited.
 
     Code decides what is in scope and code decides whether to accept the
@@ -375,6 +375,8 @@ async def reconcile(llm: LLM, *, query: str, draft: str,
     prompt = prompts.SYNTH_RECONCILE.format(
         query=query, n=len(missing), draft=draft.strip(),
         notes_block="\n".join(_note_block(f) for f in missing))
+    # What the revision adds is held to the same reconciled facts as the draft.
+    prompt += ledger_block
     try:
         text = await llm.chat("synth", [{"role": "user", "content": prompt}],
                               max_tokens=max_out, temperature=0.3)
@@ -503,7 +505,7 @@ def _compose_prompt(notes: list[str], *, query: str, title: str, brief: str,
                     uncovered_facets: list[str] | None,
                     premises: list[str] | None, previous_overview: str,
                     deliverables: list[str] | None, bus=None,
-                    run_id: str = "") -> str:
+                    run_id: str = "", ledger_block: str = "") -> str:
     """The synthesis prompt for these note blocks. A function because the
     same instructions are composed again over digests when the server
     refuses the single-call prompt as too long."""
@@ -564,6 +566,9 @@ def _compose_prompt(notes: list[str], *, query: str, title: str, brief: str,
                 + ", ".join(f"{c[0]} ({len(c[1])})" for c in candidates)
                 + (f" — compared within {len(kinds)} kinds: "
                    + ", ".join(k or "other" for k in kinds) if len(kinds) > 1 else "")))
+    # The reconciled facts per named thing (research/ledger.py). After the
+    # candidates, which say WHAT to assess; this says what is true of each.
+    prompt += ledger_block
     if premises:
         # The question asserted something checkable. Saying whether it holds
         # comes before answering, because a wrong premise changes the answer.
@@ -601,7 +606,8 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
                      facet_of: dict[str, str] | None = None,
                      premises: list[str] | None = None,
                      deliverables: list[str] | None = None,
-                     placeholder_on_failure: bool = True) -> str:
+                     placeholder_on_failure: bool = True,
+                     fact_ledger: bool = False) -> str:
     groups = [(facet, [_note_block(f) for f in fs])
               for facet, fs in group_by_facet(findings, facet_of)]
     blocks = [b for _, group in groups for b in group]
@@ -613,6 +619,17 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
     # The candidate axis is computed once, before the prompt, because the
     # prompt may be composed twice (see the refusal fallback below).
     candidates = await name_candidates(llm, query=query, findings=findings)
+    # Likewise once: what the sources establish about each named thing, read
+    # side by side instead of source by source.
+    ledger_block = ""
+    if fact_ledger:
+        # imported here: ledger reads citecheck, which reads this module
+        from app.research import ledger
+        entries = await ledger.build(
+            llm, query=query, today=today, findings=findings,
+            also=[c[0] for c in candidates], bus=bus, run_id=run_id)
+        if entries:
+            ledger_block = prompts.SYNTH_LEDGER_BLOCK.format(ledger=ledger.render(entries))
 
     def compose(notes: list[str]) -> str:
         return _compose_prompt(
@@ -621,7 +638,7 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
             findings=findings, groups=groups, candidates=candidates,
             uncovered_facets=uncovered_facets, premises=premises,
             previous_overview=previous_overview, deliverables=deliverables,
-            bus=bus, run_id=run_id)
+            bus=bus, run_id=run_id, ledger_block=ledger_block)
 
     prompt = compose(blocks)
     # Derived from the target rather than set beside it, so the ceiling can
@@ -685,7 +702,7 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
         if looks_like_document(retry):
             return await reconcile(llm, query=query, draft=retry,
                                    findings=findings, max_out=max_out,
-                                   bus=bus, run_id=run_id)
+                                   bus=bus, run_id=run_id, ledger_block=ledger_block)
         # Both attempts failed. Publishing the output anyway is how a run
         # ends up showing 8000 exclamation marks where its overview should
         # be — the research itself is intact, so say so and point at the
@@ -713,7 +730,8 @@ async def synthesize(llm: LLM, *, query: str, title: str, brief: str,
     # The draft is done; now the strong sources it left out get one more
     # chance to be placed, with the outcome measured and bounded in code.
     return await reconcile(llm, query=query, draft=text, findings=findings,
-                           max_out=max_out, bus=bus, run_id=run_id)
+                           max_out=max_out, bus=bus, run_id=run_id,
+                           ledger_block=ledger_block)
 
 
 async def _map_digest(llm: LLM, query: str,
